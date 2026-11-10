@@ -572,7 +572,10 @@ Continue mode retains files that can be prepared and reports omitted files by
 original index, stage and safe reason. Email applies the decision before one
 SMTP submission. Its receipt carries transient successful attachment indices;
 `DeliveryConfirmation` filters the original content-free Records and removes those
-indices before Engine dispatch. It does not invent delivered email file references.
+indices before Engine dispatch. It projects their bounded display metadata into
+the receipt, excluding source attributes, paths, bytes and handles. Existing
+provider attachment evidence remains authoritative. SMTP descriptors do not
+invent a remote download reference.
 An unsplit email receipt omits a per-part body so confirmation keeps the original
 canonical assistant content. Split chat receipts retain their explicit part bodies.
 Chat passes the policy through existing send/edit options only when the adapter

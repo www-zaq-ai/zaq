@@ -8,6 +8,7 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   their materialization handles, and retains only canonical metadata IDs.
   """
 
+  alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -37,7 +38,11 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   def record({:ok, %{confirmation: :confirmed} = receipt}, outgoing, opts) do
     router = Keyword.get(opts, :delivery_node_router, NodeRouter)
     attachments = confirmed_attachment_records(outgoing.attachments, receipt)
-    receipt = Map.delete(receipt, :delivered_attachment_indices)
+
+    receipt =
+      receipt
+      |> put_confirmed_attachment_metadata(attachments)
+      |> Map.delete(:delivered_attachment_indices)
 
     outgoing = %{
       outgoing
@@ -71,6 +76,20 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   end
 
   def record(response, _outgoing, _opts), do: response
+
+  defp put_confirmed_attachment_metadata(
+         %{delivered_attachment_indices: _} = receipt,
+         attachments
+       ) do
+    metadata =
+      Enum.map(attachments, fn record ->
+        record |> Record.attachment_metadata() |> Map.delete("attributes")
+      end)
+
+    Map.put_new(receipt, :attachments, metadata)
+  end
+
+  defp put_confirmed_attachment_metadata(receipt, _attachments), do: receipt
 
   defp confirmed_attachment_records(attachments, %{delivered_attachment_indices: indices})
        when is_list(indices) do

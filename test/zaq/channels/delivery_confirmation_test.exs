@@ -108,7 +108,15 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
   test "SMTP selection filters transient source Records without inventing provider attachment evidence" do
     attachments = [
       %Record{id: "failed", kind: :file, content: "failed"},
-      %Record{id: "sent", kind: :file, content: "sent", materialization_handle: "original-handle"}
+      %Record{
+        id: "sent",
+        kind: :file,
+        content: "sent",
+        materialization_handle: "original-handle",
+        path: "/private/source",
+        raw: %{token: "private credential"},
+        attributes: %{"materialization_source" => %{"file_id" => "private source locator"}}
+      }
     ]
 
     outgoing = %{outgoing() | attachments: attachments}
@@ -128,7 +136,8 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
                  event.request.outgoing.attachments
 
         refute Map.has_key?(event.request.receipt, :delivered_attachment_indices)
-        refute Map.has_key?(event.request.receipt, :attachments)
+        assert event.request.receipt.attachments == [%{"id" => "sent", "kind" => "file"}]
+        refute inspect(event.request.receipt.attachments) =~ "private"
         %{event | response: {:ok, event.request.receipt}}
       end)
 
@@ -138,6 +147,95 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
                )
 
       assert outgoing.attachments == attachments
+    end
+  end
+
+  property "explicit attachment indices persist only selected metadata in original order" do
+    check all(
+            count <- integer(1..8),
+            indices <-
+              list_of(one_of([integer(-5..12), constant(nil), constant("0"), constant(0.0)]),
+                max_length: 20
+              ),
+            partial? <- boolean()
+          ) do
+      outgoing = %{
+        outgoing()
+        | attachments:
+            for index <- 0..(count - 1) do
+              %Record{
+                id: to_string(index),
+                kind: :file,
+                content: "private bytes",
+                materialization_handle: "private handle",
+                path: "/private/path",
+                raw: %{token: "private credential"},
+                attributes: %{"materialization_source" => %{"file_id" => "private locator"}}
+              }
+            end
+      }
+
+      selected =
+        indices
+        |> Enum.filter(&(is_integer(&1) and &1 >= 0 and &1 < count))
+        |> Enum.uniq()
+        |> Enum.sort()
+        |> Enum.map(&%{"id" => to_string(&1), "kind" => "file"})
+
+      receipt = %{
+        confirmation: :confirmed,
+        message_id: "smtp-id",
+        delivered_attachment_indices: indices
+      }
+
+      report = if partial?, do: %{confirmation: :partial, messages: [receipt]}, else: receipt
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        assert event.request.receipt.attachments == selected
+
+        assert Enum.map(event.request.outgoing.attachments, & &1.id) ==
+                 Enum.map(selected, & &1["id"])
+
+        refute Map.has_key?(event.request.receipt, :delivered_attachment_indices)
+        refute Jason.encode!(event.request.receipt.attachments) =~ "private"
+        %{event | response: {:ok, event.request.receipt}}
+      end)
+
+      assert {:ok, _} =
+               DeliveryConfirmation.record({:ok, report}, outgoing,
+                 delivery_node_router: Zaq.NodeRouterMock
+               )
+    end
+  end
+
+  test "explicit provider attachment evidence takes precedence over selected source metadata" do
+    outgoing = %{
+      outgoing()
+      | attachments: [%Record{id: "source-file", kind: :file}]
+    }
+
+    provider_metadata = %{
+      "id" => "delivered-file",
+      "attributes" => %{"materialization_source" => %{"file_id" => "delivered-provider-file"}}
+    }
+
+    for evidence <- [[], [provider_metadata]] do
+      receipt = %{
+        confirmation: :confirmed,
+        message_id: "provider-id",
+        delivered_attachment_indices: [0],
+        attachments: evidence
+      }
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        assert event.request.receipt.attachments == evidence
+        %{event | response: {:ok, event.request.receipt}}
+      end)
+
+      assert {:ok, _} =
+               DeliveryConfirmation.record({:ok, receipt}, outgoing,
+                 delivery_node_router: Zaq.NodeRouterMock
+               )
     end
   end
 
@@ -188,6 +286,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
 
     expect(Zaq.NodeRouterMock, :dispatch, fn event ->
       assert event.request.outgoing.attachments == []
+      assert event.request.receipt.attachments == []
       %{event | response: {:ok, event.request.receipt}}
     end)
 

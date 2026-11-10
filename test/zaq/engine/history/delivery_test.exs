@@ -5,6 +5,7 @@ defmodule Zaq.Engine.History.DeliveryTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Channels.DeliveryConfirmation
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.{ChannelConfig, Conversations, HistoryDeliveryWorker}
   alias Zaq.Engine.Conversations.{Message, Transcript}
   alias Zaq.Engine.History.Delivery
@@ -151,6 +152,99 @@ defmodule Zaq.Engine.History.DeliveryTest do
              )
 
     assert id == message.id
+  end
+
+  test "partial SMTP confirmation persists only accepted attachment metadata in the recipient transcript" do
+    config = connector("email:imap")
+    recipient = author("Attachment recipient", "recipient@example.com", config.id)
+
+    attachments =
+      for name <- ["first.txt", "failed.txt", "last.txt"] do
+        %Record{
+          id: name,
+          kind: :file,
+          name: name,
+          mime_type: "text/plain",
+          size: 12,
+          content: "private file bytes",
+          path: "/private/#{name}",
+          materialization_handle: "private source handle",
+          raw: %{token: "private source credential"}
+        }
+      end
+
+    outgoing = %Outgoing{
+      body: "Original answer",
+      channel_id: "recipient@example.com",
+      provider: "email:imap",
+      attachments: attachments,
+      metadata: %{},
+      routing_context: %{
+        channel_config_id: config.id,
+        conversation_type: :recipient_addressed,
+        source_scope: "smtp:attachments"
+      }
+    }
+
+    receipt = %{
+      confirmation: :confirmed,
+      message_id: unique_id(),
+      delivered_attachment_indices: [0, 2],
+      audience: %{
+        platform: "email",
+        sender: "system@example.com",
+        recipients: ["recipient@example.com"]
+      }
+    }
+
+    report = %{
+      confirmation: :partial,
+      messages: [receipt],
+      failed_files: [%{attachment_index: 1, stage: :preparation, delivery: :not_sent}]
+    }
+
+    assert {:ok, %{messages: [%{history_capture: :stored}]}} =
+             DeliveryConfirmation.record({:ok, report}, outgoing,
+               delivery_node_router: ConfirmationRouter
+             )
+
+    expected = [
+      %{
+        "id" => "first.txt",
+        "kind" => "file",
+        "name" => "first.txt",
+        "mime_type" => "text/plain",
+        "size" => 12
+      },
+      %{
+        "id" => "last.txt",
+        "kind" => "file",
+        "name" => "last.txt",
+        "mime_type" => "text/plain",
+        "size" => 12
+      }
+    ]
+
+    [message] = Repo.all(Message)
+    assert message.attachments == expected
+    assert message.content == outgoing.body
+    refute Jason.encode!(message.attachments) =~ "private"
+
+    [transcript] = Repo.all(Transcript)
+    assert transcript.owner_person_id == recipient.id
+
+    assert {:ok, [%{message_id: message_id, attachments: ^expected}]} =
+             Conversations.list_canonical_messages(recipient, transcript.id)
+
+    assert message_id == message.id
+
+    assert {:ok, %{messages: [%{history_capture: :stored}]}} =
+             DeliveryConfirmation.record({:ok, report}, outgoing,
+               delivery_node_router: ConfirmationRouter
+             )
+
+    assert Repo.aggregate(Message, :count) == 1
+    assert Repo.get!(Message, message.id).attachments == expected
   end
 
   test "history association exception retains successful transport response and has no side effects" do
