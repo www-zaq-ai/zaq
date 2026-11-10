@@ -66,6 +66,65 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
     assert routed.metadata == %{user_message_id: "u-1", assistant_message_id: "a-1"}
   end
 
+  test "reports an ambiguous timeout with only persisted identifiers and safe reason codes" do
+    outgoing = %{outgoing() | routing_context: %{channel_config_id: 12}}
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.opts[:action] == :record_delivery_observation
+      assert event.opts[:confidential]
+
+      assert event.request == %{
+               user_message_id: "u-1",
+               assistant_message_id: "a-1",
+               channel_config_id: 12,
+               outcome: :unconfirmed,
+               reason: :timeout
+             }
+
+      %{event | response: {:ok, :recorded}}
+    end)
+
+    assert {:error, :timeout} =
+             DeliveryConfirmation.record({:error, :timeout}, outgoing,
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+  end
+
+  test "a real Mattermost HTTP rejection is definite and does not expose its response body" do
+    outgoing = %{outgoing() | provider: :mattermost, routing_context: %{channel_config_id: 12}}
+    result = {:error, {403, %{"message" => "private provider detail"}}}
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.request.outcome == :failed
+      assert event.request.reason == :rejected
+      assert event.request.provider_code == 403
+      refute inspect(event.request) =~ "private provider detail"
+      event
+    end)
+
+    assert DeliveryConfirmation.record(result, outgoing, delivery_node_router: Zaq.NodeRouterMock) ==
+             result
+  end
+
+  test "unsuccessful reporting preserves errors and never creates evidence for a reserved-only UUID" do
+    expect(Zaq.NodeRouterMock, :dispatch, fn _ -> exit(:engine_unavailable) end)
+
+    assert {:error, :timeout} =
+             DeliveryConfirmation.record({:error, :timeout}, outgoing(),
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+
+    outgoing = %{
+      outgoing()
+      | metadata: %{assistant_message_id: "reserved", persisted_assistant_message_id: nil}
+    }
+
+    assert {:error, :timeout} =
+             DeliveryConfirmation.record({:error, :timeout}, outgoing,
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+  end
+
   defp outgoing do
     %Outgoing{
       body: "delivered",

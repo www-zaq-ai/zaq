@@ -214,8 +214,18 @@ defmodule Zaq.Channels.Api do
 
       %{event | response: response}
     else
-      {:error, reason} -> %{event | response: {:error, reason}}
+      {:error, reason} ->
+        response = report_outgoing_failure(event, {:error, reason})
+        %{event | response: response}
     end
+  rescue
+    exception ->
+      report_outgoing_failure(event, {:error, :delivery_outcome_unknown})
+      reraise exception, __STACKTRACE__
+  catch
+    kind, reason ->
+      report_outgoing_failure(event, {:error, :delivery_outcome_unknown})
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   def handle_event(
@@ -1027,6 +1037,13 @@ defmodule Zaq.Channels.Api do
   defp outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(%Event{response: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(_event), do: {:error, {:invalid_request, :missing_outgoing_payload}}
+
+  defp report_outgoing_failure(event, response) do
+    case outgoing_from_event(event) do
+      {:ok, outgoing} -> DeliveryConfirmation.record(response, outgoing, event.opts)
+      _ -> response
+    end
+  end
 
   defp upsert_outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
 

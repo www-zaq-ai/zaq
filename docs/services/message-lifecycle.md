@@ -330,3 +330,24 @@ Entry points:
 [History.Delivery](../../lib/zaq/engine/history/delivery.ex),
 [HistoryIngress](../../lib/zaq/engine/history_ingress.ex),
 [HistoryDeliveryWorker](../../lib/zaq/engine/history_delivery_worker.ex).
+
+### BO visibility without canonical placement
+
+The super-admin channel transcript shows stored outstanding answers as ordinary
+inline bubbles below canonical messages. Definite rejection is distinguished from
+an unconfirmed outcome; a timeout may follow provider acceptance. The status control
+opens safe delivery details without exposing raw transport errors or private traces.
+The separate message-information icon retains the privileged metadata and trace
+inspection view for stored answers, including failed delivery. Engine verifies
+their provisional transcript scope and exact private execution ownership.
+These display rows do not create transcript associations or participant/model
+history. Confirmation awaiting association appears as history-updating only in its
+fixed target transcripts, and successful association leaves one canonical bubble.
+
+Engine's verified outer transaction owners publish optional identifier-only
+invalidations after commit through Channels and PubSub. LiveView subscribes before
+its connected snapshot and reauthorizes bounded changed-row reads, updating keyed
+bubbles without replacing the whole timeline. Notifications neither perform
+business writes nor schedule recovery. Missing broadcasts can leave stale UI, not
+lost data; reopening/reconnecting reconstructs it from persisted state. No retry
+or cancel transport controls are part of this display path.

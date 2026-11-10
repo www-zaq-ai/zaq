@@ -14,6 +14,7 @@ defmodule Zaq.Engine.HistoryIngress do
   alias Zaq.Accounts.People
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryMembership
+  alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Message, TranscriptHistory}
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
@@ -211,11 +212,16 @@ defmodule Zaq.Engine.HistoryIngress do
       )
       when is_binary(provider) and is_integer(id) and id > 0 and
              kind in [:direct, :channel, :replicated],
-      do: record_confirmation_transaction(delivery)
+      do: record_confirmation_transaction(delivery) |> publish_confirmation()
 
   def record_confirmation(%{confirmation: :confirmed}), do: {:error, :invalid_delivery_scope}
 
   def record_confirmation(_), do: {:error, :unconfirmed_delivery}
+
+  defp publish_confirmation({:ok, id} = result),
+    do: ChannelHistoryUpdates.publish_result(result, [id])
+
+  defp publish_confirmation(result), do: result
 
   defp record_confirmation_transaction(delivery) do
     Repo.transaction(fn ->

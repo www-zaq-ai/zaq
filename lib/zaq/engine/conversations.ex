@@ -35,6 +35,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements, SourceIdentity}
   alias Zaq.Engine.Messages.Incoming.Audience
@@ -634,9 +635,19 @@ defmodule Zaq.Engine.Conversations do
 
     with :ok <- IdentityResolver.authorize_channel_sender(person, scope),
          :ok <- validate_channel_input(incoming, initial_context) do
-      Repo.transaction(fn ->
-        prepare_channel_or_rollback(person, scope, incoming, initial_context)
-      end)
+      result =
+        Repo.transaction(fn ->
+          prepare_channel_or_rollback(person, scope, incoming, initial_context)
+        end)
+
+      case result do
+        {:ok, {bound, changed_ids}} ->
+          ChannelHistoryUpdates.publish(changed_ids)
+          {:ok, bound}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -644,7 +655,7 @@ defmodule Zaq.Engine.Conversations do
 
   defp prepare_channel_or_rollback(person, scope, incoming, context) do
     case prepare_channel_conversation(person, scope, incoming, context) do
-      {:ok, bound} -> bound
+      {:ok, bound, changed_ids} -> {bound, changed_ids}
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -686,7 +697,7 @@ defmodule Zaq.Engine.Conversations do
       id ->
         with {:ok, %{conversation: conversation}} <-
                restore_channel_conversation(person, scope, id, limit: 1) do
-          {:ok, bind_channel_input(incoming, person, conversation)}
+          {:ok, bind_channel_input(incoming, person, conversation), []}
         end
     end
   end
@@ -696,8 +707,9 @@ defmodule Zaq.Engine.Conversations do
            resolve_scoped_conversation(incoming.author_id, conversation_identity(incoming)),
          {:ok, conversation} <- maybe_assign_person(conversation, person.id),
          true <- conversation.person_id == person.id,
-         :ok <- seed_channel_context(conversation, person, incoming, if(created?, do: context)) do
-      {:ok, bind_channel_input(incoming, person, conversation)}
+         {:ok, changed_ids} <-
+           seed_channel_context(conversation, person, incoming, if(created?, do: context)) do
+      {:ok, bind_channel_input(incoming, person, conversation), changed_ids}
     else
       false -> {:error, :conversation_not_found}
       error -> error
@@ -723,7 +735,7 @@ defmodule Zaq.Engine.Conversations do
     }
   end
 
-  defp seed_channel_context(_conversation, _person, _incoming, nil), do: :ok
+  defp seed_channel_context(_conversation, _person, _incoming, nil), do: {:ok, []}
 
   defp seed_channel_context(conversation, person, incoming, context) do
     with {:ok, message} <-
@@ -758,7 +770,7 @@ defmodule Zaq.Engine.Conversations do
                existing_message_id: message.id
              }
            ) do
-      :ok
+      {:ok, [message.id]}
     end
   end
 
@@ -1484,11 +1496,19 @@ defmodule Zaq.Engine.Conversations do
         finalize_transaction(user_message_id, finalization_token, result, artifacts, opts)
       end)
       |> complete_finalization()
+      |> publish_finalized_answer(opts)
     end
   end
 
   def finalize_incoming(_user_message_id, _finalization_token, _result, _opts),
     do: {:error, :invalid_finalization}
+
+  defp publish_finalized_answer({:ok, %{assistant_message_id: id}} = result, opts)
+       when is_binary(id) do
+    ChannelHistoryUpdates.publish_result(result, [id], opts)
+  end
+
+  defp publish_finalized_answer(result, _opts), do: result
 
   defp complete_finalization({:ok, %{assistant_message: %Message{} = assistant} = finalized}) do
     after_message_insert(get_conversation(assistant.conversation_id), assistant)

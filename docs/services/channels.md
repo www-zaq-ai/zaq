@@ -13,6 +13,17 @@ The Channels service provides transport and runtime infrastructure for communica
 
 Channel delivery uses canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`; adapter-specific envelopes stay at the transport boundary. Cross-node routing follows the [Event/dispatch contract](../architecture.md#noderouter--critical). Existing `Zaq.Channels.Events` domain builders encapsulate specific request contracts, but are not a blanket requirement to replace direct Event construction.
 
+`DeliveryConfirmation` also reports unsuccessful agent-answer delivery observations
+through a confidential Engine event containing only persisted message references,
+connector ID and allowlisted outcome/reason codes. A bounded numeric provider code
+can accompany the reason, without retaining its response body. Definite pre-send configuration
+failure and attested rejection are distinct from uncertain transport outcomes.
+Timeouts, partial/unknown results and transport interruptions do not prove that a
+provider failed to accept the message. Reporting preserves the original transport
+result or exception; unavailable observation recording never schedules another
+send. Engine validates and persists the evidence independently of optional BO UI
+broadcasts.
+
 `Zaq.People.IdentityResolver` checks that an ingress connector ID references a
 retrieval configuration for the message provider (including IMAP-to-email),
 then resolves authors and visible recipients through the shared People discovery
