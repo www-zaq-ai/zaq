@@ -366,6 +366,12 @@ The final-response callback also receives `:raw_output`, `:raw_request_body`,
 does not prove execution: always assert the independently expected tool result
 and normal final agent response. See `ToolCallLoopStubTest` for two-route coverage.
 
+Decision requests reuse `OpenAIStub` with an explicit route handler and
+`decision_response/2` for scripted provider answers. Keep method, path, payload and
+expected answers visible in the test; the fixture does not infer decisions from
+input. Compose decision and conversational handlers by route when a tool calls an
+evaluation model, leaving ReqLLM encoding and decoding real.
+
 `DiskDocumentFlowIntegrationTest` demonstrates four sequential messages: search,
 download using the returned alias, create, and list. It retains one runtime scope
 so Factory can expand the server-scoped alias. Files use a UUID-named directory

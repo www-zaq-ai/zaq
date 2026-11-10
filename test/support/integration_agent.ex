@@ -45,8 +45,16 @@ defmodule Zaq.TestSupport.IntegrationAgent do
 
         pid ->
           ref = Process.monitor(pid)
-          :ok = ServerManager.stop_server(agent)
+          # This helper owns fixture teardown, after the scenario assertions.
+          # Stop its supervised child directly instead of applying the runtime's
+          # graceful-drain delay to retained, already-completed requests.
+          assert DynamicSupervisor.terminate_child(Zaq.Agent.AgentServerSupervisor, pid) in [
+                   :ok,
+                   {:error, :not_found}
+                 ]
+
           assert_receive {:DOWN, ^ref, :process, ^pid, _}, 5_000
+          :ok = ServerManager.stop_server(agent)
       end
     end)
 

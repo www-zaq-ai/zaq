@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.OpaqueAliasesTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   use ExUnitProperties
 
   alias Jido.AI.Turn
@@ -363,6 +363,49 @@ defmodule Zaq.Agent.OpaqueAliasesTest do
                %{tool_call | arguments: %{materialization_handle: alias}},
                %{opaque_alias_scope: other_scope}
              )
+  end
+
+  test "concurrent callers retain their own aliases when another scope is cleared", %{
+    scope: scope
+  } do
+    other_scope = "concurrent-scope-#{System.unique_integer([:positive])}"
+    handle = handle!("concurrent-scopes")
+    parent = self()
+
+    on_exit(fn -> OpaqueAliases.clear_scope(other_scope) end)
+
+    [first, second] =
+      for current_scope <- [scope, other_scope] do
+        Task.async(fn ->
+          alias =
+            alias_for(current_scope, DirectHandleAction, %{
+              record: record("concurrent-scopes", handle)
+            })
+
+          send(parent, {:alias_ready, self(), alias})
+          assert_receive :expand, 5_000
+
+          OpaqueAliases.expand_tool_call(
+            %{
+              action_module: DirectHandleAction,
+              arguments: %{materialization_handle: alias}
+            },
+            %{opaque_alias_scope: current_scope}
+          )
+        end)
+      end
+
+    first_pid = first.pid
+    second_pid = second.pid
+    assert_receive {:alias_ready, ^first_pid, alias}, 5_000
+    assert_receive {:alias_ready, ^second_pid, ^alias}, 5_000
+
+    assert :ok = OpaqueAliases.clear_scope(scope)
+    send(first_pid, :expand)
+    send(second_pid, :expand)
+
+    assert {:error, {:unknown_opaque_alias, ^alias}} = Task.await(first)
+    assert {:ok, %{arguments: %{materialization_handle: ^handle}}} = Task.await(second)
   end
 
   test "aliases cannot be expanded from another scope", %{scope: scope} do

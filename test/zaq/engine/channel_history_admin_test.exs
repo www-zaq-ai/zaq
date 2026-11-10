@@ -690,10 +690,16 @@ defmodule Zaq.Engine.ChannelHistoryAdminTest do
       OpenAIStub.server(
         fn conn, _body ->
           assert conn.method == "GET"
-          assert conn.request_path == "/v1/api/v4/channels/#{@supported_room}/members"
-          assert conn.query_string == "page=0&per_page=200"
           assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test-token"]
-          {200, [%{"user_id" => "reader-mm"}]}
+
+          case conn.request_path do
+            "/v1/api/v4/channels/" <> @supported_room <> "/members" ->
+              assert conn.query_string == "page=0&per_page=200"
+              {200, [%{"user_id" => "reader-mm"}]}
+
+            "/v1/api/v4/users/reader-mm" ->
+              {200, %{"id" => "reader-mm", "username" => "reader", "first_name" => "Reader"}}
+          end
         end,
         self()
       )

@@ -58,6 +58,9 @@ defmodule Zaq.Ingestion.IngestWorker do
         import_external_permissions(input, document)
         finalize_legacy_job(job, document, telemetry_dimensions)
 
+      {:ok, _document, []} ->
+        handle_error(job, :no_searchable_content, attempt, max, telemetry_dimensions)
+
       {:ok, document, indexed_payloads} ->
         import_external_permissions(input, document)
         schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions)
@@ -95,11 +98,11 @@ defmodule Zaq.Ingestion.IngestWorker do
   end
 
   # Builds the callback handed to the Python runner. Each decoded progress
-  # payload is fanned out over PubSub so subscribed BO LiveViews can show
-  # preparation progress. Failures here must never break ingestion.
+  # payload is saved and fanned out over PubSub so preparation progress can be
+  # restored after a refresh. Failures here must never break ingestion.
   defp progress_reporter(job) do
     fn payload ->
-      _ = JobLifecycle.broadcast_progress(job.id, payload)
+      _ = JobLifecycle.report_preparation_progress(job.id, payload)
       :ok
     end
   end
@@ -270,9 +273,15 @@ defmodule Zaq.Ingestion.IngestWorker do
   end
 
   defp structural_error?(:dimension_mismatch), do: true
+  defp structural_error?(:no_searchable_content), do: true
   defp structural_error?(_), do: false
 
   defp format_error(reason) when is_binary(reason), do: reason
+
+  defp format_error(:no_searchable_content) do
+    "No searchable text was extracted. For scanned PDFs, check the image-to-text provider credentials and retry ingestion."
+  end
+
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp format_error(%{errors: _} = changeset), do: inspect(changeset.errors)
   defp format_error(reason), do: inspect(reason)

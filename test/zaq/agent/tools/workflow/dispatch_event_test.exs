@@ -1,8 +1,6 @@
 defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
   use ExUnit.Case, async: true
 
-  require Logger
-
   alias Zaq.Agent.Tools.Workflow.DispatchEvent
   alias Zaq.Event
 
@@ -27,11 +25,6 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
   end
 
   @ctx %{node_router: StubNodeRouter}
-
-  setup_all do
-    Logger.configure(level: :debug)
-    on_exit(fn -> Logger.configure(level: :warning) end)
-  end
 
   describe "run/2" do
     test "preserves trusted actor and never takes identity from tool parameters" do

@@ -8,7 +8,6 @@ defmodule Zaq.AgentTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderSpec
-  alias Zaq.Agent.ServerManager
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRouting
@@ -127,6 +126,11 @@ defmodule Zaq.AgentTest do
 
     assert {:error, :inactive_agent} = Agent.get_active_agent(inactive_agent.id)
     assert {:error, :agent_not_found} = Agent.get_active_agent(9_999_999)
+
+    for invalid_id <- [nil, :answering, "", "not-an-id", %{}, ["1"]] do
+      assert {:error, :agent_not_found} = Agent.get_active_agent(invalid_id)
+    end
+
     assert {:ok, _agent} = Agent.get_conversation_enabled_agent(active_conversation.id)
     assert {:error, :inactive_agent} = Agent.get_conversation_enabled_agent(inactive_agent.id)
 

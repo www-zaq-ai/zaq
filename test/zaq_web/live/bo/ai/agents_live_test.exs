@@ -99,6 +99,101 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert ai_pos < data_pos
   end
 
+  test "modalities follow the selected credential/model and reset with the form", %{conn: conn} do
+    credential = ai_credential_fixture(%{provider: "openai"})
+    custom = ai_credential_fixture(%{provider: "custom", endpoint: "https://example.com/v1"})
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    assert has_element?(view, "#agent-form-modalities", "Select a model to view modalities")
+
+    attrs = %{
+      "name" => "Modality draft",
+      "job" => "Help",
+      "credential_id" => to_string(credential.id),
+      "model" => "gpt-4.1-mini",
+      "advanced_options_json" => "{}"
+    }
+
+    render_change(view, "validate", %{"configured_agent" => attrs})
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: Image"]))
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Output: Text"]))
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{attrs | "credential_id" => to_string(custom.id)}
+    })
+
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: Unknown"]))
+    refute has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: Image"]))
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{attrs | "model" => "not-in-catalog"}
+    })
+
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Output: Unknown"]))
+
+    render_change(view, "validate", %{"configured_agent" => attrs})
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: Image"]))
+
+    render_change(view, "validate", %{"configured_agent" => %{attrs | "model" => ""}})
+    assert has_element?(view, "#agent-form-modalities", "Select a model to view modalities")
+
+    render_click(element(view, "#close-agent-detail"))
+    render_click(element(view, "#new-agent-button"))
+    assert has_element?(view, "#agent-form-modalities", "Select a model to view modalities")
+  end
+
+  test "list and edit use the same modalities across refreshes, including unknown models", %{
+    conn: conn
+  } do
+    credential = ai_credential_fixture(%{provider: "openai"})
+
+    agents =
+      for {name, model} <- [
+            {"Vision one", "gpt-4.1-mini"},
+            {"Vision two", "gpt-4.1-mini"},
+            {"Unknown", "not-in-catalog"}
+          ] do
+        {:ok, agent} =
+          Zaq.Agent.create_agent(%{
+            name: name,
+            job: "Help",
+            credential_id: credential.id,
+            model: model
+          })
+
+        agent
+      end
+
+    [first, second, unknown] = agents
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    for agent <- [first, second] do
+      assert has_element?(
+               view,
+               ~s(#agent-#{agent.id}-modalities button[aria-label="Input: Image"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(#agent-#{agent.id}-modalities button[aria-label="Output: Text"])
+             )
+    end
+
+    assert has_element?(
+             view,
+             ~s(#agent-#{unknown.id}-modalities button[aria-label="Input: Unknown"])
+           )
+
+    render_click(element(view, "#agent-row-#{first.id}"))
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: Image"]))
+    render_click(element(view, "#close-agent-detail"))
+
+    render_change(view, "filter", %{"filters" => %{"model" => "gpt-4.1-mini"}})
+    assert has_element?(view, ~s(#agent-#{first.id}-modalities button[aria-label="Input: Image"]))
+    refute has_element?(view, "#agent-#{unknown.id}-modalities")
+  end
+
   test "shows form only after clicking new agent", %{conn: conn} do
     _credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
@@ -114,6 +209,38 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert render(view) =~ "Create Agent"
     assert render(view) =~ "Max number of iterations"
     assert render(view) =~ "Default: 10"
+  end
+
+  test "saving a model change refreshes the list modalities", %{conn: conn} do
+    credential = ai_credential_fixture(%{provider: "openai"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Modality model change",
+        job: "Help",
+        model: "gpt-4o-mini",
+        credential_id: credential.id
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    assert has_element?(view, ~s(#agent-#{agent.id}-modalities button[aria-label="Input: PDF"]))
+    render_click(element(view, "#agent-row-#{agent.id}"))
+
+    attrs = %{
+      "name" => agent.name,
+      "job" => agent.job,
+      "credential_id" => to_string(credential.id),
+      "model" => "gpt-5.2-pro",
+      "advanced_options_json" => "{}"
+    }
+
+    render_change(view, "validate", %{"configured_agent" => attrs})
+    refute has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: PDF"]))
+    assert has_element?(view, ~s(#agent-form-modalities button[aria-label="Input: Text"]))
+
+    render_submit(view, "save", %{"configured_agent" => attrs})
+    refute has_element?(view, ~s(#agent-#{agent.id}-modalities button[aria-label="Input: PDF"]))
+    assert has_element?(view, ~s(#agent-#{agent.id}-modalities button[aria-label="Input: Text"]))
   end
 
   test "toggles job markdown preview", %{conn: conn} do

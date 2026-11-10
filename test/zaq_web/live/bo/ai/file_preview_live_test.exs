@@ -155,6 +155,19 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       conn: conn,
       tmp_dir: tmp_dir
     } do
+      original_runner = Application.fetch_env(:zaq, Zaq.Ingestion.Python.Runner)
+      missing_scripts = Path.join(tmp_dir, "missing")
+      refute File.exists?(missing_scripts)
+
+      Application.put_env(:zaq, Zaq.Ingestion.Python.Runner, scripts_dir: missing_scripts)
+
+      on_exit(fn ->
+        case original_runner do
+          {:ok, config} -> Application.put_env(:zaq, Zaq.Ingestion.Python.Runner, config)
+          :error -> Application.delete_env(:zaq, Zaq.Ingestion.Python.Runner)
+        end
+      end)
+
       File.write!(Path.join(tmp_dir, "sheet.xls"), <<0xD0, 0xCF, 0x11, 0xE0>>)
 
       {:ok, view, _html} = live(conn, "/bo/preview/sheet.xls")

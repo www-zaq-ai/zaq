@@ -1,5 +1,6 @@
 [
   "/storybook/_welcome",
+  "/storybook/chat/agent_trace_panel",
   "/storybook/chat/assistant_bubble",
   "/storybook/chat/composer",
   "/storybook/chat/conversations_sidebar",
@@ -8,6 +9,7 @@
   "/storybook/chat/header",
   "/storybook/chat/message_info_popin",
   "/storybook/chat/suggested_prompts",
+  "/storybook/chat/tool_activity",
   "/storybook/chat/transcript",
   "/storybook/chat/user_bubble",
   "/storybook/components/cards/card_shell",
@@ -28,6 +30,7 @@
   "/storybook/components/design_system/tab_nav",
   "/storybook/components/design_system/toggle",
   "/storybook/components/feedback/flash",
+  "/storybook/components/forms/ai_model_selector",
   "/storybook/components/forms/button",
   "/storybook/components/forms/checkbox",
   "/storybook/components/forms/input",
@@ -40,6 +43,7 @@
   "/storybook/components/icons/channel_icons",
   "/storybook/components/icons/mcp_endpoint_icons",
   "/storybook/components/list_selection",
+  "/storybook/components/model_modalities",
   "/storybook/components/table/empty_state",
   "/storybook/components/table/table",
   "/storybook/dashboard/ai_diagnostics",
@@ -88,6 +92,7 @@
   "/storybook/not_used/table",
   "/storybook/patterns/addon_upsell_card",
   "/storybook/patterns/credentials",
+  "/storybook/patterns/rag_configuration",
   "/storybook/patterns/service_unavailable",
   "/storybook/semantic/borders",
   "/storybook/semantic/colors",
@@ -95,5 +100,6 @@
   "/storybook/semantic/layout",
   "/storybook/semantic/shadows",
   "/storybook/semantic/text_styles",
-  "/storybook/semantic/text_styles_deprecated"
+  "/storybook/semantic/text_styles_deprecated",
+  "/storybook/workflows/action_traces"
 ]

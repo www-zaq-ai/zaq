@@ -53,13 +53,11 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
 
   @runtime_keys [
     :channels,
-    :chat_bridge_pipeline_module,
     :chat_bridge_node_router_module,
     :chat_bridge_accounts_module,
     :chat_bridge_permissions_module,
     :chat_bridge_supervisor_module,
     :chat_bridge_chat_module,
-    :email_bridge_pipeline_module,
     :email_bridge_node_router_module,
     :email_bridge_smtp_module,
     :pipeline_hooks_module
@@ -1273,7 +1271,9 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
 
   defp steering_model_turn(2, _conn, request, owner, phase) do
     if phase == :silent_model_wait, do: steering_model_barrier(owner)
-    duration = if phase in [:first_sleep, :second_sleep], do: 5_000, else: 1
+    # Only the second_sleep case injects its correction during this tool call.
+    # Other phases still execute the real second tool without an unused delay.
+    duration = if phase == :second_sleep, do: 5_000, else: 1
 
     {200,
      MultiAgentOpenAIStub.tool_call_sse("sleep_action", %{duration_ms: duration},

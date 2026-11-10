@@ -7,7 +7,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.People
   alias Zaq.Agent
-  alias Zaq.Agent.Answering
   alias Zaq.Agent.Api
   alias Zaq.Agent.Executor
   alias Zaq.Agent.Factory
@@ -22,6 +21,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{ExecutionRecord, Message}
   alias Zaq.Engine.HistoryIngress
+  alias Zaq.Engine.LiveUpdateSettings
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry.Buffer
   alias Zaq.Engine.Telemetry.Point
@@ -34,6 +34,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Zaq.Utils.DateUtils
 
   alias Zaq.TestSupport.{
+    AgentConfig,
     ConnectOAuthAttemptConfig,
     ConnectOAuthAttemptHTTP,
     CredentialMutationJob,
@@ -42,6 +43,147 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   }
 
   setup {Req.Test, :verify_on_exit!}
+
+  setup do
+    Code.ensure_loaded!(AgentConfig)
+    :ok
+  end
+
+  defmodule StreamPolicyStatus do
+    def broadcast(incoming, stage, _message, _router) do
+      send(self(), {:policy_status, stage})
+      incoming
+    end
+
+    def broadcast(incoming, stage, text, _router, _opts) do
+      send(self(), {:policy_stream, stage, text})
+      put_in(incoming.metadata[:status_message_id], "policy-status")
+    end
+  end
+
+  test "saved connector policies reach the real runtime without affecting final answers or status" do
+    text = "A complete answer long enough for the internal stream buffer."
+    handler = fn conn, _body -> {200, streamed_reply(conn.request_path, text, "gpt-4.1-mini")} end
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+    scope = "stream-policy:#{Ecto.UUID.generate()}"
+    configured = IntegrationAgent.create!(endpoint, scope, "Answer the question.", [])
+    on_exit(fn -> ServerManager.stop_server(configured) end)
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: scope,
+        provider: "web_widget",
+        kind: "retrieval",
+        enabled: false
+      })
+      |> Repo.insert!()
+
+    incoming =
+      Incoming.new(%{
+        content: "Answer",
+        channel_id: scope,
+        provider: :web_widget,
+        routing_context: %{channel_config_id: config.id}
+      })
+
+    for enabled? <- [true, false, true] do
+      assert {:ok, _saved} =
+               LiveUpdateSettings.execute(%{
+                 op: :save,
+                 id: config.id,
+                 policy: %{"enabled" => enabled?, "throttle_enabled" => false}
+               })
+
+      outgoing =
+        run_executor(incoming,
+          agent_id: configured.id,
+          scope: scope,
+          status_module: StreamPolicyStatus,
+          event: execution_event()
+        )
+
+      assert outgoing.body == text
+      refute outgoing.metadata.error
+      assert Enum.any?(outgoing.metadata.trace, &(&1["type"] == "content"))
+      assert_receive {:policy_status, :answering}
+
+      if enabled?,
+        do: assert_receive({:policy_stream, :answering, ^text}),
+        else: refute_receive({:policy_stream, _, _})
+    end
+  end
+
+  test "drain configuration stays scoped through reuse, credential invalidation and recreation" do
+    original_timeout = Application.fetch_env(:zaq, :agent_server_drain_timeout_ms)
+    {configured, credential, _endpoint} = credential_agent_fixture(self())
+    actor = execution_event().actor
+    fast_scope = "drain-fast:#{Ecto.UUID.generate()}"
+    slow_scope = "drain-slow:#{Ecto.UUID.generate()}"
+    fast_id = "#{configured.name}:#{fast_scope}"
+    slow_id = "#{configured.name}:#{slow_scope}"
+
+    on_exit(fn ->
+      for pid <- agent_server_pids(configured) do
+        DynamicSupervisor.terminate_child(Zaq.Agent.AgentServerSupervisor, pid)
+      end
+
+      ServerManager.stop_server(configured)
+    end)
+
+    assert {:ok, slow_ref} =
+             ServerManager.ensure_server(configured, slow_id, nil,
+               actor: actor,
+               config: AgentConfig,
+               test_drain_timeout_ms: 60_000
+             )
+
+    incoming = %Incoming{content: "hello", channel_id: "drain-config", provider: :web}
+
+    for scope <- [fast_scope, slow_scope] do
+      assert %Outgoing{metadata: %{error: false}} =
+               run_executor(incoming,
+                 agent_id: configured.id,
+                 scope: scope,
+                 event: execution_event(actor)
+               )
+    end
+
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+    fast_pid = Jido.AgentServer.whereis(registry, fast_id)
+    slow_pid = GenServer.whereis(slow_ref)
+    fast_monitor = Process.monitor(fast_pid)
+    slow_monitor = Process.monitor(slow_pid)
+
+    # A later caller cannot replace the timeout selected by the original creator.
+    assert {:ok, ^slow_ref} =
+             ServerManager.ensure_server(configured, slow_id, nil,
+               actor: actor,
+               config: AgentConfig
+             )
+
+    notification = %{credential_id: credential.connect_credential_id, owner_type: "org"}
+
+    assert :ok =
+             Task.async(fn -> ServerManager.invalidate_credential(notification) end)
+             |> Task.await()
+
+    assert_receive {:DOWN, ^fast_monitor, :process, ^fast_pid, _}, 1_000
+    assert {:ok, _} = Jido.AgentServer.status(slow_pid)
+    refute_received {:DOWN, ^slow_monitor, :process, ^slow_pid, _}
+
+    state = :sys.get_state(ServerManager)
+    refute Map.has_key?(state.drain_timeouts, fast_id)
+
+    # A new incarnation without an override must not inherit the dead one's value.
+    assert {:ok, recreated} =
+             ServerManager.ensure_server(configured, fast_id, nil, actor: actor)
+
+    refute GenServer.whereis(recreated) == fast_pid
+    refute Map.has_key?(:sys.get_state(ServerManager).drain_timeouts, fast_id)
+    assert Application.fetch_env(:zaq, :agent_server_drain_timeout_ms) == original_timeout
+  end
 
   test "model input uses persisted message author and time instead of processing-time hints" do
     {configured, _credential, _endpoint} = credential_agent_fixture(self())
@@ -76,7 +218,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       }
 
       outgoing =
-        Executor.run(later,
+        run_executor(later,
           agent_id: configured.id,
           actor: %{person: %{id: person.id}},
           conversation_binding: binding
@@ -103,6 +245,21 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     def get_active_agent(_agent_id), do: {:ok, %{id: 77, name: "Stub Agent"}}
   end
 
+  defmodule UnknownProviderAgent do
+    def get_active_agent(agent_id) do
+      with {:ok, configured_agent} <- Agent.get_active_agent(agent_id),
+           %AIProviderCredential{} = credential <- configured_agent.credential do
+        {:ok,
+         %{
+           configured_agent
+           | credential: %{credential | provider: Process.get(:executor_unknown_provider)}
+         }}
+      else
+        _ -> {:error, :agent_not_found}
+      end
+    end
+  end
+
   defmodule StubServerManager do
     def ensure_server(_configured_agent, _server_id, _context, opts) do
       _actor = Keyword.fetch!(opts, :actor)
@@ -119,8 +276,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
       do: {:ok, %{request: :request, events: [completed_event(%{result: "from-result"})]}}
 
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
-
     defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
 
@@ -129,8 +284,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       do:
         {:ok,
          %{request: :request, events: [completed_event(%{result: %{answer: "from-answer"}})]}}
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
 
     defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
@@ -166,15 +319,11 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
          ]
        }}
     end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryOther do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
       do: {:ok, %{request: :request, events: [completed_event(%{result: %{unexpected: 123}})]}}
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
 
     defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
@@ -196,8 +345,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
          ]
        }}
     end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryStreamErrorWithUsage do
@@ -228,8 +375,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
          ]
        }}
     end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryAttachment do
@@ -242,8 +387,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
          events: [%{kind: :request_completed, at_ms: 1, data: %{result: "done"}}]
        }}
     end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   # Streams visible answer content, then the stream fails. The user already saw
@@ -270,8 +413,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
          ]
        }}
     end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryStreamErrorAfterBlankContent do
@@ -301,8 +442,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
              ]
        }}
     end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule ClosedControlFactory do
@@ -326,6 +465,22 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     def ask_with_config(_runtime, _content, _configured_agent, _opts) do
       send(Process.get(:followup_owner), :busy_factory_reached)
       {:error, {:rejected, :busy}}
+    end
+  end
+
+  defmodule StubFactoryBusyEvent do
+    def ask_with_config(_runtime, _content, _configured_agent, _opts \\ []) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             kind: :request_failed,
+             at_ms: 1,
+             data: %{error: {:rejected, :busy}}
+           }
+         ]
+       }}
     end
   end
 
@@ -489,7 +644,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     Process.put(:followup_owner, self())
 
     outgoing =
-      Executor.run(event.request,
+      run_executor(event.request,
         agent_id: event.assigns["agent_selection"]["agent_id"],
         conversation_binding: binding,
         actor: event.actor,
@@ -506,7 +661,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     HistorySync.with_session(fn session ->
       recovered =
-        Executor.run(event.request,
+        run_executor(event.request,
           history_session: session,
           agent_id: event.assigns["agent_selection"]["agent_id"],
           conversation_binding: binding,
@@ -546,7 +701,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         Sandbox.allow(Repo, owner, self())
         Process.put(:followup_owner, owner)
 
-        Executor.run(event.request,
+        run_executor(event.request,
           agent_id: event.assigns["agent_selection"]["agent_id"],
           conversation_binding: binding,
           actor: event.actor,
@@ -568,6 +723,35 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     busy = Task.await(second, 10_000)
     assert busy.metadata.error == true
     assert Repo.get!(ExecutionRecord, binding.execution_id).public_answer_message_id == nil
+  end
+
+  test "canonical followup busy stream falls back after root lease completes" do
+    %{event: event, release: release, root: root, binding: binding} = canonical_followup_fixture()
+    send(release, :release_root_llm)
+    assert %Outgoing{body: "Root answer", metadata: %{error: false}} = Task.await(root, 10_000)
+    assert_receive {:openai_request, "POST", "/v1/responses", "", _}, 5_000
+
+    outgoing =
+      HistorySync.with_session(fn session ->
+        run_executor(event.request,
+          history_session: session,
+          agent_id: event.assigns["agent_selection"]["agent_id"],
+          conversation_binding: binding,
+          actor: event.actor,
+          person_id: event.actor.person.id,
+          node_router: FollowupBoundaryRouter,
+          factory_module: StubFactoryBusyEvent
+        )
+      end)
+
+    assert outgoing.metadata.error == true
+    refute outgoing.body == "Followup answer"
+    original = Repo.get!(ExecutionRecord, binding.execution_id)
+    assert original.status == "pending"
+    assert original.public_answer_message_id == nil
+    assert Repo.get_by(ExecutionRecord, recovered_from_execution_id: original.id) == nil
+    refute_received {:openai_request, "POST", "/v1/responses", "", _}
+    refute_received {:prepare_followup, _}
   end
 
   defp canonical_followup_fixture do
@@ -655,7 +839,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
         HistorySync.with_session(fn session ->
           outgoing =
-            Executor.run(first,
+            run_executor(first,
               history_session: session,
               conversation_binding: first_binding,
               agent_id: configured.id,
@@ -764,7 +948,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         agent_id: to_string(configured_agent.id),
         scope: scope,
         event: execution_event()
@@ -875,7 +1059,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
              ) == nil
 
       assert :ok = Permissions.revoke(resource, grant)
-      outgoing = Executor.run(incoming, opts)
+      outgoing = run_executor(incoming, opts)
       refute outgoing.metadata.error
       assert outgoing.body == "Accepted answer"
       assert_receive {:openai_request, "POST", _, _, _}, 5_000
@@ -972,7 +1156,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert :ok = Permissions.revoke(resource, grant)
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         conversation_binding: binding,
         agent_id: configured.id,
         person_id: person.id,
@@ -1007,7 +1191,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     agent = IntegrationAgent.create!(endpoint, scope, "Answer briefly.", [])
     opts = [agent_id: to_string(agent.id), scope: scope, event: execution_event()]
     incoming = %Incoming{content: "first question", channel_id: "bo-test", provider: :web}
-    first = Task.async(fn -> Executor.run(incoming, opts) end)
+    first = Task.async(fn -> run_executor(incoming, opts) end)
     assert_receive {:blocked_llm, http_worker}, 5_000
     on_exit(fn -> send(http_worker, :release_llm) end)
 
@@ -1015,7 +1199,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       Jido.AgentServer.whereis(Jido.registry_name(Zaq.Agent.Jido), "#{agent.name}:#{scope}")
 
     assert is_pid(runtime)
-    second = Executor.run(%{incoming | content: "second question"}, opts)
+    second = run_executor(%{incoming | content: "second question"}, opts)
     assert second.metadata.error
     assert Process.alive?(runtime)
 
@@ -1311,7 +1495,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key-2"]}
   end
 
-  test "the default answering Agent sends its Person-selected authentication to the LLM" do
+  test "an explicitly selected Agent preserves Person-selected authentication and invalidation" do
     test_pid = self()
 
     handler = fn conn, _body ->
@@ -1323,15 +1507,14 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     start_supervised!(child_spec)
 
     credential =
-      seed_llm_config(%{
+      ai_credential_fixture(%{
         provider: "openai",
         endpoint: endpoint,
-        api_key: "answering-org-key",
-        model: "gpt-4.1-mini"
+        api_key: "answering-org-key"
       })
 
     connect_credential = Connect.get_credential!(credential.connect_credential_id)
-    answering_agent = Answering.answering_configured_agent()
+    {:ok, answering_agent} = create_http_agent(credential, %{"stream" => true})
     on_exit(fn -> _ = ServerManager.stop_server(answering_agent) end)
 
     assert {:ok, connect_credential} =
@@ -1355,7 +1538,11 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       person: person
     }
 
-    outgoing = Executor.run(incoming, event: execution_event(%{person: %{id: person.id}}))
+    outgoing =
+      run_executor(incoming,
+        agent_id: answering_agent.id,
+        event: execution_event(%{person: %{id: person.id}})
+      )
 
     assert outgoing.metadata.error == false
     assert_receive {:answering_authorization, ["Bearer answering-person-key"]}
@@ -1370,7 +1557,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(fallback_incoming,
+      run_executor(fallback_incoming,
+        agent_id: answering_agent.id,
         event: execution_event(%{person: %{id: fallback_person.id}})
       )
 
@@ -1395,7 +1583,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     end)
 
     outgoing =
-      Executor.run(fallback_incoming,
+      run_executor(fallback_incoming,
+        agent_id: answering_agent.id,
         event: execution_event(%{person: %{id: fallback_person.id}})
       )
 
@@ -1786,7 +1975,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       1..8
       |> Enum.map(fn _ ->
         Task.async(fn ->
-          Executor.run(incoming,
+          run_executor(incoming,
             agent_id: to_string(configured_agent.id),
             event: execution_event()
           )
@@ -1848,7 +2037,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
+      run_executor(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert is_binary(outgoing.body)
     assert outgoing.metadata.error == false
@@ -1905,7 +2094,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
+      run_executor(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert is_binary(outgoing.body)
     assert outgoing.metadata.error == false
@@ -1954,7 +2143,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     first_outgoing =
-      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
+      run_executor(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert first_outgoing.metadata.error == false
 
@@ -1971,22 +2160,12 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert {:ok, %{agent: updated_agent}} = NodeRouter.dispatch(update_event).response
 
     second_outgoing =
-      Executor.run(incoming, agent_id: to_string(updated_agent.id), event: execution_event())
+      run_executor(incoming, agent_id: to_string(updated_agent.id), event: execution_event())
 
     assert second_outgoing.metadata.error == false
 
     assert_receive {:openai_request, "POST", _path2, "", body2}, 1_000
     assert String.contains?(body2, prompt_v2)
-  end
-
-  test "routes to answering path when no agent_id is provided" do
-    incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
-
-    # nil agent_id → answering configured agent; ServerManager spawns a real server.
-    # Since there is no LLM configured in test env, the run will error gracefully.
-    outgoing = Executor.run(incoming, event: execution_event())
-
-    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
 
   test "returns graceful error when selected agent is inactive" do
@@ -2015,7 +2194,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
+      run_executor(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert outgoing.metadata.error == true
     assert outgoing.metadata.reason == ":inactive_agent"
@@ -2024,31 +2203,18 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
   test "returns graceful error when selected agent does not exist" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
-    outgoing = Executor.run(incoming, agent_id: "999999999", event: execution_event())
+    outgoing = run_executor(incoming, agent_id: "999999999", event: execution_event())
 
     assert outgoing.metadata.error == true
     assert outgoing.metadata.reason == ":agent_not_found"
     assert outgoing.body =~ "something went wrong"
   end
 
-  test "run/1 with no opts routes to answering path" do
-    incoming = %Incoming{
-      content: "hello",
-      channel_id: "bo-test",
-      provider: :web,
-      person: %{id: 42}
-    }
-
-    outgoing = Executor.run(incoming)
-
-    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
-  end
-
   test "normalizes nested result answer maps" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2064,7 +2230,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2080,7 +2246,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2129,7 +2295,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     outgoing =
-      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
+      run_executor(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert outgoing.metadata.error == true
     assert outgoing.body =~ "temporarily unavailable"
@@ -2145,7 +2311,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2173,7 +2339,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2198,7 +2364,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       Process.put(:blank_stream_delta, delta)
 
       outgoing =
-        Executor.run(incoming,
+        run_executor(incoming,
           event: execution_event(),
           agent_id: "stub",
           agent_module: StubAgent,
@@ -2222,7 +2388,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2255,7 +2421,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     Repo.delete_all(Point)
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2286,7 +2452,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     Repo.delete_all(Point)
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2325,7 +2491,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     Repo.delete_all(Point)
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2363,7 +2529,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     Repo.delete_all(Point)
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         event: execution_event(%{person: %{id: person.id}}),
         agent_id: "stub",
         agent_module: StubAgent,
@@ -2447,7 +2613,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       }
 
       outgoing =
-        Executor.run(incoming,
+        run_executor(incoming,
           event: execution_event(),
           agent_id: to_string(configured_agent.id),
           server_manager_module: StubServerManager,
@@ -2482,6 +2648,102 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     end
   end
 
+  test "attributes known configured providers through their resolved runtime adapters" do
+    Process.put(:executor_usage_model, nil)
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+
+    for {provider, model, expected_provider} <- [
+          {"OpenAI", "gpt-4.1-mini", "openai"},
+          {"AlBeRt", "openweight-large", "openai"},
+          {"zaq_router", "custom-model", "zaq_router"},
+          {"OPENAI_CODEX", "gpt-5.1-codex", "openai_codex"}
+        ] do
+      credential =
+        ai_credential_fixture(%{
+          provider: provider,
+          endpoint: "https://provider.example/v1",
+          api_key: "test-key"
+        })
+
+      {:ok, configured_agent} =
+        Agent.create_agent(%{
+          name: "Telemetry Provider #{System.unique_integer([:positive, :monotonic])}",
+          job: "Reply to the question.",
+          model: model,
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: false,
+          active: true,
+          advanced_options: %{}
+        })
+
+      Buffer.flush()
+      Repo.delete_all(Point)
+
+      outgoing =
+        run_executor(%Incoming{content: "hi", channel_id: "known-provider", provider: :web},
+          event: execution_event(),
+          agent_id: configured_agent.id,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryUsage
+        )
+
+      assert outgoing.metadata.error == false
+      assert :ok = Buffer.flush()
+
+      assert [%Point{value: 1.0, dimensions: dimensions}] =
+               Repo.all(from p in Point, where: p.metric_key == "qa.llm.call.count")
+
+      assert dimensions["llm_provider"] == expected_provider, provider
+      refute Map.has_key?(dimensions, "model")
+    end
+  end
+
+  test "omits an unknown configured provider from per-call telemetry without creating an atom" do
+    {configured_agent, _credential, _endpoint} = credential_agent_fixture(self())
+    provider = "unregistered-telemetry-provider-#{System.unique_integer([:positive, :monotonic])}"
+    previous_model = Process.get(:executor_usage_model)
+    Process.put(:executor_unknown_provider, provider)
+    Process.put(:executor_usage_model, nil)
+
+    on_exit(fn ->
+      if is_nil(previous_model),
+        do: Process.delete(:executor_usage_model),
+        else: Process.put(:executor_usage_model, previous_model)
+
+      Process.delete(:executor_unknown_provider)
+    end)
+
+    {:ok, person} = People.create_person(%{full_name: "Unknown Provider Telemetry Person"})
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+    Buffer.flush()
+    Repo.delete_all(Point)
+
+    incoming = %Incoming{content: "hi", channel_id: "unknown-provider-telemetry", provider: :web}
+
+    outgoing =
+      run_executor(incoming,
+        event: execution_event(%{person: %{id: person.id}}),
+        agent_id: configured_agent.id,
+        agent_module: UnknownProviderAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryUsage
+      )
+
+    assert outgoing.metadata.error == false
+    assert :ok = Buffer.flush()
+
+    assert [%Point{value: 1.0, dimensions: dimensions}] =
+             Repo.all(from p in Point, where: p.metric_key == "qa.llm.call.count")
+
+    assert dimensions["person_id"] == to_string(person.id)
+    assert dimensions["actor_type"] == "person"
+    refute Map.has_key?(dimensions, "llm_provider")
+    refute Map.has_key?(dimensions, "model")
+    assert_raise ArgumentError, fn -> :erlang.binary_to_existing_atom(provider, :utf8) end
+  end
+
   test "attachment metadata falls back to canonical values when runtime storage is unavailable" do
     handle = "signed-handle-#{System.unique_integer([:positive])}"
     raw_secret = "provider-secret-#{System.unique_integer([:positive])}"
@@ -2509,7 +2771,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     try do
       outgoing =
-        Executor.run(incoming,
+        run_executor(incoming,
           event: execution_event(),
           agent_id: "stub",
           agent_module: StubAgent,
@@ -2618,7 +2880,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         agent_id: to_string(configured_agent.id),
         event: execution_event(actor)
       )
@@ -2637,7 +2899,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     outgoing =
-      Executor.run(incoming,
+      run_executor(incoming,
         agent_id: to_string(configured_agent.id),
         event: execution_event(actor)
       )
@@ -2667,6 +2929,11 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  # Preserve fast real shutdowns without changing configuration for other runtimes.
+  defp run_executor(incoming, opts) do
+    Executor.run(incoming, Keyword.put_new(opts, :config, AgentConfig))
   end
 
   defp execution_event(actor \\ %{kind: :anonymous, subject: "executor-integration-test"}) do

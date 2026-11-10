@@ -7,9 +7,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Agent.{Answering, Retrieval, ServerManager}
   alias Zaq.Agent.MCP
-  alias Zaq.Agent.PromptTemplate
+  alias Zaq.Agent.ServerManager
   alias Zaq.Channels.Web.{Command, Context, Response}
   alias Zaq.Channels.Web.Message, as: WebMessage
   alias Zaq.Engine.Conversations
@@ -20,11 +19,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Repo
-  alias Zaq.TestSupport.OpenAIStub
+  alias Zaq.TestSupport.{MultiAgentOpenAIStub, OpenAIStub}
+  alias ZaqWeb.Chat.BridgeClient
   alias ZaqWeb.Helpers.DateFormat
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
 
   defmodule NodeRouterFake do
+    def fire(event), do: Zaq.NodeRouter.fire(event)
+
     def dispatch(event) do
       state = :persistent_term.get(__MODULE__, %{})
       handler = Map.get(state, :dispatch)
@@ -175,67 +177,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end
   end
 
-  defmodule FakeRetrieval do
-    def ask(content, opts) do
-      Zaq.Event.new(%{module: Zaq.Agent.Retrieval, function: :ask, args: [content, opts]}, :agent,
-        opts: [action: :invoke]
-      )
-      |> NodeRouterFake.dispatch()
-      |> Map.fetch!(:response)
-    end
-  end
+  defp stub_chat_answer(answer, sources) do
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      %{event | response: :ok}
+    end)
 
-  # FakeExecutor bridges Answering stubs to the Executor.run interface used by
-  # the pipeline since the Jido refactor.
-  defmodule FakeExecutor do
-    alias Zaq.Agent.Answering
-    alias Zaq.Agent.Executor
-    alias Zaq.Engine.Messages.{Incoming, Outgoing}
+    fn view ->
+      state = :sys.get_state(view.pid)
+      request_id = state.socket.assigns.current_request_id
 
-    def run(%Incoming{} = incoming, opts) do
-      nr = Keyword.get(opts, :node_router, NodeRouterFake)
+      outgoing = %Outgoing{
+        body: answer,
+        channel_id: "bo",
+        provider: :web,
+        metadata: %{error: false, sources: sources, confidence_score: 0.92}
+      }
 
-      event =
-        Event.new(%{module: Answering, function: :ask, args: []}, :agent, opts: [action: :invoke])
-
-      case nr.dispatch(event).response do
-        {:ok, %{answer: answer, confidence: %{score: score}}} ->
-          %Outgoing{
-            body: answer,
-            channel_id: incoming.channel_id,
-            provider: incoming.provider,
-            metadata: %{
-              confidence_score: score,
-              latency_ms: nil,
-              prompt_tokens: nil,
-              completion_tokens: nil,
-              total_tokens: nil,
-              error: false
-            }
-          }
-
-        {:ok, raw} when is_binary(raw) ->
-          %Outgoing{
-            body: raw,
-            channel_id: incoming.channel_id,
-            provider: incoming.provider,
-            metadata: %{
-              confidence_score: nil,
-              latency_ms: nil,
-              prompt_tokens: nil,
-              completion_tokens: nil,
-              total_tokens: nil,
-              error: false
-            }
-          }
-
-        {:error, {:missing_stub, _, _, _}} ->
-          # No stub registered — fall through to real executor (will fail with :provider_not_found)
-          Executor.run(incoming, opts)
-
-        {:error, _reason} = err ->
-          raise "FakeExecutor: unexpected answering stub error: #{inspect(err)}"
-      end
+      send_response(view.pid, {:pipeline_result, request_id, outgoing, "What is ZAQ?"})
     end
   end
 
@@ -250,31 +208,38 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
 
     Application.put_env(:zaq, :chat_live_node_router_module, NodeRouterFake)
-    Application.put_env(:zaq, :pipeline_retrieval_module, FakeRetrieval)
-    Application.put_env(:zaq, :pipeline_executor_module, FakeExecutor)
     :persistent_term.put(NodeRouterFake, %{})
     NodeRouterFake.reset_calls()
 
-    template_attrs = %{
-      slug: "answering",
-      name: "Answering Prompt",
-      body: "Answer in <%= @language %>: <%= @content %> using <%= @retrieved_data %>",
-      description: "test template",
-      active: true
-    }
+    {server, endpoint} =
+      OpenAIStub.server(
+        fn _conn, _body ->
+          {200, MultiAgentOpenAIStub.text_sse("Fixture answer", "gpt-4.1-mini")}
+        end,
+        self()
+      )
 
-    case PromptTemplate.get_by_slug("answering") do
-      nil ->
-        {:ok, _template} = PromptTemplate.create(template_attrs)
+    start_supervised!(server)
 
-      template ->
-        {:ok, _template} = PromptTemplate.update(template, template_attrs)
-    end
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: endpoint, api_key: "fixture-key"})
+
+    {:ok, configured_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Chat fixture #{System.unique_integer([:positive])}",
+        job: "Answer the user's question.",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        conversation_enabled: true,
+        enabled_tool_keys: []
+      })
+
+    :ok = Zaq.System.set_global_default_agent_id(configured_agent.id)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :chat_live_node_router_module)
-      Application.delete_env(:zaq, :pipeline_retrieval_module)
-      Application.delete_env(:zaq, :pipeline_executor_module)
+      ServerManager.stop_server(configured_agent)
       :persistent_term.erase(NodeRouterFake)
       :persistent_term.erase({NodeRouterFake, :dispatches})
     end)
@@ -368,7 +333,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/bo/chat")
 
-    assert html =~ "Default pipeline"
+    assert html =~ "Default (routing)"
+    refute html =~ "Default pipeline"
     assert html =~ disabled_agent.name
     assert html =~ configured_agent.name
 
@@ -1156,38 +1122,60 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
+  test "unbound BO callers keep no-answer acknowledgements without a delivery descriptor", %{
+    user: user
+  } do
+    :ok = Zaq.System.set_global_default_agent_id(nil)
+
+    assert :ok =
+             BridgeClient.dispatch_message(
+               %{
+                 request_id: "unbound-no-answer",
+                 message_id: "unbound-no-answer",
+                 timestamp: DateTime.utc_now(),
+                 content: "No configured route",
+                 channel: "bo",
+                 mode: :sync
+               },
+               %{kind: :bo_user, subject: "bo:#{user.id}", user_id: user.id},
+               consumer: :bo,
+               node_router: NodeRouterFake
+             )
+  end
+
+  test "an exhausted route releases the composer without adding an assistant answer", %{
+    conn: conn
+  } do
+    :ok = Zaq.System.set_global_default_agent_id(nil)
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    before_messages = :sys.get_state(view.pid).socket.assigns.messages
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "No configured route"})
+
+    assert_eventually(fn -> :sys.get_state(view.pid).socket.assigns.status == :idle end)
+    messages = :sys.get_state(view.pid).socket.assigns.messages
+    assert length(messages) == length(before_messages) + 1
+    assert List.last(messages).role == :user
+    refute has_element?(view, "#chat-input[disabled]")
+  end
+
+  test "configured-agent provider output is delivered to chat through the real runtime", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "Hello configured agent"})
+
+    assert_eventually(fn -> render(view) =~ "Fixture answer" end)
+  end
+
   test "source chip opens preview modal", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "lexical_terms" => ["ZAQ"],
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "No answer"
-       }}
-    )
-
-    NodeRouterFake.put(
-      :ingestion,
-      DocumentProcessor,
-      :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
-    )
-
-    NodeRouterFake.put(
-      :agent,
-      Answering,
-      :ask,
-      {:ok, %{answer: "All good [[source:guide.md]]", confidence: %{score: 0.92}}}
-    )
+    deliver_answer = stub_chat_answer("All good [[source:guide.md]]", ["guide.md"])
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "What is ZAQ?"})
+    deliver_answer.(view)
 
     assert_eventually(fn -> has_element?(view, ~s(button[data-testid="source-chip"])) end)
 
@@ -1310,48 +1298,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "pipeline branch no_results uses retrieval negative answer", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok, %{"negative_answer" => "No matching docs."}}
-    )
-
-    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn -> render(view) =~ "No matching docs." end)
-  end
-
-  test "pipeline branch no_results uses default fallback", %{conn: conn} do
-    NodeRouterFake.put(:agent, Retrieval, :ask, {:ok, %{}})
-    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn ->
-      render(view) =~ "I couldn"
-    end)
-  end
-
-  test "pipeline generic error branch returns fallback message", %{conn: conn} do
-    NodeRouterFake.put(:agent, Retrieval, :ask, {:error, :boom})
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn ->
-      render(view) =~ "Something went wrong while answering your question. Please try again."
-    end)
-  end
-
   test "renders error message when dispatch returns an error Outgoing (empty-bubble regression)",
        %{conn: conn} do
     # Simulates a provider failure (e.g. budget exceeded) that fails before any
@@ -1425,117 +1371,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert render(view) =~ "Today"
   end
 
-  test "pipeline branch retrieval blocked shape returns no-results fallback", %{conn: conn} do
-    NodeRouterFake.put(:agent, Retrieval, :ask, {:ok, %{"error" => "blocked"}})
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn ->
-      html = render(view)
-
-      html =~ "I couldn" or
-        html =~ "No matching docs." or
-        html =~ "I can’t help with that request"
-    end)
-  end
-
-  test "query extraction empty uses retrieval negative answer", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "lexical_terms" => ["zaq"],
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "No related sources for this question."
-       }}
-    )
-
-    NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
-    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn -> render(view) =~ "No related sources for this question." end)
-  end
-
-  test "query extraction error uses retrieval negative answer", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "lexical_terms" => ["zaq"],
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "Could not find supporting material."
-       }}
-    )
-
-    NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:error, :timeout})
-    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn -> render(view) =~ "Could not find supporting material." end)
-  end
-
-  test "no-answer responses are normalized with zero confidence", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "lexical_terms" => ["zaq"],
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "No answer"
-       }}
-    )
-
-    NodeRouterFake.put(
-      :ingestion,
-      DocumentProcessor,
-      :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
-    )
-
-    NodeRouterFake.put(
-      :agent,
-      Answering,
-      :ask,
-      {:ok,
-       %{
-         answer: "I don't have enough information to answer that question. [[source:guide.md]]",
-         confidence: %{score: 0.88}
-       }}
-    )
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn ->
-      state = :sys.get_state(view.pid)
-      bot_msg = List.last(state.socket.assigns.messages)
-
-      bot_msg.role == :bot and bot_msg.confidence == 0.0 and state.socket.assigns.history == %{}
-    end)
-  end
-
   test "stale async pipeline messages are ignored", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -1573,38 +1408,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert render(view) == before
   end
 
-  test "send_message non-empty follows deterministic full pipeline", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "lexical_terms" => ["ZAQ"],
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "No answer"
-       }}
-    )
-
-    NodeRouterFake.put(
-      :ingestion,
-      DocumentProcessor,
-      :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
-    )
-
-    NodeRouterFake.put(
-      :agent,
-      Answering,
-      :ask,
-      {:ok, %{answer: "All good [[source:guide.md]]", confidence: %{score: 0.92}}}
-    )
+  test "send_message renders a cited response without exposing raw source markers", %{conn: conn} do
+    deliver_answer = stub_chat_answer("All good [[source:guide.md]]", ["guide.md"])
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "What is ZAQ?"})
+    deliver_answer.(view)
 
     assert_eventually(fn ->
       html = render(view)
@@ -1662,42 +1472,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   end
 
   test "assistant markdown is rendered with numbered references", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "lexical_terms" => ["ZAQ"],
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "No answer"
-       }}
-    )
-
-    NodeRouterFake.put(
-      :ingestion,
-      DocumentProcessor,
-      :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
-    )
-
-    NodeRouterFake.put(
-      :agent,
-      Answering,
-      :ask,
-      {:ok,
-       %{
-         answer:
-           "**All good** [[source:guide.md]]\n\n- Item [[source:guide.md]]\n- Model note [[memory:llm-general-knowledge]]",
-         confidence: %{score: 0.92}
-       }}
-    )
+    deliver_answer =
+      stub_chat_answer(
+        "**All good** [[source:guide.md]]\n\n- Item [[source:guide.md]]\n- Model note [[memory:llm-general-knowledge]]",
+        ["guide.md"]
+      )
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "What is ZAQ?"})
+    deliver_answer.(view)
 
     assert_eventually(fn ->
       html = render(view)
@@ -2497,8 +2281,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "send_message with active filters serializes filter metadata into user message", %{
     conn: conn
   } do
-    NodeRouterFake.put(:agent, Zaq.Agent.Retrieval, :ask, {:ok, %{}})
-
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     render_hook(view, "add_content_filter", %{
@@ -2711,8 +2493,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     on_exit(fn ->
       _ = ServerManager.stop_server(configured_agent)
     end)
-
-    Application.put_env(:zaq, :pipeline_executor_module, Zaq.Agent.Executor)
 
     {:ok, conversation} =
       Conversations.create_conversation(%{
@@ -2971,24 +2751,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     NodeRouterFake.put_dispatch(fn event ->
       %{event | response: %Outgoing{body: "ok", channel_id: "bo", provider: :web}}
     end)
-
-    NodeRouterFake.put(:agent, Retrieval, :ask, {
-      :ok,
-      %{
-        "query" => "existing conversation question",
-        "lexical_terms" => ["existing conversation"],
-        "language" => "en",
-        "positive_answer" => "Searching...",
-        "negative_answer" => "No answer"
-      }
-    })
-
-    NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
-
-    NodeRouterFake.put(:agent, Answering, :ask, {
-      :ok,
-      %{answer: "existing conversation answer", confidence: %{score: 0.9}}
-    })
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 

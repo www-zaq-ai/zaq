@@ -1,6 +1,8 @@
-Code.require_file(
-  "priv/repo/migrations/20260825000000_migrate_disk_volumes_to_channel_config.exs"
-)
+unless Code.ensure_loaded?(Zaq.Repo.Migrations.MigrateDiskVolumesToChannelConfig) do
+  Code.require_file(
+    "priv/repo/migrations/20260825000000_migrate_disk_volumes_to_channel_config.exs"
+  )
+end
 
 defmodule Zaq.Repo.Migrations.MigrateDiskVolumesToChannelConfigTest do
   use Zaq.DataCase, async: false

@@ -6,9 +6,43 @@ defmodule Zaq.Agent.Tools.Error do
   intended for LLM context.
   """
 
+  alias Jido.Action.Error, as: ActionError
   alias Jido.AI.Observe
 
   @max_chars 300
+
+  @trace_errors [
+    ActionError.InvalidInputError,
+    ActionError.ExecutionFailureError,
+    ActionError.TimeoutError,
+    ActionError.ConfigurationError,
+    ActionError.InternalError
+  ]
+
+  @doc """
+  Projects known Action errors into bounded trace evidence, excluding details.
+
+  Unknown structs retain only their type; no arbitrary exception formatter or
+  inspect fallback is invoked on runtime objects or their captured values.
+  """
+  @spec trace_summary(struct()) :: map()
+  def trace_summary(%module{message: message})
+      when module in @trace_errors and is_binary(message) do
+    %{type: Atom.to_string(module), message: trace_message(message)}
+  end
+
+  def trace_summary(%module{}), do: %{type: Atom.to_string(module)}
+
+  defp trace_message(message) do
+    formatted = format(%{message: Observe.sanitize_transport_payload(message)})
+
+    # The public formatter bounds bytes; do not retain a split codepoint in JSON.
+    case :unicode.characters_to_binary(formatted) do
+      {:error, prefix, _rest} -> prefix <> "..."
+      {:incomplete, prefix, _rest} -> prefix <> "..."
+      valid -> valid
+    end
+  end
 
   @spec format(term()) :: String.t()
   def format(reason) do

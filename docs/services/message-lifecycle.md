@@ -147,7 +147,7 @@ sequenceDiagram
 Engine chooses the Agent hop; Channels does not initiate a second Agent dispatch.
 The default asynchronous hop does not wait for generation. A synchronous Agent
 hop can be explicitly selected. For execution/finalization and the Channels return
-hop, see [Agent pipeline flow](agent.md#pipeline-flow).
+hop, see [configured-agent execution flow](agent.md#configured-agent-execution-flow).
 
 Entry points:
 [CommunicationBridge](../../lib/zaq/channels/communication_bridge.ex),

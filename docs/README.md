@@ -33,6 +33,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Conventions](conventions.md), [code quality](code-quality.md), [Elixir](elixir.md), [Phoenix](phoenix.md)
 - [Action discovery and reuse](action-reuse.md)
 - [Testing handbook](testing-approach.md) and [E2E execution/fixtures](e2e-testing.md)
+- [Test warning audit and deferred fixes](https://github.com/www-zaq-ai/zaq/issues/894)
 - [Offline multilingual retrieval evaluation fixtures](guides/retrieval-evaluation.md)
 - [Design system](../DESIGN.md), [BO component mechanics](bo-components.md), [list selection](list-selection.md)
 

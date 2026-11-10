@@ -14,6 +14,18 @@ must preserve assertions and intent, never weaken them to hide regressions.
 The separate [real browser-tool integration](#real-browser-tool-integration-flow-3)
 uses ExUnit and the production `agent-browser` CLI, not the Playwright journey suite.
 
+Storybook checks use the dev server on port `4000`. In dev, `mix assets.build`
+builds both the production `app.css` and the separate `app.dev.css` preview bundle;
+the dev server watches both. Storybook loads `app.dev.css`, so the production
+asset build performed by `npm test` cannot overwrite its sandbox/theme styles.
+Keep those output paths separate when changing asset profiles.
+
+The dev-only Storybook entry also guards PhoenixStorybook 1.3's delayed iframe
+height measurement against frames removed by LiveView patches. It preserves
+per-variation iframe isolation and replaces only the upstream inline resizer;
+JavaScript errors are not suppressed. Its lifecycle checks use a controlled
+scheduler in `test/e2e/support/storybook-iframes.test.cjs`.
+
 ```
 test/e2e/
 ├── playwright.config.js     # Playwright config (port, timeout, browser)
@@ -245,6 +257,26 @@ this is not proof of cross-site third-party-cookie or external HTTPS acceptance.
 Failure screenshots are written to `test/e2e/test-results/widget-lifecycle-*.png`.
 Synchronous waiting remains covered by the separate `Web.SyncReply` integration tests.
 
+### Configured-only routing (isolated, no reset)
+
+After the completed-UX approval recorded in `zaq-nnx.9`, run:
+
+```sh
+mix test test/zaq_web/configured_routing_browser_test.exs --include real_browser --include paradedb --timeout 180000
+mix test test/zaq_web/widget_lifecycle_browser_test.exs --only routing_inheritance --timeout 180000
+```
+
+These journeys reuse the ephemeral Endpoint/SQL Sandbox browser harness, regular
+BO login, real Engine routing and native configured Agent execution. Only external
+LLM HTTP is stubbed. Chromium, Firefox and WebKit check Global save/reload, chat
+inheritance, explicit configured selection, actual persisted keyword-search results
+before answer generation, deleted selections, exhausted routing without model or
+assistant execution, and the removed diagnostics probe. The Chromium widget journey
+proves explicit NONE overrides a configured global, captures the unanswered input,
+and clearing the scoped rule resumes inherited real tool execution and durable
+history. No new production endpoint or database reset is used. There is no separate
+stored built-in ID in this schema, so no synthetic conversion fixture is created.
+
 ### BO tool activity continuity (isolated, no reset)
 
 After building assets and installing the Playwright engines from `test/e2e`:
@@ -252,7 +284,7 @@ After building assets and installing the Playwright engines from `test/e2e`:
 ```sh
 mix assets.build
 mix test test/zaq_web/tool_activity_browser_test.exs --include real_browser --timeout 180000
-node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs
+node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs test/e2e/support/storybook-iframes.test.cjs
 ```
 
 The browser journey reuses the sandboxed ephemeral Endpoint and private process
@@ -270,6 +302,37 @@ catch sidebar collapse loss during LiveView patches. Screenshots are written to
 `Path.join(System.tmp_dir!(), "opencode")` as `tool-activity-<engine>-<width>.png`.
 Set `TOOL_ACTIVITY_SCREENSHOTS` to retain these in a chosen artifact directory.
 The Node commands are clock-controlled hook/layout unit tests, not browser journeys.
+
+### Nested Action traces (isolated, no reset)
+
+After the UX approval recorded in `zaq-1dq.13`, run:
+
+```sh
+mix test test/zaq_web/nested_action_traces_browser_test.exs --include real_browser --include paradedb --timeout 180000
+```
+
+This reuses `HistoryBrowser`'s ephemeral Endpoint and SQL Sandbox without E2E
+endpoints or a database reset. Chromium, Firefox and WebKit execute a real native
+configured-agent keyword search, expand nested evidence and reload it as an admin.
+Downgrading that user's role proves fresh authorization returns public root-only
+history, and a tampered conversation ID cannot expose another owner's history.
+
+A real workflow DAG runs composed test Actions through `StepRunner` and
+`ActionContract`. The existing local HTTP fixture gates an external-I/O sibling
+while the browser inspects a successful child/grandchild, then checks live
+completion or actual UI cancellation and reload. Capability sentinels in child
+arguments/results must remain redacted; an unfinished cancelled sibling must be
+unknown rather than successful. The active step is selected automatically on
+mount; terminal steps are selected explicitly after reload. Provider HTTP and
+the gated external dependency are local fixtures, not mocked trace collectors.
+
+After renewed UX approval for `zaq-1dq.18`, the same journey also executes real
+configured `RunAgent` workflow nodes: successful nested work, provider rate-limit
+failure after nested work, and provider failure before any tool starts. Failed
+steps keep their failure reason and expandable agent evidence on reload; known
+child outcomes stay successful, and pre-tool failures invent no child spans.
+These runs use owned tasks that finish before sandbox teardown. The original
+chat/direct-Action assertions, waits, timeouts, and zero retries are unchanged.
 
 ### People authentication journey (isolated, no reset)
 
@@ -596,6 +659,13 @@ Do not define helpers inline inside a spec file if they could be reused. Move th
 
 ### Current exports
 
+Use `expectFlashDuringAction(page, text, action)` for positive success-notification
+assertions. It observes rendered flashes in the browser before the action and
+retains their appearance after auto-dismissal, including across navigation. Stale
+notifications are excluded by recording their existing DOM identity/text before observation starts. Keep durable reload/state
+assertions; use the clock-controlled test for auto-dismissal itself. Negative
+validation and security assertions are not replaced by this helper.
+
 ```js
 module.exports = {
   loginToBackOffice,
@@ -604,6 +674,7 @@ module.exports = {
   waitForLiveViewSettled,
   waitForServerRoundTrip,
   dismissFlash,
+  expectFlashDuringAction,
   pickSearchableSelect,
   pickFirstSearchableSelectOption,
   createAiCredential,       // UI-based (legacy) — prefer createE2EAiCredential

@@ -6,13 +6,7 @@
   features_version={@features_version}
 >
   <!-- Metric Cards -->
-  <div class="grid grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-xl border border-black/10 p-5">
-      <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-        LLM Model
-      </p>
-      <p class="font-mono text-sm font-bold text-black truncate">{@llm_config.model}</p>
-    </div>
+  <div class="grid grid-cols-3 gap-4 mb-8">
     <div class="bg-white rounded-xl border border-black/10 p-5">
       <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
         Embedding Model
@@ -41,55 +35,6 @@
   </div>
 
   <div class="grid grid-cols-3 gap-6">
-    <!-- LLM -->
-    <.diagnostic_card
-      label="LLM"
-      status={@llm_status}
-      event="test_llm"
-    >
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Endpoint"
-        value={@llm_config.endpoint}
-        truncate
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Model"
-        value={@llm_config.model}
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Temperature"
-        value={to_string(@llm_config.temperature)}
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Top-p"
-        value={to_string(@llm_config.top_p)}
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Logprobs"
-        value={if @llm_config.supports_logprobs, do: "yes", else: "no"}
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="JSON Mode"
-        value={if @llm_config.supports_json_mode, do: "yes", else: "no"}
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Max Context"
-        value={"#{@llm_config.max_context_window} tokens"}
-        hint="System Config → LLM"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Max Cosine Distance"
-        value={to_string(@llm_config.max_cosine_distance)}
-        hint="System Config → LLM"
-      />
-    </.diagnostic_card>
-
     <!-- Embedding -->
     <.diagnostic_card
       label="Embedding"
@@ -207,11 +152,8 @@
       <div class="bg-white rounded-xl border border-dashed border-black/15 p-5 text-center">
         <p class="font-mono text-sm font-bold text-black mb-1">No Templates Found</p>
         <p class="font-mono text-[0.7rem] text-black/40 mb-3">
-          Run seeds to insert the default retrieval, answering and chunk_title templates.
+          Image ingestion uses the image_to_text template. Create it in Prompt Templates.
         </p>
-        <code class="font-mono text-[0.7rem] bg-black/5 text-black/60 px-3 py-1.5 rounded-lg">
-          mix run priv/repo/seeds.exs
-        </code>
       </div>
     <% else %>
       <div class="grid grid-cols-3 gap-4">

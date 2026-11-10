@@ -35,6 +35,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
   alias Zaq.Permissions.ChannelHistoryResource
 
   alias Zaq.TestSupport.{
+    HTTPFixtureOptions,
     MattermostHistoryFixture,
     MultiAgentOpenAIStub,
     OpenAIStub,
@@ -43,7 +44,6 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
 
   @keys [
     :channels,
-    :chat_bridge_pipeline_module,
     :chat_bridge_node_router_module,
     :chat_bridge_accounts_module,
     :chat_bridge_permissions_module,
@@ -101,8 +101,21 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
       end
     end
 
-    {child, endpoint} = OpenAIStub.server(handler, owner)
-    start_supervised!(child)
+    {_server, endpoint} = OpenAIStub.start!(handler, owner)
+
+    if tags[:transport_receive_timeout] do
+      # Keep the real socket blocked until the client times out. Only this
+      # fixture's Mattermost requests use a shorter receive deadline; the LLM
+      # request and all assertion/coordination deadlines remain unchanged.
+      HTTPFixtureOptions.configure(
+        String.trim_trailing(endpoint, "/v1") <> "/api/v4/posts",
+        [receive_timeout: 1_000],
+        fn request ->
+          :atomics.get(delivery_counter, 1) > 0 and request.method in [:post, :put] and
+            get_in(request.options, [:json, "message"]) == delayed_terminal_answer()
+        end
+      )
+    end
 
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: endpoint, api_key: "test-key"})

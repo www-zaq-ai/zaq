@@ -4,6 +4,7 @@ defmodule Zaq.Channels.MattermostAdminTest do
   alias Zaq.Channels.MattermostAdmin
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
+  alias Zaq.TestSupport.HTTPFixtureOptions
   alias Zaq.TestSupport.OpenAIStub
 
   describe "history capabilities" do
@@ -242,6 +243,7 @@ defmodule Zaq.Channels.MattermostAdminTest do
 
     test "returns inspected reason on transport error" do
       url = unavailable_local_url()
+      HTTPFixtureOptions.configure(url, retry_delay: fn _attempt -> 0 end)
 
       assert {:error, reason} = MattermostAdmin.fetch_bot_identity(url, "token-1")
       assert is_binary(reason)

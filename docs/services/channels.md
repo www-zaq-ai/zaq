@@ -221,7 +221,7 @@ Association recovery uses `HistoryDeliveryWorker` only after recorded confirmati
 and never resends transport. The real Mattermost/Jido integration suite exercises
 delayed success, gateway failure and the native HTTP receive deadline with a full
 Arabic answer; synchronous status regressions cover blocked partial/final ordering.
-Pipeline replies carry the incoming routing context separately from metadata;
+Agent replies carry the incoming routing context separately from metadata;
 delivery selects the matching connector credentials. A provider-only reply is
 allowed only when the provider has one unambiguous active connector.
 Intermediate status upserts use the same ingress routing context, rather than
@@ -502,7 +502,10 @@ the receiving `email:imap` config, not `email:smtp` delivery config.
 
 ### `Zaq.Engine.Messages.Outgoing`
 
-Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `Zaq.Channels.Events.build_and_dispatch_deliver_outgoing_event/2` to `Zaq.Channels.Api` (`:deliver_outgoing`).
+Canonical struct for all outbound messages. Produced by configured-agent execution
+and the Notification center. Delivered through
+`Zaq.Channels.Events.build_and_dispatch_deliver_outgoing_event/2` to
+`Zaq.Channels.Api` (`:deliver_outgoing`).
 
 When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
@@ -952,6 +955,7 @@ delivery; bridges do not write whole exchanges.
 - Adapter-specific callback names (for example `from_imap_listener/3`) are not allowed in bridge public APIs.
 - Adapter credential options come from `Zaq.Channels.JidoChatBridge.AdapterOptions.build/2`, not from inline `url:`/`token:` lists at call sites. Mattermost, Discord and Telegram share the default `[url: url, token: token]` shape; a provider whose adapter expects other credentials adds its shape there. Teams uses `[app_id:, app_password:, app_tenant_id:]`, read from the connector token and `settings["jido_chat"]`, so connection details carry `settings`.
 
+
 ### Ingress flow
 
 1. The adapter listener calls `from_listener/3` (configured as `sink_mfa` target).
@@ -1056,14 +1060,22 @@ All cross-service calls are overridable via Application env:
 
 | Key                                 | Default                            |
 | ----------------------------------- | ---------------------------------- |
-| `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`               |
+| `:chat_bridge_node_router_module`   | `Zaq.NodeRouter`                   |
 | `:chat_bridge_router_module`        | `Zaq.Channels.CommunicationBridge` |
 | `:chat_bridge_accounts_module`      | `Zaq.Accounts`                     |
 | `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions`         |
 | `:pipeline_hooks_module`            | `Zaq.Hooks`                        |
 
-When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
-Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
+Incoming channel requests always enter Engine routing through `NodeRouter` with
+`%Zaq.Event{}`; the former direct Pipeline module override is no longer supported.
+Configured-agent selection and `Default` inheritance stay Engine-owned. An explicit
+`None` or exhausted hierarchy requests no automated agent response, while history
+capture and workflow triggers retain their existing behavior.
+
+For BO web chat, a no-answer routing receipt releases the composer through the
+existing correlated idle-status response without creating an assistant message or
+starting a runtime. BO callers without a delivery descriptor still receive the
+plain acknowledgement. Widget no-answer acknowledgements keep their own protocol.
 
 ---
 
@@ -1349,6 +1361,23 @@ The `channel_configs` table and identity FKs are unchanged. Legacy Channels
 bootstrap/delivery/provider-only paths still call this schema locally; its namespace
 move does not establish a Repo-free Channels node. Supplied email-save and archive
 runtime events do not use those legacy persistence paths.
+
+Each communication connector's Edit modal exposes an expandable **Streamed message
+updates** section inside its overall configuration form. Save/Update commits ordinary
+fields and streamed preferences atomically through Engine; Cancel discards all drafts.
+There is no separate streamed-preferences save button. The section appears only after
+initial connector creation. Turning off **Limit streamed update frequency** removes
+the minimum time interval, but answer and reasoning text retain internal batching.
+The controls select
+answer content, reasoning and tool activity as events that can trigger an update;
+they do not filter the information displayed in snapshots or recorded in traces.
+The optional minimum interval is shared by these three triggers within a response.
+Eligibility is checked on arriving events, without a timer or replay queue. Text
+retains its internal byte-buffer threshold. Disabling streamed updates does **not**
+disable progress/status messages: those retain their existing behavior outside the
+stream interval. Final answers and terminal errors retain normal delivery.
+See [Engine policy ownership](engine.md#connector-configuration-persistence) and
+[stream reduction](agent.md#stream-events-zaqagentstreamevents) for the contracts.
 
 ---
 

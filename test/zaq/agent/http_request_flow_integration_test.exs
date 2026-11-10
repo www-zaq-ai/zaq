@@ -15,8 +15,7 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
   alias Zaq.TestSupport.{IntegrationAgent, OpenAIStub, ToolCallingLLMStub}
   alias Zaq.Types.EncryptedString
 
-  # QUERY is deferred until its real transport support is fixed: GitHub issue #729.
-  @public_methods ~w(GET OPTIONS PUT DELETE)
+  @public_methods ~w(GET OPTIONS PUT DELETE QUERY)
   @methods @public_methods ++ ["POST"]
   @query %{"term" => "blue sky", "page" => 2, "active" => true}
   @wire_query %{"term" => "blue sky", "page" => "2", "active" => "true"}
@@ -53,7 +52,13 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
     assert EncryptedString.encrypted?(stored)
     refute stored == context.secret
 
-    for {method, body} <- [{"GET", nil}, {"OPTIONS", nil}, {"PUT", @body}, {"DELETE", nil}] do
+    for {method, body} <- [
+          {"GET", nil},
+          {"OPTIONS", nil},
+          {"PUT", @body},
+          {"DELETE", nil},
+          {"QUERY", @body}
+        ] do
       arguments =
         %{
           method: method,
@@ -316,7 +321,7 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
 
     {child, endpoint} =
       ToolCallingLLMStub.server([secured | routes],
-        max_interactions: 6,
+        max_interactions: 7,
         final_response: fn %{tool_result: result} -> "HTTP result: #{Jason.encode!(result)}" end
       )
 
@@ -332,7 +337,7 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
 
   defp arguments(target, method) do
     args = %{method: method, url: target <> "/" <> String.downcase(method), query: @query}
-    if method in ["PUT", "POST"], do: Map.put(args, :body, @body), else: args
+    if method in ["PUT", "POST", "QUERY"], do: Map.put(args, :body, @body), else: args
   end
 
   defp decode_body(""), do: nil

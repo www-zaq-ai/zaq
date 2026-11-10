@@ -12,6 +12,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLiveTest do
   alias Zaq.Engine.History.Facts
   alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.TestSupport.HTTPFixtureOptions
   alias Zaq.TestSupport.OpenAIStub
 
   setup %{conn: conn} do
@@ -721,6 +722,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLiveTest do
 
     {child, endpoint} = OpenAIStub.server(handler, self())
     start_supervised!(child)
+
+    HTTPFixtureOptions.configure(
+      String.trim_trailing(endpoint, "/v1") <> "/api/v4/",
+      retry_delay: fn _attempt -> 0 end
+    )
 
     {_config, person, captured} =
       shared_history_fixture(String.trim_trailing(endpoint, "/v1"), room_id)

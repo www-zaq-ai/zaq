@@ -44,7 +44,17 @@ defmodule Zaq.Engine.TriggerNodeLinkTest do
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
 
   setup do
-    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+    owner = self()
+
+    stub(Zaq.NodeRouterMock, :dispatch, fn
+      %Zaq.Event{request: {:broadcast, _topic, {:run_updated, run}}} = event ->
+        send(owner, {:run_updated, run})
+        event
+
+      %Zaq.Event{} = event ->
+        event
+    end)
+
     :ok
   end
 
@@ -158,9 +168,9 @@ defmodule Zaq.Engine.TriggerNodeLinkTest do
     Process.exit(dispatcher, :kill)
     assert_receive {:DOWN, ^ref, :process, ^dispatcher, :killed}, 1_000
 
-    # sleep_step is only 500ms — give it well over a second to finish on its
-    # own if it was never actually killed.
-    Process.sleep(1_500)
+    # The real completion broadcast follows the persisted terminal state.
+    # Keep the real Sleep action; wait for its outcome instead of a fixed delay.
+    assert_receive {:run_updated, %{id: ^run_id, status: "completed"}}, 2_000
 
     finished_step =
       run_id |> Workflows.list_step_runs() |> Enum.find(&(&1.step_name == "sleep_step"))

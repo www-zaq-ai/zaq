@@ -1,5 +1,20 @@
 const { expect } = require("@playwright/test");
 const path = require("path");
+const { installFlashObserver } = require("./flash-observer");
+const flashObserverPages = new WeakSet();
+
+// Observes actual rendered notifications before the action, retaining evidence
+// after auto-dismissal. The collector lives only for this test's page lifetime.
+async function expectFlashDuringAction(page, text, action, { timeout = process.env.CI ? 20_000 : 15_000, exact = false } = {}) {
+  if (!flashObserverPages.has(page)) {
+    await page.addInitScript(installFlashObserver);
+    flashObserverPages.add(page);
+  }
+  await page.evaluate(installFlashObserver);
+  await page.evaluate(() => window.__e2eArmFlashes());
+  await action();
+  await page.waitForFunction(({ text, exact }) => window.__e2eFlashes?.some(message => exact ? message === text : message.includes(text)), { text, exact }, { timeout });
+}
 
 const DEFAULT_BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
 const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
@@ -175,7 +190,8 @@ async function waitForServerRoundTrip(page) {
   await waitForLiveViewSettled(page);
 }
 
-async function pickSearchableSelect(page, containerSel, optionLabel) {
+// ZaqWeb.Select uses the same hook with search disabled; existing searchable callers keep filtering.
+async function pickSearchableSelect(page, containerSel, optionLabel, { searchable = true } = {}) {
   const trigger = page.locator(`${containerSel} [data-select-trigger]`)
   const panel = page.locator(`${containerSel} [data-select-panel]`)
   const search = page.locator(`${containerSel} [data-select-search]`)
@@ -190,7 +206,7 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
     await trigger.click({ force: true })
     try {
       await expect(panel).toBeVisible({ timeout: 600 })
-      await expect(search).toBeVisible({ timeout: 600 })
+      if (searchable) await expect(search).toBeVisible({ timeout: 600 })
       opened = true
       break
     } catch (_error) {
@@ -199,7 +215,7 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
   }
 
   expect(opened).toBeTruthy()
-  await search.fill(optionLabel)
+  if (searchable) await search.fill(optionLabel)
   await expect(option).toBeVisible({ timeout: process.env.CI ? 10_000 : 5_000 })
   await option.click()
 }
@@ -382,6 +398,32 @@ async function createE2EAgent(request, attrs, options = {}) {
   return res.json();
 }
 
+// Answering journeys opt in explicitly; the reset baseline must remain unconfigured.
+async function createE2EAnsweringAgent(page) {
+  const credential = await createE2EAiCredential(page, {
+    name: `E2E Chat Credential ${Date.now()}`,
+    provider: "custom",
+    endpoint: `${normalizeBaseURL()}/e2e/llm/v1`,
+    api_key: "e2e-fake-key",
+  });
+  return createE2EAgent(page.request, {
+    name: `E2E Chat Agent ${Date.now()}`,
+    job: "Search the knowledge base before answering. Cite returned documents with [[source:path]].",
+    credential_id: credential.id,
+    model: "e2e-fake",
+    model_max_context_tokens: 128000,
+    enabled_tool_keys: ["answering.search_knowledge_base"],
+    conversation_enabled: true,
+    active: true,
+    advanced_options: { stream: true },
+  });
+}
+
+async function selectE2EChatAgent(page, agent) {
+  await pickSearchableSelect(page, "#chat-agent-select", agent.name, { searchable: false });
+  await waitForLiveViewSettled(page);
+}
+
 // Seed a conversation for the E2E admin (see POST /e2e/conversations).
 // Required: channel_type. Optional: title, channel_user_id, status ("active" | "archived"), user_id.
 async function createE2EConversation(request, attrs, options = {}) {
@@ -494,6 +536,7 @@ async function openPromptTemplate(page, slug) {
 }
 
 module.exports = {
+  expectFlashDuringAction,
   seedE2EPromptTemplateDefaults,
   publishE2EPromptTemplateDefaults,
   openPromptTemplate,
@@ -515,6 +558,8 @@ module.exports = {
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,
+  createE2EAnsweringAgent,
+  selectE2EChatAgent,
   createE2EConversation,
   seedE2EChannelHistory,
   createE2EBootstrapAdmin,

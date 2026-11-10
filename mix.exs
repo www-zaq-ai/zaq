@@ -30,6 +30,7 @@ defmodule Zaq.MixProject do
       ],
       listeners: [Phoenix.CodeReloader],
       test_coverage: [tool: ExCoveralls],
+      test_ignore_filters: [~r"^test/repro/.*\.exs$"],
       docs: docs()
     ]
   end
@@ -124,7 +125,9 @@ defmodule Zaq.MixProject do
       {:sage, "~> 0.6.3"},
 
       # Jido Ecosystem
-      {:llm_db, "~> 2026.5", runtime: false, override: true},
+      # {:llm_db, "~> 2026.5", runtime: false, override: true},
+      # https://github.com/agentjido/llmdb/pull/389
+      {:llm_db, github: "agentjido/llmdb", runtime: false, override: true},
       {:jido, "~> 2.4"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:lua, "~> 1.0.2"},
@@ -143,7 +146,7 @@ defmodule Zaq.MixProject do
       #  override: true},
       {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
       {:jido_chat_teams, github: "agentjido/jido_chat_teams", branch: "main"},
-      {:jido_ai, github: "agentjido/jido_ai", branch: "main", override: true},
+      {:jido_ai, github: "jfayad/jido_ai", branch: "main", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       # Bump zoi to avoid conflicts with deps using the old 0.17.1 (jido_connect)
       {:zoi, "~> 0.18.11", override: true},
@@ -152,7 +155,9 @@ defmodule Zaq.MixProject do
       {:jido_runic, github: "agentjido/jido_runic", branch: "main"},
       {:gen_stage, "~> 1.2"},
       {:flow, "~> 1.2"},
-      {:req_llm, "~> 1.16"},
+      # {:req_llm, "~> 1.16"},
+      # https://github.com/agentjido/req_llm/pull/1257
+      {:req_llm, github: "agentjido/req_llm", override: true},
       # {:jido_connect,
       #  path:
       #    "/Users/julien/Documents/Repos/Github/OSS/jido/connect/jido_connect/apps/jido_connect",
@@ -225,7 +230,7 @@ defmodule Zaq.MixProject do
       e2e: ["cmd npm --prefix test/e2e run test:journeys --"],
       storybook: ["cmd npm --prefix test/e2e run test:storybook"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind #{tailwind_build()}", "esbuild zaq"],
+      "assets.build": ["compile"] ++ tailwind_builds() ++ ["esbuild zaq"],
       "assets.deploy": [
         "tailwind zaq --minify",
         "esbuild zaq --minify",
@@ -301,7 +306,11 @@ defmodule Zaq.MixProject do
     ]
   end
 
-  defp tailwind_build, do: if(Mix.env() == :dev, do: "zaq_dev", else: "zaq")
+  defp tailwind_builds do
+    if Mix.env() == :dev,
+      do: ["tailwind zaq", "tailwind zaq_dev"],
+      else: ["tailwind zaq"]
+  end
 
   defp setup_branch(args) do
     source_db =

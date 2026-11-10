@@ -5,7 +5,6 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.RunRecoveryWorker
   alias Zaq.Engine.Workflows.StartupRecovery
-  require Logger
 
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)

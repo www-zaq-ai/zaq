@@ -58,4 +58,22 @@ defmodule Zaq.Engine.ActionSchedules.WorkerTest do
                args: %{"schedule_id" => "run:missing-action-args"}
              })
   end
+
+  test "executes a Zoi-schema action from string-keyed persisted params with defaults" do
+    assert {:ok, %{encoded: "aGVsbG8="}} =
+             perform_job(Worker, %{
+               schedule_id: "run:zoi",
+               action_key: "general.encode_base64",
+               params: %{"data" => "hello"}
+             })
+  end
+
+  test "returns validation errors for invalid Zoi params instead of raising" do
+    assert {:error, _} =
+             perform_job(Worker, %{
+               schedule_id: "run:zoi-invalid",
+               action_key: "general.encode_base64",
+               params: %{"data" => 123}
+             })
+  end
 end

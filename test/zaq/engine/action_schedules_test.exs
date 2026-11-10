@@ -27,6 +27,34 @@ defmodule Zaq.Engine.ActionSchedulesTest do
     def validate_params(params), do: {:ok, params}
   end
 
+  defmodule JsonSchemaAction do
+    use Jido.Action,
+      name: "json_schema_schedule_action",
+      schema: %{
+        "type" => "object",
+        "properties" => %{
+          "message" => %{"type" => "string"},
+          "retries" => %{"type" => "integer"}
+        },
+        "required" => ["message"]
+      }
+
+    @impl Jido.Action
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule ProbeAction do
+    use Jido.Action,
+      name: "probe_schedule_action",
+      schema: [probe: [type: :any, required: true]]
+
+    @impl Jido.Action
+    def run(%{probe: pid}, _context) do
+      send(pid, :probe_ran)
+      {:ok, %{}}
+    end
+  end
+
   defp future_datetime(seconds \\ 3_600), do: DateTime.add(DateTime.utc_now(), seconds, :second)
   defp arg(job, key), do: job.args[Atom.to_string(key)] || job.args[key]
 
@@ -283,6 +311,74 @@ defmodule Zaq.Engine.ActionSchedulesTest do
     test "leaves non-binary enum values unchanged" do
       assert {:ok, %{mode: :auto}} =
                ActionSchedules.validate_action_params(EnumAction, %{mode: :auto})
+    end
+  end
+
+  describe "schema-agnostic action params (Nimble, Zoi, JSON Schema)" do
+    test "schedules a registered Zoi action and runs it from the persisted JSON args" do
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, job} =
+                 ActionSchedules.schedule_action(%{
+                   schedule_id: "zoi:base64",
+                   action_key: "general.encode_base64",
+                   params: %{"data" => "hello"},
+                   scheduled_at: future_datetime()
+                 })
+
+        persisted = Zaq.Repo.get!(Oban.Job, job.id)
+
+        assert %{"data" => "hello", "variant" => "standard", "padding" => true} =
+                 persisted.args["params"]
+
+        assert {:ok, %{encoded: "aGVsbG8="}} = perform_job(Worker, persisted.args)
+      end)
+    end
+
+    test "rejects invalid Zoi params with an error and no job" do
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:error, _} =
+                 ActionSchedules.schedule_action(%{
+                   schedule_id: "zoi:invalid",
+                   action_key: "general.encode_base64",
+                   params: %{"data" => 123},
+                   scheduled_at: future_datetime()
+                 })
+
+        assert ActionSchedules.get_pending_schedule("zoi:invalid") == nil
+      end)
+    end
+
+    test "validate_action_params/2 normalizes Zoi, JSON Schema and Nimble params without raising" do
+      assert {:ok, %{data: "hello", variant: "standard", padding: true}} =
+               ActionSchedules.validate_action_params(Zaq.Agent.Tools.General.EncodeBase64, %{
+                 "data" => "hello"
+               })
+
+      assert {:error, _} =
+               ActionSchedules.validate_action_params(Zaq.Agent.Tools.General.EncodeBase64, %{
+                 "data" => "x",
+                 "variant" => "rot13"
+               })
+
+      assert {:ok, %{message: "hi", retries: 2}} =
+               ActionSchedules.validate_action_params(JsonSchemaAction, %{
+                 "message" => "hi",
+                 "retries" => 2
+               })
+
+      assert {:ok, %{level: :info}} =
+               ActionSchedules.validate_action_params(Jido.Tools.Basic.Log, %{
+                 "message" => "m",
+                 "level" => "info"
+               })
+    end
+
+    test "validate_action_params/2 never executes the action" do
+      assert {:ok, %{probe: pid}} =
+               ActionSchedules.validate_action_params(ProbeAction, %{"probe" => self()})
+
+      assert pid == self()
+      refute_received :probe_ran
     end
   end
 end

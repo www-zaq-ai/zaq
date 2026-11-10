@@ -17,7 +17,7 @@ defmodule Zaq.Engine.ChannelConfig do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Channels.RetrievalChannel
-  alias Zaq.ConnectorConfig.{Settings, WidgetSettings}
+  alias Zaq.ConnectorConfig.{LiveUpdates, Settings, WidgetSettings}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -61,10 +61,56 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
     |> maybe_validate_teams_settings()
+    |> maybe_validate_live_updates()
+    |> preserve_live_update_policy()
     |> maybe_require_widget_base_url_on_persist()
     |> maybe_validate_imap_smtp_dependency_on_persist()
     |> maybe_encrypt_token()
     |> reject_archived_reactivation()
+  end
+
+  defp maybe_validate_live_updates(changeset) do
+    case fetch_change(changeset, :settings) do
+      {:ok, %{"live_updates" => policy}} ->
+        case LiveUpdates.normalize(policy) do
+          {:ok, _policy} -> changeset
+          {:error, _errors} -> add_error(changeset, :settings, "invalid streamed-update policy")
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  # Policy edits have a dedicated locked Engine operation. Ordinary connector
+  # forms may carry an older settings snapshot and must not overwrite that policy.
+  # Inserts can already carry an ID, but have no persisted policy to preserve.
+  defp preserve_live_update_policy(%{data: %{id: id}} = changeset) when not is_nil(id) do
+    prepare_changes(changeset, fn
+      %{action: :update} = changeset -> preserve_current_policy(changeset, id)
+      changeset -> changeset
+    end)
+  end
+
+  defp preserve_live_update_policy(changeset), do: changeset
+
+  defp preserve_current_policy(changeset, id) do
+    case fetch_change(changeset, :settings) do
+      {:ok, settings} when is_map(settings) ->
+        current = changeset.repo.get!(__MODULE__, id, lock: "FOR UPDATE")
+        settings = Map.delete(settings, "live_updates")
+
+        settings =
+          case Map.fetch(current.settings || %{}, "live_updates") do
+            {:ok, policy} -> Map.put(settings, "live_updates", policy)
+            :error -> settings
+          end
+
+        put_change(changeset, :settings, settings)
+
+      _ ->
+        changeset
+    end
   end
 
   defp reject_archived_reactivation(changeset) do

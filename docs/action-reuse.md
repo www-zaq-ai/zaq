@@ -36,6 +36,10 @@ not assert that no reusable operation exists.
 
 ## 3. Record a decision for each operation
 
+Apply the [function reuse decision](code-quality.md#function-reuse-decision) when
+choosing how to adapt the implementation, including its compatibility and risk/churn
+criteria. The operation-level choices and execution boundaries below still apply.
+
 Choose in this order:
 
 1. **Reuse:** call the existing Action through the appropriate execution boundary

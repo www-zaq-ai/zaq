@@ -37,6 +37,14 @@ defmodule Zaq.Engine.Workflows.Action do
   can rely on their presence. DAG routing remains driven by edges and
   conditions.
 
+  Failed Actions may retain JSON-safe diagnostic output in the ordinary
+  `{:error, %Jido.Action.Error.ExecutionFailureError{}}` envelope, using
+  `details: %{workflow_results: results}`. The producing Action owns the safe
+  contents; StepRunner treats the result map as opaque, persists it on the failed
+  row, and uses the exception's message as the failure reason. This never adds
+  diagnostic output to cascade, completes the step, or changes retry policy.
+  Ordinary errors without this explicit contract keep their existing behavior.
+
   ## Enforcement
 
   When the macro is used with options (the full-mode declaration), the contract

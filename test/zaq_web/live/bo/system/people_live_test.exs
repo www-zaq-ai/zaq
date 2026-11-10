@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
-  use ZaqWeb.ConnCase, async: true
+  use ZaqWeb.ConnCase, async: true, group: :people_permission_grants
 
   import Ecto.Query
   import Phoenix.LiveViewTest

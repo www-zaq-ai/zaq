@@ -19,6 +19,21 @@ defmodule Zaq.Agent.ErrorMessage do
     :provider_authentication_failed,
     :person_unavailable
   ]
+  @diagnostic_reasons @credential_reasons ++
+                        [
+                          :budget_exceeded,
+                          :provider_rate_limited,
+                          :provider_unavailable,
+                          :provider_request_rejected,
+                          :provider_response_failed,
+                          :provider_not_supported,
+                          :model_not_supported,
+                          :model_not_configured,
+                          :invalid_parameter,
+                          :invalid_response,
+                          :timeout,
+                          :unexpected_exception
+                        ]
 
   @spec from_reason(term(), String.t() | nil) :: String.t()
   def from_reason(reason, fallback \\ nil)
@@ -37,6 +52,13 @@ defmodule Zaq.Agent.ErrorMessage do
 
   def from_reason(:provider_not_supported, _fallback),
     do: "The selected AI provider is not supported. Please check your agent configuration."
+
+  def from_reason(:model_not_supported, _fallback),
+    do:
+      "The selected AI model does not support chat generation. Please check your agent configuration."
+
+  def from_reason(:configured_agent_required, _fallback),
+    do: "Select a configured agent to answer this request."
 
   def from_reason(%{reason: reason} = failure, _fallback) when reason in @credential_reasons,
     do: credential_message(reason, Map.get(failure, :owner_type))
@@ -152,6 +174,8 @@ defmodule Zaq.Agent.ErrorMessage do
       do: :retry
 
   def recovery_for(%ReqLLM.Error.API.Stream{cause: inner}), do: recovery_for(inner)
+  def recovery_for(%ReqLLM.Error.API.Timeout{}), do: :retry
+  def recovery_for(%Req.TransportError{reason: :timeout}), do: :retry
   def recovery_for({:failed, :error, inner}), do: recovery_for(inner)
   def recovery_for({:request_transformer, inner}), do: recovery_for(inner)
   def recovery_for(_), do: nil
@@ -209,6 +233,11 @@ defmodule Zaq.Agent.ErrorMessage do
 
   def public_reason_for(%ReqLLM.Error.API.Request{}), do: :provider_request_rejected
   def public_reason_for(%ReqLLM.Error.API.Response{}), do: :provider_response_failed
+  def public_reason_for(%ReqLLM.Error.API.Timeout{}), do: :timeout
+  def public_reason_for(%Req.TransportError{reason: :timeout}), do: :timeout
+  def public_reason_for(%ReqLLM.Error.Invalid.Parameter{}), do: :invalid_parameter
+  def public_reason_for(%ReqLLM.Error.Invalid.Provider{}), do: :provider_not_supported
+  def public_reason_for({:unsupported_ai_authentication, _}), do: :provider_authentication_failed
   def public_reason_for(%ReqLLM.Error.API.Stream{cause: inner}), do: public_reason_for(inner)
   def public_reason_for({:failed, :error, inner}), do: public_reason_for(inner)
   def public_reason_for({:request_transformer, inner}), do: public_reason_for(inner)
@@ -217,6 +246,35 @@ defmodule Zaq.Agent.ErrorMessage do
   def public_reason_for({:timeout, _duration}), do: :timeout
   def public_reason_for(reason) when is_atom(reason), do: reason
   def public_reason_for(_reason), do: :agent_execution_failed
+
+  @doc """
+  Projects runtime failures into fixed diagnostic categories and a valid HTTP status.
+
+  Reuses public error classification but, unlike the legacy atom passthrough,
+  accepts only known categories. Never formats exceptions or retains their payloads.
+  """
+  @spec diagnostic_for(term()) :: %{
+          required(:reason) => atom(),
+          optional(:http_status) => integer()
+        }
+  def diagnostic_for(%ReqLLM.Error.API.Stream{cause: inner}), do: diagnostic_for(inner)
+  def diagnostic_for({:failed, :error, inner}), do: diagnostic_for(inner)
+  def diagnostic_for({:request_transformer, inner}), do: diagnostic_for(inner)
+
+  def diagnostic_for(reason) do
+    category = public_reason_for(reason)
+    safe = if category in @diagnostic_reasons, do: category, else: :agent_execution_failed
+
+    case reason do
+      %module{status: status}
+      when module in [ReqLLM.Error.API.Request, ReqLLM.Error.API.Response] and
+             is_integer(status) and status in 100..599 ->
+        %{reason: safe, http_status: status}
+
+      _ ->
+        %{reason: safe}
+    end
+  end
 
   defp credential_message(:personal_credential_required, _scope),
     do:

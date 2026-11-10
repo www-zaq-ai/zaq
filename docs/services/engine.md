@@ -84,6 +84,34 @@ Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
 overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
 normalization remains provider-local in Channels.
 
+`Zaq.Engine.LiveUpdateSettings` owns the `settings["live_updates"]` subtree for
+retrieval connectors. The confidential `:manage_live_update_settings` Engine event
+runs `ManageLiveUpdateSettings` through validated Action execution and authenticates
+the current BO actor. Its `:snapshot` and `:save` operations address an exact connector
+ID; policy saves lock the current row and replace only this subtree. Results contain
+the ID, normalized policy and opaque lifecycle revisions, never connection settings
+or credentials. The `:save_configuration` operation saves ordinary fields and policy
+for a persisted native connector in one transaction, requiring the snapshot revision.
+Widgets instead compose the existing policy save inside `WidgetConnectorSettings`'s
+configuration transaction, retaining widget-specific validation, routing and lifecycle
+checks. Invalid fields or policy roll back the whole edit; changed revisions reject
+with `:stale_connector`. An unchanged absent policy is not materialized merely by
+saving other fields. The BO holds all drafts until the modal's overall Save/Update;
+Cancel writes nothing.
+Ordinary `ChannelConfig.changeset/2` updates preserve the current policy under a
+row lock in write preparation, even if a form submits an old settings snapshot.
+Only the dedicated policy operation replaces that subtree on existing connectors;
+it validates the policy before changing the locked row's settings. Widget lifecycle
+revision checks still reject stale widget forms instead of silently replaying them.
+The confidential `:resolve_live_update_policy` event requires an identified trusted
+execution actor and projects only the policy from the admitted Incoming routing
+context. It does not require BO privileges or grant conversation access. Explicit
+connector IDs must match the provider and an unarchived retrieval configuration;
+configless BO `:web` execution uses defaults. Missing policy fields use defaults,
+while malformed stored policies return validation errors. The pure
+`Zaq.ConnectorConfig.LiveUpdates` contract includes only answer, reasoning and tool
+triggers; status notifications are outside this policy.
+
 ### Conversations
 
 Channel history grant foundation: `Zaq.Permissions.ChannelHistoryResource` identifies
@@ -1175,6 +1203,14 @@ references; no historical repair is performed. The existing token aggregator
 uses completed execution counters in preference to Message counters, with a
 per-counter legacy fallback; retries still recompute totals once per answer.
 
+Trace artifact preparation owns configured byte limits and storage validation.
+Artifacts explicitly marked `optional: true` carry diagnostic evidence: invalid
+or oversized payloads are omitted individually, with a safe `artifact_omissions`
+reason on the matching trace row. Accepted siblings still use the ordinary
+transactional artifact storage and authorized reads. Unmarked/required artifacts
+retain strict failure behavior; authorization and database write failures are not
+converted into omissions or successful finalizations.
+
 `Conversations.reserve_answer_identity/3` is the Engine reservation boundary for a
 selected answer root. Under the existing admitted-input lock it verifies the
 finalization capability, active private execution owner and root admission evidence,
@@ -1672,11 +1708,40 @@ Routing precedence:
 7. Topic rule
 8. Provider rule
 9. Global rule
-10. Default ZAQ agent
+10. None (workflow-only, source `no_matching_rule`)
 
 Agent-targeting rules and explicit selections must resolve to agents that are active and conversation-enabled; invalid configured-agent references are skipped during resolution.
 
+`Default` in a scoped selector still means inheritance: clearing that rule allows
+broader configured-agent rules to apply. It is not the removed built-in Default
+Agent. Explicit `None` is terminal. When no eligible rule remains, the router fires
+the existing workflow-only event, retains applicable history capture, and does not
+admit an agent execution or manufacture an assistant response. Existing configured
+assignments and absent/inherited rules are not rewritten by this cutover.
+
+Global settings displays an unset root selection as `Unconfigured`, separately
+from the explicit `None` choice. Neither is the removed `Default Zaq Agent`.
+BO chat's empty transient selection is `Default (routing)`:
+it still follows persisted routing rules, not a synthetic agent. Scoped selectors
+retain `Default` (clear/inherit) and their explicit `NONE` override.
+Saving Global `None` (value `"none"`) persists a terminal `:none` rule so later
+portal bootstrap cannot mistake the deliberate choice for uninitialized routing.
+Selecting `Unconfigured` (empty value), generic clear commands and
+`System.set_global_default_agent_id(nil)` remove the rule. The default global-ID
+getter still returns nil for both absent and None rules; BO opts into
+`include_none: true` to project an explicit None separately.
+
 Rule write commands accept a required `rules` list. Each rule carries optional scope keys (`person_id`, `channel_config_id`, `retrieval_channel_id`, `topic_id`), `routing_mode: "agent" | "none" | "clear"`, and `configured_agent_id` for agent mode. Example: `%{rules: [%{channel_config_id: 12, topic_id: "INBOX", routing_mode: "agent", configured_agent_id: 34}]}`. Single-rule updates submit a one-item list; IMAP mailbox saves use the same batch form so selected mailbox rules are updated through one standardized action call.
+
+A rule may specify `write_mode: "insert_if_absent"` for bootstrap. Engine uses the
+existing `upsert_rule/3` operation with `on_conflict: :nothing`, the same
+changeset/policy validation and a database insert with conflict-do-nothing,
+never a read followed by an upsert. Inserted rules return status `"inserted"`;
+an existing/concurrent winner returns `"noop"` without being changed. If that
+winner disappears before it can be read, `:routing_conflict_retry` is returned.
+Unknown write modes and insert-only clear commands are rejected. Omitted or
+`"upsert"` write mode retains normal administrative update semantics. This command
+extension does not expose another agent tool.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
 

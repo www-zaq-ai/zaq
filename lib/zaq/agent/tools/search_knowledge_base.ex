@@ -1,186 +1,273 @@
 defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   @moduledoc """
-  ReAct tool: searches the ZAQ knowledge base with a refined query.
+  Agent-facing knowledge search composing independently validated retrieval Actions.
 
-  Discovers globally indexed languages through the Ingestion role, translates
-  the caller-supplied lexical terms once, and searches each language independently. Permission filtering
-  stays in Ingestion after candidate retrieval, before results leave the role.
+  Prepares language queries once, retrieves the selected legs, fuses only hybrid
+  results, then re-ranks the combined candidate set before global count/token
+  limiting. Ingestion owns content, permissions and source/language filtering.
+  Only direct matches are returned; agents fetch neighboring chunk IDs explicitly.
+  Composed Actions execute through ActionContract with narrow trusted trace context;
+  the supervised search tree retains ownership of deadlines and retries.
   """
 
   use Zaq.Engine.Workflows.Action,
     name: "search_knowledge_base",
+    description: """
+    Search the knowledge base. search_mode defaults to hybrid (vector and keyword
+    search concurrently, then fusion). semantic uses vectors only and needs no
+    lexical_terms. keyword uses lexical terms only. For keyword/hybrid supply
+    meaningful independent words or phrases, preserving names and identifiers;
+    clauses match independently (OR), without splitting the question into filler.
+    All modes re-rank when the RAG model is configured. max_total_results defaults
+    to 100 globally; the context-token budget may return fewer. Accessible results
+    already contain usable content, not just references; use that content directly.
+    For missing context, pass returned previous_chunk_id/next_chunk_id values to
+    get_knowledge_base_chunks; surrounding chunks are not automatically included.
+    Avoid near-identical parallel searches unless each serves a distinct information need.
+    Stop retrieving once you have sufficient evidence to answer.
+    Cite sources used in your answer as [[source:path]], using paths from sources.
+    A returned source may identify a document requiring access; do not infer its content.
+    """,
+    schema:
+      Zoi.object(%{
+        query: Zoi.string(description: "The original search query") |> Zoi.min(1),
+        lexical_terms: Zoi.list(Zoi.string()) |> Zoi.default([]),
+        search_mode: Zoi.enum(["semantic", "keyword", "hybrid"]) |> Zoi.optional(),
+        max_total_results:
+          Zoi.integer(description: "Global maximum, default 100")
+          |> Zoi.positive()
+          |> Zoi.optional()
+      }),
     output_schema:
       Zoi.object(%{
-        chunks: Zoi.list(Zoi.map(), description: "Matching knowledge-base chunks"),
-        count: Zoi.integer(description: "Number of chunks returned"),
+        chunks: Zoi.list(Zoi.map()),
+        sources: Zoi.list(Zoi.string()),
+        count: Zoi.integer(),
         errors:
           Zoi.list(
             Zoi.object(%{
               language: Zoi.string(),
               stage: Zoi.enum([:translation, :search]),
               error: Zoi.enum([:translation_failed, :search_failed])
-            }),
-            description: "Failures for individual detected languages"
+            })
           ),
-        partial: Zoi.boolean(description: "Some language searches failed")
-      }),
-    description: """
-    Search the ZAQ knowledge base for relevant information.
-    Use this when the context provided in the system prompt is insufficient
-    to answer the question with confidence. Supply meaningful lexical terms,
-    including names and identifiers, rather than splitting the question into words.
-    Each supplied term or multiword phrase independently matches (OR search).
-    """,
-    schema:
-      Zoi.object(%{
-        query: Zoi.string(description: "The full semantic search query"),
-        lexical_terms:
-          Zoi.list(
-            Zoi.string(),
-            description:
-              "Meaningful words or multiword phrases for OR lexical search; preserve names and identifiers, omit filler words"
-          )
+        partial: Zoi.boolean()
       })
 
-  alias Zaq.Agent.Actions.TranslateKnowledgeQuery
+  alias Zaq.Agent.Actions.{
+    FuseKnowledgeResults,
+    KeywordKnowledgeSearch,
+    RerankKnowledgeResults,
+    SemanticKnowledgeSearch,
+    TranslateKnowledgeQuery
+  }
+
   alias Zaq.Agent.Status
+  alias Zaq.Agent.Tools.ActionContract
+  alias Zaq.Agent.Tools.KnowledgeSources
   alias Zaq.Event
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
 
   require Logger
 
+  @trace_context_keys [
+    :tool_call_id,
+    :tool_invocation_path,
+    :on_tool_event,
+    :tool_event_sink,
+    :request_id,
+    :run_id
+  ]
+
   def tool_timeout_ms, do: 120_000
 
   @impl Jido.Action
+  def run(params, context) do
+    params =
+      Map.merge(%{lexical_terms: [], search_mode: "hybrid", max_total_results: 100}, params)
 
-  def run(%{query: query, lexical_terms: terms}, context) do
+    context =
+      Map.put_new(
+        context,
+        :retrieval_deadline,
+        System.monotonic_time(:millisecond) + tool_timeout_ms()
+      )
+
+    with :ok <- validate_input(params),
+         {:ok, token_budget} <- result_token_budget(context) do
+      bounded_search(params, Map.put(context, :result_token_budget, token_budget))
+    end
+  end
+
+  # Temporary: allocate a fixed share until the runtime can reserve available space.
+  # Tracked: https://github.com/www-zaq-ai/zaq/issues/915
+  defp result_token_budget(%{context_window: %{max_context_tokens: maximum}})
+       when is_integer(maximum) and maximum > 0,
+       do: {:ok, div(maximum, 5)}
+
+  defp result_token_budget(_context), do: {:error, :context_budget_unavailable}
+
+  defp validate_input(%{query: query, search_mode: mode, max_total_results: maximum} = params) do
+    cond do
+      not is_binary(query) or String.trim(query) == "" ->
+        {:error, :invalid_query}
+
+      mode not in ["semantic", "keyword", "hybrid"] ->
+        {:error, :invalid_search_mode}
+
+      not is_integer(maximum) or maximum <= 0 ->
+        {:error, :invalid_max_total_results}
+
+      mode != "semantic" and not valid_terms?(params.lexical_terms) ->
+        {:error, :invalid_lexical_terms}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_terms?(terms) when is_list(terms) and terms != [],
+    do: Enum.all?(terms, &(is_binary(&1) and String.trim(&1) != ""))
+
+  defp valid_terms?(_terms), do: false
+
+  defp bounded_search(params, context) do
+    timeout = remaining(context, tool_timeout_ms())
+
+    if timeout <= 0 do
+      {:error, "Knowledge base search timed out"}
+    else
+      task = Task.Supervisor.async(Zaq.TaskSupervisor, fn -> search(params, context) end)
+
+      case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} -> result
+        _ -> {:error, "Knowledge base search timed out"}
+      end
+    end
+  end
+
+  defp search(params, context) do
     Status.broadcast(
-      Map.get(context, :incoming),
+      context[:incoming],
       :retrieving,
       "ZAQ is searching your knowledge base…",
       Map.get(context, :node_router, NodeRouter)
     )
 
-    person_id = Map.get(context, :person_id)
-    team_ids = Map.get(context, :team_ids, [])
-    source_filter = Map.get(context, :source_filter)
-    node_router_mod = Map.get(context, :node_router, NodeRouter)
-    doc_proc_mod = Map.get(context, :document_processor, DocumentProcessor)
+    case dispatch(:list_chunk_languages, %{}, context) do
+      {:ok, []} -> {:ok, %{chunks: [], sources: [], count: 0, errors: [], partial: false}}
+      {:ok, languages} when is_list(languages) -> search_languages(params, languages, context)
+      {:error, reason} -> {:error, "Knowledge base language discovery failed: #{inspect(reason)}"}
+    end
+  rescue
+    error -> {:error, "Knowledge base search error: #{Exception.message(error)}"}
+  end
 
-    # nil person_id should NEVER grant all permissions.
-    # Admin access must be explicitly granted via skip_permissions: true in context.
-    # If the query has no identified person and is not explicitly an admin,
-    # return only public data (skip_permissions: false, person_id: nil).
-    skip_permissions = Map.get(context, :skip_permissions, false)
+  defp search_languages(params, languages, context) do
+    {queries, translation_errors} = translate_languages(params, languages, context)
 
-    opts =
-      [
-        person_id: person_id,
-        team_ids: team_ids,
-        skip_permissions: skip_permissions,
-        source_filter: source_filter
-      ]
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-
-    try do
-      case dispatch(node_router_mod, :list_chunk_languages, %{}, doc_proc_mod) do
-        {:ok, languages} when is_list(languages) ->
-          search_languages(query, terms, languages, opts, context, node_router_mod, doc_proc_mod)
-
-        {:error, reason} ->
-          {:error, "Knowledge base language discovery failed: #{inspect(reason)}"}
-      end
-    rescue
-      e -> {:error, "Knowledge base search error: #{Exception.message(e)}"}
+    case run_language_searches(params, queries, translation_errors, context) do
+      {:error, :deadline_exceeded} -> {:error, "Knowledge base search timed out"}
+      result -> complete_search(params, result, context)
     end
   end
 
-  defp search_languages(_query, _terms, [], _opts, _context, _router, _processor),
-    do: {:ok, %{chunks: [], count: 0, errors: [], partial: false}}
+  defp complete_search(params, {chunks, errors, successful}, context) do
+    if errors != [],
+      do: Logger.warning("Knowledge base language searches incomplete: #{inspect(errors)}")
 
-  defp search_languages(query, terms, languages, opts, context, router, processor) do
-    {language_queries, translation_errors} =
-      translate_languages(query, terms, languages, context)
-
-    {chunks, search_errors, successful} =
-      run_language_searches(language_queries, opts, router, processor, translation_errors)
-
-    if search_errors != [] do
-      Logger.warning("Knowledge base language searches incomplete: #{inspect(search_errors)}")
-    end
-
-    if successful == 0 and search_errors != [] do
-      {:error, "Knowledge base search failed for all languages: #{inspect(search_errors)}"}
+    if successful == 0 and errors != [] do
+      {:error, "Knowledge base search failed for all languages: #{inspect(errors)}"}
     else
-      merged = merge_chunks(chunks)
+      merged = merge_chunks(chunks, params.search_mode)
 
-      case dispatch(router, :limit_knowledge_results, %{chunks: merged}, processor) do
-        {:ok, limited} when is_list(limited) ->
-          {:ok,
-           %{
-             chunks: limited,
-             count: length(limited),
-             errors: search_errors,
-             partial: search_errors != []
-           }}
+      case execute(RerankKnowledgeResults, %{query: params.query, chunks: merged}, context) do
+        {:ok, %{chunks: ranked}} ->
+          limit_results(ranked, params.max_total_results, errors, context)
 
-        {:error, reason} ->
-          {:error, "Knowledge base context limiting failed: #{inspect(reason)}"}
+        {:error, _} ->
+          {:error, :knowledge_reranking_failed}
       end
     end
   end
 
-  defp translate_languages(query, terms, languages, context) do
-    case Jido.Exec.run(
-           TranslateKnowledgeQuery,
-           %{query: query, lexical_terms: terms, languages: languages},
-           Map.take(context, [:llm_config, :generation])
+  defp limit_results(chunks, maximum, errors, context) do
+    case dispatch(
+           :limit_knowledge_results,
+           %{
+             chunks: chunks,
+             max_total_results: maximum,
+             token_budget: context.result_token_budget
+           },
+           context
          ) do
-      {:ok, %{queries: queries, errors: invalid}} ->
-        {queries,
-         Enum.map(invalid, &%{language: &1, stage: :translation, error: :translation_failed})}
+      {:ok, limited} when is_list(limited) ->
+        {:ok,
+         %{
+           chunks: limited,
+           sources: KnowledgeSources.from_chunks(limited),
+           count: length(limited),
+           errors: errors,
+           partial: errors != []
+         }}
 
-      {:error, _reason} ->
-        {%{},
-         Enum.map(languages, &%{language: &1, stage: :translation, error: :translation_failed})}
+      {:error, reason} ->
+        {:error, "Knowledge base context limiting failed: #{inspect(reason)}"}
     end
   end
 
-  defp run_language_searches(language_queries, opts, router, processor, translation_errors) do
-    searches =
-      language_queries
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Task.async_stream(
-        fn {language, %{semantic_query: semantic, lexical_terms: terms}} ->
-          try do
-            dispatch(
-              router,
-              :search_knowledge_base,
-              %{
-                query: semantic,
-                access_opts: opts ++ [language: language, unbounded: true, lexical_terms: terms]
-              },
-              processor
-            )
-          rescue
-            _error in [RuntimeError, ArgumentError] -> {:error, :search_exception}
-          end
-        end,
-        max_concurrency: 4,
-        timeout: 45_000,
-        on_timeout: :kill_task,
-        ordered: true
-      )
-      |> Enum.to_list()
+  defp translate_languages(params, languages, context) do
+    input =
+      Map.take(params, [:query, :lexical_terms, :search_mode]) |> Map.put(:languages, languages)
 
-    language_queries
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.zip(searches)
+    case execute(
+           TranslateKnowledgeQuery,
+           input,
+           Map.take(
+             context,
+             [:translation_config, :generation, :retrieval_deadline] ++ @trace_context_keys
+           )
+         ) do
+      {:ok, %{queries: queries, errors: invalid}} -> {queries, translation_errors(invalid)}
+      {:error, _} -> {%{}, translation_errors(languages)}
+    end
+  end
+
+  defp translation_errors(languages),
+    do: Enum.map(languages, &%{language: &1, stage: :translation, error: :translation_failed})
+
+  defp run_language_searches(params, queries, translation_errors, context) do
+    sorted = Enum.sort_by(queries, &elem(&1, 0))
+    deadline_limited = remaining(context, 45_000) < 45_000
+
+    searches =
+      Task.Supervisor.async_stream(
+        Zaq.TaskSupervisor,
+        sorted,
+        fn {language, query} -> search_language(params.search_mode, language, query, context) end,
+        max_concurrency: 4,
+        ordered: true,
+        timeout: max(1, remaining(context, 45_000)),
+        on_timeout: :kill_task
+      )
+
+    results = Enum.to_list(searches)
+
+    if deadline_timeout?(results, deadline_limited) do
+      {:error, :deadline_exceeded}
+    else
+      collect_languages(sorted, results, translation_errors)
+    end
+  end
+
+  defp collect_languages(sorted, results, translation_errors) do
+    sorted
+    |> Enum.zip(results)
     |> Enum.reduce({[], translation_errors, 0}, fn {{language, _}, result},
                                                    {chunks, errors, count} ->
       case result do
-        {:ok, {:ok, found}} when is_list(found) ->
+        {:ok, {:ok, %{chunks: found}}} ->
           {chunks ++ found, errors, count + 1}
 
         _ ->
@@ -190,21 +277,125 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     end)
   end
 
-  defp merge_chunks(chunks) do
+  defp search_language("semantic", language, query, context),
+    do:
+      execute(
+        SemanticKnowledgeSearch,
+        %{query: query.semantic_query, language: language},
+        context
+      )
+
+  defp search_language("keyword", language, query, context),
+    do:
+      execute(
+        KeywordKnowledgeSearch,
+        %{lexical_terms: query.lexical_terms, language: language},
+        context
+      )
+
+  defp search_language("hybrid", language, query, context) do
+    legs = [
+      {SemanticKnowledgeSearch, %{query: query.semantic_query, language: language}},
+      {KeywordKnowledgeSearch, %{lexical_terms: query.lexical_terms, language: language}}
+    ]
+
+    deadline_limited = remaining(context, 30_000) < 30_000
+
+    results =
+      Task.Supervisor.async_stream(
+        Zaq.TaskSupervisor,
+        legs,
+        fn {action, input} -> execute(action, input, context) end,
+        max_concurrency: 2,
+        ordered: true,
+        timeout: max(1, remaining(context, 30_000)),
+        on_timeout: :kill_task
+      )
+      |> Enum.to_list()
+
+    case results do
+      [{:ok, {:ok, %{chunks: vector}}}, {:ok, {:ok, %{chunks: lexical}}}] ->
+        execute(
+          FuseKnowledgeResults,
+          %{keyword_chunks: lexical, semantic_chunks: vector},
+          context
+        )
+
+      _ ->
+        if deadline_timeout?(results, deadline_limited),
+          do: {:error, :deadline_exceeded},
+          else: {:error, :search_failed}
+    end
+  end
+
+  defp deadline_timeout?(results, deadline_limited) do
+    Enum.any?(results, fn
+      {:ok, {:error, :deadline_exceeded}} -> true
+      {:exit, :timeout} -> deadline_limited
+      _ -> false
+    end)
+  end
+
+  defp merge_chunks(chunks, mode) do
     chunks
     |> Enum.with_index()
     |> Enum.sort_by(fn {chunk, index} ->
-      {-(chunk["rrf_score"] || 0.0), chunk["language"] || "", chunk["document_id"] || 0,
+      {sort_score(chunk, mode), chunk["language"] || "", chunk["document_id"] || 0,
        chunk["section_path"] || [], chunk["chunk_index"] || index}
     end)
     |> Enum.uniq_by(fn {chunk, index} ->
-      {chunk["document_id"], chunk["section_path"], chunk["chunk_index"] || index}
+      chunk["chunk_id"] ||
+        {chunk["document_id"], chunk["section_path"], chunk["chunk_index"] || index}
     end)
     |> Enum.map(&elem(&1, 0))
   end
 
-  defp dispatch(router, action, request, processor) do
-    event = Event.new(request, :ingestion, opts: [action: action, document_processor: processor])
+  defp sort_score(chunk, "semantic"), do: chunk["vector_distance"] || 2.0
+  defp sort_score(chunk, "keyword"), do: -(chunk["bm25_score"] || 0.0)
+  defp sort_score(chunk, "hybrid"), do: -(chunk["rrf_score"] || 0.0)
+
+  defp remaining(context, maximum),
+    do: min(maximum, context.retrieval_deadline - System.monotonic_time(:millisecond))
+
+  # The supervised orchestration tree owns timeouts and cancellation. Validate
+  # Actions inline in that tree rather than spawning independently owned Jido
+  # timeout workers. Pass only the native operation's trusted context contract.
+  defp execute(action, input, context) do
+    action_context =
+      Map.take(
+        context,
+        @trace_context_keys ++
+          [
+            :person_id,
+            :team_ids,
+            :skip_permissions,
+            :source_filter,
+            :node_router,
+            :document_processor,
+            :execution_actor,
+            :translation_config,
+            :generation,
+            :reranking_config,
+            :reranker,
+            :retrieval_deadline
+          ]
+      )
+
+    ActionContract.execute(action, input, action_context, timeout: 0, max_retries: 0)
+  end
+
+  defp dispatch(action, request, context) do
+    router = Map.get(context, :node_router, NodeRouter)
+
+    event =
+      Event.new(request, :ingestion,
+        actor: context[:execution_actor],
+        opts: [
+          action: action,
+          document_processor: Map.get(context, :document_processor, DocumentProcessor)
+        ]
+      )
+
     router.dispatch(event).response
   end
 end

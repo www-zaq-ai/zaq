@@ -2,9 +2,13 @@ defmodule Zaq.Engine.Workflows.Step.Run do
   @moduledoc """
   Ecto schema for a single step execution within a workflow run.
 
-  One row is written per step execution. The `WorkflowRunAgent` writes a row
+  One row is written per step execution. `StepRunner` writes a row
   with `status: :running` before executing each step (crash-safe cursor),
   then updates it to `completed` or `failed` after the action returns.
+
+  Nested Action lifecycle evidence is appended atomically to `trace_events` by
+  the Workflows context. It is independent from replaceable lifecycle `logs` and
+  business results; callback functions and resource bytes are never stored here.
 
   On rehydration after a crash, the agent queries all rows for the run ordered
   by `step_index` to rebuild `previous_results` and locate the resume cursor.
@@ -46,6 +50,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
     field :results, :map
     field :errors, :map
     field :logs, {:array, :map}, default: []
+    field :trace_events, {:array, :map}, default: []
     field :started_at, :utc_datetime
     field :finished_at, :utc_datetime
 
@@ -65,6 +70,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
       :results,
       :errors,
       :logs,
+      :trace_events,
       :started_at,
       :finished_at
     ])

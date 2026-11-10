@@ -1,3 +1,10 @@
+unless Code.ensure_loaded?(Zaq.Repo.Migrations.RebuildMultilingualContentTsv) do
+  Code.require_file(
+    "../../../priv/repo/migrations/20260923000001_rebuild_multilingual_content_tsv.exs",
+    __DIR__
+  )
+end
+
 defmodule Zaq.Ingestion.FTSBackendTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
@@ -138,11 +145,6 @@ defmodule Zaq.Ingestion.FTSBackendTest do
           language: "french",
           content: "Les voitures rouges traversent la ville"
         })
-
-      Code.require_file(
-        "../../../priv/repo/migrations/20260923000001_rebuild_multilingual_content_tsv.exs",
-        __DIR__
-      )
 
       migration = Zaq.Repo.Migrations.RebuildMultilingualContentTsv
 

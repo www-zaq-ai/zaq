@@ -40,6 +40,7 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
     end
 
     test "returns {:error, _} when script is absent (no real Python env)" do
+      refute File.exists?(Path.join(Runner.scripts_dir(), "image_to_text.py"))
       result = ImageToText.run("/tmp/images", "/tmp/descriptions.json", "test-api-key")
       assert match?({:error, _}, result)
     end
@@ -84,6 +85,7 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
     end
 
     test "returns {:error, _} when script is absent (no real Python env)" do
+      refute File.exists?(Path.join(Runner.scripts_dir(), "image_to_text.py"))
       result = ImageToText.run_single("/tmp/image.png", "/tmp/descriptions.json", "test-api-key")
       assert match?({:error, _}, result)
     end
@@ -120,6 +122,10 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
   end
 
   setup do
+    # Missing-script cases own an empty directory. Success cases add their script
+    # below, so neither path depends on the bundled Python environment.
+    with_temp_scripts_dir()
+
     tmp_dir =
       Path.join(System.tmp_dir!(), "zaq_image_to_text_test_#{System.unique_integer([:positive])}")
 
@@ -132,7 +138,7 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
   # :scripts_dir config override) and writes the fake script there, so tests
   # never mutate the bundled priv/python/crawler-ingest tree.
   defp with_fake_image_to_text_script(opts \\ []) do
-    scripts_dir = with_temp_scripts_dir()
+    scripts_dir = Runner.scripts_dir()
     path = Path.join(scripts_dir, "image_to_text.py")
 
     exit_on_ping = Keyword.get(opts, :exit_on_ping, 0)

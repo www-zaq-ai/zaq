@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.ProviderSpecTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   import Zaq.SystemConfigFixtures
 
@@ -7,6 +8,199 @@ defmodule Zaq.Agent.ProviderSpecTest do
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.ResolvedCredential
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
+
+  describe "operation_runtime/2 reranking" do
+    test "catalog execution contracts preserve provider identity without a native adapter" do
+      credential =
+        ai_credential_fixture(%{
+          provider: "albert",
+          api_key: "test-albert-key"
+        })
+
+      assert {:error, _} = ReqLLM.provider(:albert)
+
+      for id <- ["bge-reranker-v2-m3", "openweight-rerank"] do
+        config = %RAGModelConfig{credential_id: credential.id, model: id}
+
+        assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+        assert model.provider == :albert
+        assert model.id == "bge-reranker-v2-m3"
+        assert model.provider_model_id == "openweight-rerank"
+        assert model.execution.rerank.supported
+        assert opts[:api_key] == "test-albert-key"
+        refute Keyword.has_key?(opts, :temperature)
+        refute Keyword.has_key?(opts, :top_p)
+      end
+    end
+
+    test "catalog reranking preserves the explicitly configured endpoint" do
+      endpoint = "https://reranker.example/v1"
+
+      credential =
+        ai_credential_fixture(%{provider: "albert", endpoint: endpoint, api_key: "test-key"})
+
+      config = %RAGModelConfig{credential_id: credential.id, model: "openweight-rerank"}
+
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+      assert model.provider == :albert
+      assert model.base_url == endpoint
+      assert opts[:base_url] == endpoint
+    end
+
+    test "a catalog model without rerank execution does not fall back to another provider" do
+      credential = ai_credential_fixture(%{provider: "albert", api_key: "test-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "bge-m3"}
+
+      assert {:error, _} = ProviderSpec.operation_runtime(config, :reranking)
+    end
+
+    test "generation rejects a reranking-only model rather than rejecting its provider" do
+      credential = ai_credential_fixture(%{provider: "albert", api_key: "test-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "openweight-rerank"}
+
+      assert {:error, :model_not_supported} = ProviderSpec.operation_runtime(config)
+    end
+
+    test "registered ZAQ Router reranking keeps its configured model and authentication" do
+      credential = ai_credential_fixture(%{provider: "zaq_router", api_key: "test-router-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "Qwen/Qwen3-Reranker-0.6B"}
+
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+      assert model.provider == :zaq_router
+      assert model.id == config.model
+      assert opts[:api_key] == "test-router-key"
+    end
+
+    test "resolves reranking model authentication without text-generation options" do
+      credential = ai_credential_fixture(%{provider: "cohere", api_key: "test-rerank-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "rerank-v3.5"}
+
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+      assert model.provider == :cohere
+      assert model.id == "rerank-v3.5"
+      assert opts[:api_key] == "test-rerank-key"
+      refute Keyword.has_key?(opts, :temperature)
+      refute Keyword.has_key?(opts, :top_p)
+    end
+
+    test "rejects a configured model without reranking capability" do
+      credential = ai_credential_fixture(%{provider: "openai", api_key: "test-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "gpt-4.1-mini"}
+      assert {:error, _} = ProviderSpec.operation_runtime(config, :reranking)
+    end
+
+    test "missing credential or incomplete selection returns an error" do
+      for config <- [
+            %RAGModelConfig{},
+            %RAGModelConfig{model: "rerank-v3.5"},
+            %RAGModelConfig{credential_id: -1, model: "rerank-v3.5"}
+          ] do
+        assert {:error, _} = ProviderSpec.operation_runtime(config, :reranking)
+      end
+    end
+  end
+
+  describe "mixed-operation catalog providers" do
+    test "agent preflight and dedicated generation use the same chat compatibility path" do
+      endpoint = "https://albert.api.etalab.gouv.fr/v1"
+
+      credential =
+        ai_credential_fixture(%{provider: "albert", endpoint: endpoint, api_key: "test-key"})
+
+      {:ok, provider} = LLMDB.provider(:albert)
+      refute provider.catalog_only
+
+      for id <- ["gpt-oss-120b", "openweight-large"] do
+        agent = %ConfiguredAgent{credential: credential, model: id}
+        assert {:ok, :openai} = Zaq.Agent.runtime_provider_for_agent(agent)
+
+        assert {:ok, %{provider: :openai, id: ^id, base_url: ^endpoint}} =
+                 ProviderSpec.build(agent)
+
+        config = %RAGModelConfig{credential_id: credential.id, model: id}
+        assert {:ok, model, opts} = ProviderSpec.operation_runtime(config)
+        assert model.provider == :openai
+        assert model.id == id
+        assert model.base_url == endpoint
+        assert opts[:api_key] == "test-key"
+        assert opts[:base_url] == endpoint
+      end
+
+      config = %RAGModelConfig{credential_id: credential.id, model: "openweight-rerank"}
+      assert {:ok, %{provider: :albert}, _} = ProviderSpec.operation_runtime(config, :reranking)
+    end
+
+    test "compatibility fallback requires a selected catalog chat model and explicit endpoint" do
+      for {model, endpoint, reason} <- [
+            {"not-in-the-catalog", "https://provider.example/v1", :provider_not_supported},
+            {"gpt-oss-120b", nil, :provider_not_supported},
+            {"bge-m3", "https://provider.example/v1", :model_not_supported},
+            {"mistral-ocr-2512", "https://provider.example/v1", :model_not_supported},
+            {"whisper-large-v3", "https://provider.example/v1", :model_not_supported}
+          ] do
+        agent = %ConfiguredAgent{
+          model: model,
+          credential: %{provider: "albert", endpoint: endpoint}
+        }
+
+        assert {:error, ^reason} = ProviderSpec.build(agent)
+        assert {:error, ^reason} = Zaq.Agent.runtime_provider_for_agent(agent)
+      end
+    end
+
+    test "Albert generation reaches the configured endpoint through real ReqLLM" do
+      credential =
+        ai_credential_fixture(%{
+          provider: "albert",
+          endpoint: "https://albert.api.etalab.gouv.fr/v1",
+          api_key: "test-generation-key"
+        })
+
+      config = %RAGModelConfig{credential_id: credential.id, model: "openweight-large"}
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config)
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        assert conn.host == "albert.api.etalab.gouv.fr"
+        assert conn.request_path == "/v1/chat/completions"
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test-generation-key"]
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        assert Jason.decode!(body)["model"] == "openweight-large"
+
+        Req.Test.json(conn, %{
+          id: "albert-chat",
+          object: "chat.completion",
+          model: "openweight-large",
+          choices: [
+            %{index: 0, message: %{role: "assistant", content: "Hello"}, finish_reason: "stop"}
+          ],
+          usage: %{prompt_tokens: 1, completion_tokens: 1, total_tokens: 2}
+        })
+      end)
+
+      opts = Keyword.put(opts, :req_http_options, plug: {Req.Test, __MODULE__}, retry: false)
+      assert {:ok, response} = ReqLLM.generate_text(model, "Hello", opts)
+      assert ReqLLM.Response.text(response) == "Hello"
+    end
+
+    property "catalog non-chat models cannot become generation models through endpoint fallback" do
+      candidates =
+        for provider <- LLMDB.providers(),
+            model <- LLMDB.models(provider.id),
+            get_in(model.capabilities, [:chat]) == false,
+            do: {provider.id, model.id}
+
+      check all({provider, id} <- member_of(candidates), max_runs: 50) do
+        agent = %ConfiguredAgent{
+          model: id,
+          credential: %{provider: to_string(provider), endpoint: "https://provider.example/v1"}
+        }
+
+        assert {:error, :model_not_supported} = ProviderSpec.build(agent)
+        assert {:error, :model_not_supported} = Zaq.Agent.runtime_provider_for_agent(agent)
+      end
+    end
+  end
 
   # Minimal ConfiguredAgent map used across tests — only the fields ProviderSpec touches.
   defp agent_base do
@@ -23,6 +217,67 @@ defmodule Zaq.Agent.ProviderSpecTest do
       active: true,
       advanced_options: %{}
     }
+  end
+
+  describe "known_provider?/1" do
+    test "recognizes catalog identities independently of generation adapter fallback" do
+      assert ProviderSpec.known_provider?(:openai)
+      assert ProviderSpec.known_provider?("OpenAI")
+      assert ProviderSpec.known_provider?(:albert)
+      assert ProviderSpec.known_provider?("AlBeRt")
+
+      agent = %ConfiguredAgent{
+        model: "openweight-large",
+        credential: %{provider: "AlBeRt", endpoint: "https://albert.api.etalab.gouv.fr/v1"}
+      }
+
+      assert {:ok, %{provider: :openai}} = ProviderSpec.build(agent)
+    end
+
+    test "recognizes registered providers that are absent from the catalog" do
+      assert {:error, _} = LLMDB.provider(:openai_codex)
+
+      for provider <- [:openai_codex, "openai_codex", "OPENAI_CODEX", :zaq_router] do
+        assert ProviderSpec.known_provider?(provider)
+      end
+    end
+
+    test "an unknown custom endpoint can execute without becoming a known provider" do
+      provider = "unregistered-provider-spec-#{System.unique_integer([:positive, :monotonic])}"
+
+      agent = %ConfiguredAgent{
+        model: "custom-model",
+        credential: %{provider: provider, endpoint: "https://custom.example/v1"}
+      }
+
+      refute ProviderSpec.known_provider?(provider)
+      assert {:ok, %{provider: :openai}} = ProviderSpec.build(agent)
+      assert_raise ArgumentError, fn -> String.to_existing_atom(provider) end
+    end
+
+    test "existing atoms and invalid inputs are not sufficient for recognition" do
+      for provider <- [:unregistered_provider_spec_atom, nil, "", 42, %{}, ["openai"]] do
+        refute ProviderSpec.known_provider?(provider)
+      end
+    end
+
+    property "catalog and registered identities are recognized across input forms" do
+      providers = Enum.map(LLMDB.providers(), & &1.id) ++ ReqLLM.Providers.list()
+
+      check all(provider <- member_of(providers)) do
+        assert ProviderSpec.known_provider?(provider)
+        assert ProviderSpec.known_provider?(Atom.to_string(provider))
+        assert ProviderSpec.known_provider?(provider |> Atom.to_string() |> String.upcase())
+      end
+    end
+
+    property "unknown provider recognition never creates atoms" do
+      check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 40)) do
+        provider = "unregistered-provider-spec-#{suffix}"
+        refute ProviderSpec.known_provider?(provider)
+        assert_raise ArgumentError, fn -> String.to_existing_atom(provider) end
+      end
+    end
   end
 
   describe "reqllm_provider/1" do
@@ -255,21 +510,6 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert {:ok, spec} = ProviderSpec.build(configured_agent)
       assert spec.provider == :openai
       assert spec.base_url == "https://pre-attached.example.com/v1"
-    end
-  end
-
-  describe "build/0" do
-    test "returns a spec map with provider and id from seeded LLM config" do
-      seed_llm_config(%{
-        provider: "openai",
-        endpoint: "http://test-llm.example.com/v1",
-        api_key: "build-zero-key"
-      })
-
-      spec = ProviderSpec.build()
-      assert is_map(spec)
-      assert spec.provider == :openai
-      assert is_binary(spec.id)
     end
   end
 
@@ -561,10 +801,10 @@ defmodule Zaq.Agent.ProviderSpecTest do
       refute opts[:api_key] == db_credential.api_key
     end
 
-    test "returns empty list when no credential and no credential_id" do
+    test "returns agent sampling when no credential and no credential_id" do
       agent = %{agent_base() | credential: nil, credential_id: nil}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts == []
+      assert opts == [temperature: 0.0, top_p: 0.9]
     end
 
     test "nil credential values are omitted from opts" do
@@ -601,17 +841,17 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert opts[:provider_options][:chatgpt_account_id] == "acct_123"
     end
 
-    test "atom keys in advanced_options are included" do
+    test "dedicated sampling overrides overlapping atom keys in advanced_options" do
       agent = %{agent_base() | advanced_options: %{temperature: 0.5, top_p: 0.8}}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts[:temperature] == 0.5
-      assert opts[:top_p] == 0.8
+      assert opts[:temperature] == 0.0
+      assert opts[:top_p] == 0.9
     end
 
-    test "string keys in advanced_options are converted to atoms" do
+    test "dedicated sampling overrides overlapping string keys in advanced_options" do
       agent = %{agent_base() | advanced_options: %{"temperature" => 0.3}}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts[:temperature] == 0.3
+      assert opts[:temperature] == 0.0
     end
 
     test "unknown string keys in advanced_options are silently dropped" do
@@ -626,13 +866,13 @@ defmodule Zaq.Agent.ProviderSpecTest do
       }
 
       opts = ProviderSpec.llm_opts(agent)
-      assert opts == []
+      assert opts == [temperature: 0.0, top_p: 0.9]
     end
 
-    test "nil advanced_options returns empty list (plus any credential keys)" do
+    test "nil advanced_options retains explicit agent sampling" do
       agent = %{agent_base() | advanced_options: nil, credential: nil, credential_id: nil}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts == []
+      assert opts == [temperature: 0.0, top_p: 0.9]
     end
   end
 

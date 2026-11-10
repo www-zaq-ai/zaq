@@ -45,20 +45,136 @@ direct page access from lazily starting persistence while Studio is disabled.
 AI model settings are configured in Back Office at `/bo/system-config` and
 persisted in `system_configs`.
 
-- LLM config is read via `Zaq.System.get_llm_config/0`
+The **RAG** tab groups embeddings and chunking, image-to-text, Retrieval, re-ranking,
+while Global owns the decision model selection. Retrieval sits below Image to text and
+contains the Knowledge-query translation credential/model selection. Retrieval tuning
+(maximum cosine distance and hybrid BM25/vector fusion weights) is under its collapsed
+**Advanced settings** and saves independently of embedding or translation changes.
+Embedding model/dimension locking, unlock acknowledgement and destructive-save
+confirmation remain in place. The former embedding and image-to-text tab URLs
+continue to open RAG.
+
+Specialized selectors use saved AI provider credentials and filter their models
+by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
+modality for decision models. Changing credentials clears the model selection;
+incompatible catalog submissions are rejected by System persistence for both BO and Engine callers.
+Custom endpoints without a catalog accept explicitly supplied model IDs; changing
+credentials cannot implicitly carry a previous provider's model into a custom endpoint.
+All AI model configuration forms share `DesignSystem.AIModelSelector`, including
+manual model entry and catalog modalities. Missing modality metadata is displayed
+as unknown, not inferred from the model name. These selections
+are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
+`global.decision_model.credential_id` and `global.decision_model.model`. The decision
+pair is read and saved through `get_decision_model_config/0` and
+`save_decision_model_config/1`; legacy RAG decision APIs delegate to that namespace.
+Re-ranking is active in
+`SearchKnowledgeBase` for every search mode: the selected model ranks the merged
+authorized chunks before the global count/token limits. With both reranking
+fields unconfigured, results are unchanged. A partial/broken selection,
+unsupported model, authentication failure, provider error or timeout fails the
+search rather than silently using unre-ranked results. Runtime authentication
+uses the existing System/Connect boundary and provider adapters; ReqLLM owns
+reranking inference and batching, without text-generation sampling options.
+Catalog rerank execution contracts retain the configured provider identity even
+when ReqLLM has no dedicated provider module. Endpoint paths come from the catalog;
+ZAQ does not rewrite provider-specific paths. Reranking child traces reuse
+`Zaq.Agent.ErrorMessage` diagnostic categories, retaining only fixed failure
+stages/reasons and typed HTTP status codes, never raw provider errors,
+response bodies or credential details. The outer search failure remains
+`knowledge_reranking_failed`.
+ZAQ Router declares the reranking `/rerank` and decision `/v1/systemone`
+execution contracts in its catalog overlay. Both delegate to ReqLLM's shared
+catalog gateway, preserving the configured gateway identity, endpoint,
+credentials and model ID. ReqLLM owns URL joining and wire encoding/decoding;
+ZAQ does not rewrite the model provider or implement endpoint routing.
+No denied content is sent to the model.
+Referenced AI credentials cannot be deleted until the selection is cleared.
+
+The global decision model is used by `EvaluateDecisions` from workflows and
+explicitly enabled agent tools. An unconfigured or unsupported model fails the
+operation; it never falls back to a conversational model. The deployed gateway
+must serve the declared decision route; catalog compatibility is not evidence of
+endpoint availability.
+
+`OperationModelConfig` validates all dedicated credential/model selections.
+Decision and reranking changesets accept only the pair; sampling parameters are
+accepted and persisted only for generation selections. Provider availability in
+the credential selector includes executable catalog contracts, not just native
+ReqLLM provider registrations, so providers such as Albert remain selectable.
+
+The decision migration copies the legacy `rag.decision.*` pair only when neither
+global decision key exists. Empty and partial selections are preserved; any existing
+global row takes precedence for the whole pair. Legacy rows remain inactive snapshots,
+not live configuration or credential references. Downgrades preserve global edits;
+rolling back to a release that reads legacy keys requires explicit reconciliation.
+
+Existing saved reranking selections become active on deployment. Verify the
+selected provider/model before rollout; clear the selection to disable reranking.
+There is no fallback to the global LLM or another model when this selection fails.
+
+Retrieval settings retain their existing `llm.max_cosine_distance`,
+`llm.fusion_bm25_weight` and `llm.fusion_vector_weight` keys for runtime
+compatibility. Retrieval-only saves do not require a configured chat credential
+and do not overwrite chat settings.
+
+### Dedicated text-generation models
+
+`Zaq.System.get_operation_model_config/1` and `save_operation_model_config/2` own
+the `:translation` and `:small` selections. Translation uses `rag.translation.*`;
+Global settings' **Small model** uses `global.small_model.*` for conversation titles.
+Each stores `credential_id`, `model`, `temperature` and `top_p`. Sampling belongs to
+the operation, not the global LLM, and is not exposed as extra controls in this UI.
+Text-output catalog models are eligible; catalog-free custom endpoints accept a
+model ID. A catalog with no eligible text models displays an empty selector, not
+manual entry. Pair saves are atomic; operation and specialized RAG selections are
+read in a single database snapshot. Referenced credentials cannot be deleted.
+
+The rollout snapshots configured legacy global pairs and sampling once, without
+overwriting existing dedicated settings. Fresh installations remain unconfigured
+until explicitly configured or [portal provisioning](onboarding.md#provisioning-details-provisioner)
+initializes its router defaults for both operations. Portal retries preserve
+customized, partial, sampling-only and explicitly cleared settings.
+Subsequent global changes do not affect these operations. Unconfigured translation
+reports failed target languages while preserving simple-language searches; title
+generation returns its deterministic first-message fallback. Neither falls back to
+the global model. Runtime authentication uses the existing confidential System/Engine
+credential boundary and ProviderSpec adapters, including no-auth and OAuth handling.
+ReqLLM's provider/model parameter profiles own sampling restrictions (such as dropping
+unsupported parameters); these consumers do not add provider-specific branches.
+
+The LLM tab is removed; old `?tab=llm` links redirect to RAG. Configured agents
+own chat model selection and sampling. Retrieval uses `RetrievalConfig` through
+`get_retrieval_config/0` and `save_retrieval_config/1`, without loading chat
+credentials. Cosine distance and fusion weights retain their `llm.*` storage keys.
+Search results use an explicit caller token budget, currently 20% of the invoking
+agent's maximum context size, rather than `llm.max_context_window`.
+The legacy LLM schema and read/save APIs are removed. Portal provisioning creates
+a configured assistant instead of writing global LLM settings. Existing global
+chat-model rows are left untouched but no longer consumed; a stale
+`llm.credential_id` does not block provider deletion. Active model references
+remain protected. Historical migrations retain legacy-key reads for upgrades;
+do not drop the entire `llm.*` namespace because retrieval still uses it.
+Engine no longer exposes the legacy global-LLM read/save UI events. The legacy LLM
+diagnostics probe is removed, while embedding, image-to-text, Python and token
+diagnostics remain. Configured agents persist their own sampling values;
+new agents receive temperature `0.0` and top_p `0.9` without requiring user input.
+Existing agents snapshot JSON overrides, or legacy global values when an override
+key is absent. Each field accepts finite numeric values and numeric strings within
+its range (`temperature`: 0–2 inclusive; `top_p`: greater than 0 through 1).
+Malformed, null, non-finite and out-of-range values become the fixed defaults
+`0.0`/`0.9`, independently; values are never clamped. Invalid explicit overrides
+do not inherit global settings. Migrated JSON retains unrelated options. Dedicated
+fields take precedence over duplicate Advanced options JSON keys at runtime.
+
+- Retrieval config is read via `Zaq.System.get_retrieval_config/0`
 - Embedding config is read via `Zaq.System.get_embedding_config/0`
 - Image-to-text config is read via `Zaq.System.get_image_to_text_config/0`
 
-### LLM Keys
+### Retrieval Keys (retained storage namespace)
 
-- `llm.credential_id`
-- `llm.model`
-- `llm.temperature`
-- `llm.top_p`
-- `llm.supports_logprobs`
-- `llm.supports_json_mode`
-- `llm.max_context_window`
-- `llm.distance_threshold`
+- `llm.max_cosine_distance`
+- `llm.fusion_bm25_weight`
+- `llm.fusion_vector_weight`
 
 ### Embedding Keys
 
@@ -82,6 +198,12 @@ row's associated canonical Connect credential and org grant; the legacy AI `api_
 column is not a runtime source.
 
 ### Connect-backed AI credentials
+
+Portal provisioning records non-secret claim provenance in the AI credential's
+`metadata["user_portal_claim"]` (version and validated email), atomically with the
+credential/authentication write. `UserPortal.Provisioner` owns its interpretation
+for local bootstrap retries; it is not an authentication mode or a secret store.
+See [onboarding](onboarding.md#provisioning-details-provisioner).
 
 Every AI provider credential has one unique `connect_credential_id`. System owns the
 AI-specific provider/endpoint record and maps administrator authentication writes to

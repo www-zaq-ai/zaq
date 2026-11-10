@@ -282,7 +282,6 @@ defmodule ZaqWeb.WidgetHostIntegrationTest do
       )
 
     start_supervised!(spec)
-    OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
 
     credential =
       Zaq.SystemConfigFixtures.ai_credential_fixture(%{

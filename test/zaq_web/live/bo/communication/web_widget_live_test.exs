@@ -109,6 +109,118 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     refute Repo.get!(ChannelConfig, config.id).enabled
   end
 
+  test "widget edit modal reuses streamed-update controls and retains unsaved ordinary edits",
+       %{
+         conn: conn
+       } do
+    configure_adapter(nil)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    refute has_element?(view, "[id^='stream-updates-']")
+    view |> element("#new-widget-config") |> render_click()
+    create(view, "Stream settings widget")
+    config = Repo.get_by!(ChannelConfig, name: "Stream settings widget")
+    previous = config.settings
+    selector = "#stream-updates-#{config.id}"
+    assert has_element?(view, "#widget-config-modal #{selector}")
+    assert has_element?(view, "#widget-config-form #{selector}")
+
+    view
+    |> form("#widget-config-form", widget: %{"name" => "Unsaved widget name"})
+    |> render_change()
+
+    view
+    |> form("#widget-config-form",
+      live_updates: %{"throttle_enabled" => "false", "triggers" => %{"reasoning" => "false"}}
+    )
+    |> render_change()
+
+    assert Repo.get!(ChannelConfig, config.id).settings == previous
+    assert Repo.get!(ChannelConfig, config.id).name == config.name
+    refute has_element?(view, "button", "Save streamed updates")
+
+    assert render(view) =~
+             "When off, selected events can trigger updates without a minimum time interval."
+
+    view |> form("#widget-config-form") |> render_submit()
+
+    saved = Repo.get!(ChannelConfig, config.id)
+    assert Map.delete(saved.settings, "live_updates") == previous
+    refute saved.settings["live_updates"]["throttle_enabled"]
+    refute saved.settings["live_updates"]["triggers"]["reasoning"]
+    refute saved.enabled
+    assert render(view) =~ "Progress/status messages are unaffected"
+    assert Repo.get!(ChannelConfig, config.id).name == "Unsaved widget name"
+
+    assert Repo.get!(ChannelConfig, config.id).settings["live_updates"] ==
+             saved.settings["live_updates"]
+  end
+
+  test "streamed settings in an old widget edit modal cannot overwrite a newer connector", %{
+    conn: conn
+  } do
+    configure_adapter(nil)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    view |> element("#new-widget-config") |> render_click()
+    create(view, "Stale stream settings widget")
+    config = Repo.get_by!(ChannelConfig, name: "Stale stream settings widget")
+    Repo.update!(Ecto.Changeset.change(config, name: "Changed elsewhere"))
+
+    view
+    |> form("#widget-config-form", live_updates: %{"enabled" => "false"})
+    |> render_submit()
+
+    assert render(view) =~ "Configuration changed elsewhere"
+    assert Repo.get!(ChannelConfig, config.id).name == "Changed elsewhere"
+    refute Map.has_key?(Repo.get!(ChannelConfig, config.id).settings, "live_updates")
+  end
+
+  test "widget Cancel discards streamed preferences and ordinary fields", %{conn: conn} do
+    configure_adapter(nil)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    create(view, "Cancel settings")
+    config = Repo.get_by!(ChannelConfig, name: "Cancel settings")
+
+    view
+    |> form("#widget-config-form",
+      widget: %{"name" => "Discarded"},
+      live_updates: %{"enabled" => "false"}
+    )
+    |> render_change()
+
+    view |> element("#close-widget-modal") |> render_click()
+    view |> element("#edit-widget-#{config.id}") |> render_click()
+    assert has_element?(view, "#widget_name[value='Cancel settings']")
+    assert has_element?(view, "input[name='live_updates[enabled]'][type='checkbox'][checked]")
+    refute Map.has_key?(Repo.get!(ChannelConfig, config.id).settings, "live_updates")
+  end
+
+  test "widget invalid interval keeps both settings unchanged and permits correction", %{
+    conn: conn
+  } do
+    configure_adapter(nil)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    create(view, "Atomic widget")
+    config = Repo.get_by!(ChannelConfig, name: "Atomic widget")
+
+    view
+    |> form("#widget-config-form",
+      widget: %{"name" => "Edited widget"},
+      live_updates: %{"min_interval_ms" => "0"}
+    )
+    |> render_submit()
+
+    assert render(view) =~ "must be a positive integer"
+    assert Repo.get!(ChannelConfig, config.id).name == config.name
+    assert Repo.get!(ChannelConfig, config.id).settings == config.settings
+
+    view
+    |> form("#widget-config-form", live_updates: %{"min_interval_ms" => "350"})
+    |> render_submit()
+
+    assert Repo.get!(ChannelConfig, config.id).name == "Edited widget"
+    assert Repo.get!(ChannelConfig, config.id).settings["live_updates"]["min_interval_ms"] == 350
+  end
+
   test "key is revealed once, dismissal and connector switching remove it", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
     create(view, "Support")

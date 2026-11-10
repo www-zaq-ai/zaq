@@ -7,6 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Agent.ProviderModels
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
@@ -23,9 +24,10 @@ defmodule Zaq.System do
   alias Zaq.System.HttpCredentialProvider
   alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.LLMConfig
+  alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
+  alias Zaq.System.RetrievalConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
   alias Zaq.Types.EncryptedString
@@ -39,8 +41,6 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold max_cosine_distance fusion_bm25_weight fusion_vector_weight)
-  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold max_cosine_distance fusion_bm25_weight fusion_vector_weight)
   @embedding_read_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_read_fields ~w(credential_id model)
@@ -96,11 +96,12 @@ defmodule Zaq.System do
     )
   end
 
-  @doc "Returns globally configured default agent id, or nil when unset."
-  @spec get_global_default_agent_id() :: integer() | nil
-  def get_global_default_agent_id do
+  @doc "Returns the global agent ID, or nil; `include_none: true` distinguishes an explicit None rule."
+  @spec get_global_default_agent_id(keyword()) :: integer() | nil | :none
+  def get_global_default_agent_id(opts \\ []) do
     case IncomingMessageRouting.get_rule(%{}) do
       %{routing_mode: :agent, configured_agent_id: configured_agent_id} -> configured_agent_id
+      %{routing_mode: :none} -> if Keyword.get(opts, :include_none, false), do: :none
       _ -> nil
     end
   end
@@ -510,47 +511,193 @@ defmodule Zaq.System do
     end
   end
 
-  # ── LLM ───────────────────────────────────────────────────────────────
+  # ── Model and retrieval settings ──────────────────────────────────────
 
-  @doc "Loads LLM configuration from DB as `%LLMConfig{}`."
-  def get_llm_config do
-    keys = Enum.map(@llm_read_fields, &"llm.#{&1}")
-    rows = Repo.all(from c in Config, where: c.key in ^keys)
-    raw = Map.new(rows, fn row -> {String.replace_prefix(row.key, "llm.", ""), row.value} end)
-    build_llm_config(raw)
+  # One statement gives related keys the same database snapshot during saves.
+  defp read_config_fields(namespace, fields) do
+    keys = Enum.map(fields, &"#{namespace}.#{&1}")
+
+    Repo.all(from c in Config, where: c.key in ^keys)
+    |> Map.new(fn row -> {String.replace_prefix(row.key, namespace <> ".", ""), row.value} end)
   end
 
-  defp build_llm_config(raw) do
-    config =
-      %LLMConfig{
-        credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
-        provider: "custom",
-        endpoint: "http://localhost:11434/v1",
-        api_key: "",
-        model: raw["model"] || "llama-3.3-70b-instruct",
-        temperature: ParseUtils.parse_float(raw["temperature"], 0.0),
-        top_p: ParseUtils.parse_float(raw["top_p"], 0.9),
-        path: raw["path"] || "/chat/completions",
-        supports_logprobs: ParseUtils.parse_bool(raw["supports_logprobs"], true),
-        supports_json_mode: ParseUtils.parse_bool(raw["supports_json_mode"], true),
-        max_context_window: ParseUtils.parse_int(raw["max_context_window"], 5_000),
-        distance_threshold: ParseUtils.parse_float(raw["distance_threshold"], 1.2),
-        max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.45),
-        fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
-        fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
-      }
+  @doc "Loads retrieval tuning without resolving legacy chat credentials."
+  @spec get_retrieval_config() :: RetrievalConfig.t()
+  def get_retrieval_config do
+    raw =
+      read_config_fields("llm", ~w(max_cosine_distance fusion_bm25_weight fusion_vector_weight))
 
-    merge_connection_fields_from_credential(config)
+    %RetrievalConfig{
+      max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.45),
+      fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
+      fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
+    }
   end
 
-  @doc "Persists LLM settings from a validated `%LLMConfig{}` changeset."
-  def save_llm_config(%Ecto.Changeset{valid?: true} = changeset) do
-    config = Ecto.Changeset.apply_changes(changeset)
-    persist_config_values(@llm_write_fields, "llm", config)
-    {:ok, get_llm_config()}
+  @doc "Persists retrieval tuning without changing legacy model configuration."
+  @spec save_retrieval_config(map()) :: {:ok, RetrievalConfig.t()} | {:error, Ecto.Changeset.t()}
+  def save_retrieval_config(attrs) when is_map(attrs) do
+    changeset = RetrievalConfig.changeset(get_retrieval_config(), attrs)
+
+    if changeset.valid? do
+      config = Ecto.Changeset.apply_changes(changeset)
+
+      with {:ok, _} <-
+             persist_config_fields(
+               ~w(max_cosine_distance fusion_bm25_weight fusion_vector_weight),
+               "llm",
+               config
+             ) do
+        {:ok, get_retrieval_config()}
+      end
+    else
+      {:error, changeset}
+    end
   end
 
-  def save_llm_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
+  @doc "Loads the RAG reranking selection; legacy decision calls delegate to the global owner."
+  def get_rag_model_config(:decision), do: get_decision_model_config()
+  def get_rag_model_config(:reranking), do: get_specialized_model_config(:reranking)
+
+  defp get_specialized_model_config(kind) do
+    raw = read_config_fields(specialized_model_prefix(kind), ~w(credential_id model))
+
+    %OperationModelConfig{
+      credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
+      model: blank_to_nil(raw["model"])
+    }
+  end
+
+  @doc "Whether a dedicated model selection has been saved, including an explicit empty selection."
+  @spec model_config_initialized?(:translation | :small | :reranking | :decision) :: boolean()
+  def model_config_initialized?(kind) when kind in [:translation, :small] do
+    map_size(
+      read_config_fields(operation_model_prefix(kind), ~w(credential_id model temperature top_p))
+    ) > 0
+  end
+
+  def model_config_initialized?(kind) when kind in [:reranking, :decision] do
+    map_size(read_config_fields(specialized_model_prefix(kind), ~w(credential_id model))) > 0
+  end
+
+  @doc "Saves RAG reranking; legacy decision calls delegate to the global owner."
+  def save_rag_model_config(:decision, attrs), do: save_decision_model_config(attrs)
+
+  def save_rag_model_config(:reranking, attrs),
+    do: save_specialized_model_config(:reranking, attrs)
+
+  defp save_specialized_model_config(kind, attrs) when is_map(attrs) do
+    changeset = OperationModelConfig.changeset(get_specialized_model_config(kind), attrs, kind)
+
+    # A custom endpoint cannot validate a model inherited from another credential.
+    # Require the caller to explicitly select its model when changing credentials.
+    allow_custom? =
+      not Map.has_key?(changeset.changes, :credential_id) or
+        Map.has_key?(attrs, :model) or Map.has_key?(attrs, "model")
+
+    changeset =
+      validate_model_selection(
+        changeset,
+        &OperationModelConfig.supports?(&1, kind),
+        allow_custom?
+      )
+
+    if changeset.valid? do
+      config = Ecto.Changeset.apply_changes(changeset)
+
+      with {:ok, _} <-
+             persist_config_fields(
+               ~w(credential_id model),
+               specialized_model_prefix(kind),
+               config
+             ) do
+        {:ok, get_specialized_model_config(kind)}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  @doc "Returns the global decision credential/model pair in one snapshot."
+  @spec get_decision_model_config() :: OperationModelConfig.t()
+  def get_decision_model_config, do: get_specialized_model_config(:decision)
+
+  @doc "Validates and atomically saves the global decision selection."
+  @spec save_decision_model_config(map()) ::
+          {:ok, OperationModelConfig.t()} | {:error, Ecto.Changeset.t()}
+  def save_decision_model_config(attrs), do: save_specialized_model_config(:decision, attrs)
+
+  defp specialized_model_prefix(:decision), do: "global.decision_model"
+  defp specialized_model_prefix(:reranking), do: "rag.reranking"
+
+  @doc "Loads an independent translation or small-model selection, without resolving secrets."
+  def get_operation_model_config(kind) when kind in [:translation, :small] do
+    raw =
+      read_config_fields(operation_model_prefix(kind), ~w(credential_id model temperature top_p))
+
+    %OperationModelConfig{
+      credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
+      model: blank_to_nil(raw["model"]),
+      temperature: ParseUtils.parse_float(raw["temperature"], 0.0),
+      top_p: ParseUtils.parse_float(raw["top_p"], 0.9)
+    }
+  end
+
+  @doc "Atomically saves a dedicated operation selection and sampling."
+  def save_operation_model_config(kind, attrs) when kind in [:translation, :small] do
+    changeset =
+      get_operation_model_config(kind)
+      |> OperationModelConfig.changeset(attrs)
+      |> validate_model_selection(&OperationModelConfig.supports?/1, true)
+
+    if changeset.valid? do
+      config = Ecto.Changeset.apply_changes(changeset)
+
+      with {:ok, _} <-
+             persist_config_fields(
+               ~w(credential_id model temperature top_p),
+               operation_model_prefix(kind),
+               config
+             ) do
+        {:ok, get_operation_model_config(kind)}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp validate_model_selection(%{valid?: false} = changeset, _supports?, _allow_custom?),
+    do: changeset
+
+  defp validate_model_selection(changeset, supports?, allow_custom?) do
+    id = Ecto.Changeset.get_field(changeset, :credential_id)
+    model = Ecto.Changeset.get_field(changeset, :model)
+
+    case {id, id && get_ai_provider_credential(id)} do
+      {nil, _} ->
+        changeset
+
+      {_, nil} ->
+        Ecto.Changeset.add_error(changeset, :credential_id, "does not exist")
+
+      {_, credential} ->
+        validate_catalog_model(changeset, credential, model, supports?, allow_custom?)
+    end
+  end
+
+  defp validate_catalog_model(changeset, credential, model, supports?, allow_custom?) do
+    models = ProviderModels.models_for_credential(credential)
+
+    if (allow_custom? and models == []) or
+         Enum.any?(models, &(&1.id == model and supports?.(&1))) do
+      changeset
+    else
+      Ecto.Changeset.add_error(changeset, :model, "is not a compatible model for this provider")
+    end
+  end
+
+  defp operation_model_prefix(:translation), do: "rag.translation"
+  defp operation_model_prefix(:small), do: "global.small_model"
 
   # ── Embedding ─────────────────────────────────────────────────────────
 
@@ -977,7 +1124,14 @@ defmodule Zaq.System do
   defp credential_usage_keys(id) do
     id_value = to_string(id)
 
-    ["llm.credential_id", "embedding.credential_id", "image_to_text.credential_id"]
+    [
+      "embedding.credential_id",
+      "image_to_text.credential_id",
+      "rag.reranking.credential_id",
+      "rag.translation.credential_id",
+      "global.small_model.credential_id",
+      "global.decision_model.credential_id"
+    ]
     |> Enum.filter(fn key -> get_config(key) == id_value end)
   end
 
@@ -988,6 +1142,21 @@ defmodule Zaq.System do
       value = encrypted_field_value(field, config)
       set_config("#{namespace}.#{field}", value)
     end)
+  end
+
+  defp persist_config_fields(fields, namespace, config) do
+    Repo.transaction(fn ->
+      Enum.each(fields, fn field ->
+        persist_config_field(field, namespace, config)
+      end)
+    end)
+  end
+
+  defp persist_config_field(field, namespace, config) do
+    case set_config("#{namespace}.#{field}", encrypted_field_value(field, config)) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp encrypted_field_value(field, config)

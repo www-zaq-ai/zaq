@@ -1,10 +1,50 @@
 defmodule Zaq.Agent.Tools.ErrorTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
+  alias Jido.Action.Error, as: ActionError
+  alias Jido.Action.Error.TimeoutError
   alias Zaq.Agent.Tools.Error
 
   defmodule NotAnExceptionStruct do
     defstruct [:detail]
+  end
+
+  test "trace summaries remain JSON safe when the message limit splits a Unicode codepoint" do
+    message = String.duplicate("é", 149) <> "€" <> String.duplicate("é", 10)
+    summary = Error.trace_summary(ActionError.execution_error(message))
+    assert String.valid?(summary.message)
+    assert {:ok, _} = Jason.encode(summary)
+    assert summary.message == String.duplicate("é", 149) <> "..."
+  end
+
+  property "trace error summaries are bounded valid JSON for Unicode messages" do
+    check all(message <- string(:utf8, min_length: 1, max_length: 500), max_runs: 20) do
+      summary = Error.trace_summary(ActionError.execution_error(message))
+      assert String.valid?(summary.message)
+      assert byte_size(summary.message) <= 303
+      assert {:ok, _} = Jason.encode(summary)
+    end
+  end
+
+  test "trace summaries retain only bounded messages from known Action errors" do
+    for error <- [
+          ActionError.execution_error("permission denied", %{secret: "PRIVATE"}),
+          ActionError.validation_error("invalid document", %{value: "PRIVATE"}),
+          TimeoutError.exception(
+            message: "timed out",
+            details: %{secret: "PRIVATE"}
+          )
+        ] do
+      summary = Error.trace_summary(error)
+      assert summary == %{type: Atom.to_string(error.__struct__), message: Error.format(error)}
+      refute inspect(summary) =~ "PRIVATE"
+    end
+
+    error = ActionError.execution_error(String.duplicate("x", 500))
+    assert byte_size(Error.trace_summary(error).message) <= 303
+    unknown = %NotAnExceptionStruct{detail: "PRIVATE"}
+    assert Error.trace_summary(unknown) == %{type: Atom.to_string(NotAnExceptionStruct)}
   end
 
   test "uses :message from atom-key map" do

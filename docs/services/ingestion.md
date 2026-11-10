@@ -54,8 +54,8 @@ remains available for immediate operations such as folder expansion and material
 **Job queries**
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID
-- `retry_job/1` — re-queue a failed job
-- `cancel_job/1` — cancel a pending job
+- `retry_job/1` — re-queue a failed job, or failed chunks of a partially completed job. The pending transition and worker insertion are transactional; a uniqueness conflict returns `{:error, :already_queued}` without leaving the job pending. Explicit retries deduplicate incomplete document workers by worker and ingestion-job ID for their full lifetime, regardless of retry flags. Completed document workers do not block explicit retries.
+- `cancel_job/1` — stop a pending or processing job, including queued and executing document/chunk Oban workers. The existing `failed` status is retained so the same job can be retried.
 - `subscribe/0` — subscribe to `"ingestion:jobs"` PubSub topic for real-time updates
 
 **Data-source record consumption**
@@ -114,6 +114,7 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
 - Unique jobs per args within 120s window (prevents duplicate ingestion)
 - Job lifecycle: `pending → processing → completed | completed_with_errors | failed`
+- Preparation that produces no searchable chunks fails immediately with image-to-text credential guidance instead of waiting for child jobs that were never scheduled. This includes scanned documents whose converted Markdown contains only page markers.
 - Broadcasts `{:job_updated, job}` on every state transition via PubSub
 - `DocumentProcessor` is injectable: `Application.get_env(:zaq, :document_processor)`
 
@@ -132,6 +133,10 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - `transition/2`, `transition!/2` — generic changeset-based update + broadcast
 - `mark_processing!/1`, `mark_completed!/2`, `mark_failed/3`, `mark_failed!/3`, `mark_pending_retry!/2`
 - Broadcasts `{:job_updated, job}` to `"ingestion:jobs"` on every transition
+- `report_preparation_progress/2` saves a timestamped snapshot on the active `IngestJob` before broadcasting `{:job_progress, job_id, payload}`. Progress arriving after the job leaves preparation is ignored. Malformed supported fields return `{:error, :invalid_preparation_progress}` without writing or broadcasting.
+- BO restores unexpired snapshots after refresh through the existing job query. Restored snapshots retain their original age for the preparation timeout. New attempts and transitions out of preparation clear the snapshot, including updates made from stale worker structs.
+- Persistence, BO restoration/live events, and the jobs panel share `Zaq.Contracts.PreparationProgress` validation: optional integer counters and string/null stage, status and label fields with string keys. Malformed snapshots/events are ignored; the panel falls back to its starting placeholder. Integer counts retain the existing UI clamping behavior.
+- `broadcast_progress/2` remains a transient-only API for callers that do not need snapshot persistence.
 
 ### Document Chunking (`Zaq.Ingestion.DocumentChunker`)
 - Layout-aware, hierarchical section detection for Markdown
@@ -162,17 +167,25 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - `rrf_merge/2` — fuses full-text and vector candidates with RRF (Reciprocal Rank Fusion, k=60) keyed by `(document_id, chunk_index)`; only a chunk found in both legs receives both contributions. `query_extraction/2` accepts optional `:source_filter` path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`.
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
-- `query_extraction/2` — token-limited context builder for the answering agent (max context window from `Zaq.System.get_llm_config/0`). Each authorized result contains chunk `content`, `metadata`, and `language` plus its document `source`, `title`, stored `watch_status`, `inserted_at`, and `updated_at`; timestamps are UTC ISO-8601 strings and nullable fields remain `nil`. The timestamps describe the ZAQ document row, and `watch_status` is the direct stored state rather than inherited folder-watch state. Ranking identifiers remain available to internal consumers. For denied results, content is replaced by the access-denied marker and the added document/chunk context fields are omitted.
+- `query_extraction/2` — context builder with an optional caller-supplied `:token_budget`; it never reads a global LLM context limit. Each authorized result contains chunk `content`, `metadata`, and `language` plus its document `source`, `title`, stored `watch_status`, `inserted_at`, and `updated_at`; timestamps are UTC ISO-8601 strings and nullable fields remain `nil`. The timestamps describe the ZAQ document row, and `watch_status` is the direct stored state rather than inherited folder-watch state. Ranking identifiers remain available to internal consumers. For denied results, content is replaced by the access-denied marker and the added document/chunk context fields are omitted.
 - Supplied `:lexical_terms` are trimmed, deduplicated and sent as separate OR clauses without silently limiting their number or length. Each multiword clause retains the backend's AND semantics. The semantic query is embedded separately.
-- Direct retrieval matches retain their own `rrf_score` (higher is better), measured cosine `vector_distance` (lower is better, when the vector leg matched), and `retrieval_legs`. Existing section hydration still includes siblings, but context-only siblings have `direct_match: false`, empty legs, and no direct-match score or measured distance. Bounded expansion and stable section identity are deferred to #810.
+- Direct retrieval matches retain their own `rrf_score` (higher is better, only when fusion ran), measured cosine `vector_distance` (lower is better, only for vector matches), backend `bm25_score` and `retrieval_legs`. Native PostgreSQL's keyword score is its text-search rank, not literal BM25. Optional `:search_mode` selects `:semantic`, `:keyword` or default `:hybrid`; single-mode retrieval does not invoke fusion. Only exact direct matches are hydrated, never their section siblings. Agent-level re-ranking is composed after retrieval/fusion, not inside this domain API.
 - An optional `:language` selects one detected language (including legacy nil
-  in the `simple` bucket) across keyword, vector and section hydration before
+  in the `simple` bucket) across keyword and vector retrieval before
   candidate limits; `:unbounded` leaves final context limiting to the
   multilingual caller. Neither changes the late permission filter. The Ingestion
-  role also exposes explicit language-discovery, search and final-limit events.
+  role also exposes explicit language-discovery, search, fusion, exact-fetch and
+  final-limit events. `limit_chunks/3` defaults its count ceiling to `100` and
+  applies the explicit optional caller budget to serialized-output token estimates.
+  A zero budget returns no chunks; retained chunks form the longest ranked prefix
+  strictly below the budget. The final-limit event requires `max_total_results`
+  and `token_budget` alongside `chunks`. The multilingual
+  search tool invokes that limit globally after re-ranking. Candidate budgets
+  (including the keyword retrieval limit) are distinct from final-output limits.
 - `ChunkLanguages` holds a global, permission-unfiltered ETS inventory backed by
   persisted chunks. Chunk writes invalidate it across nodes via PubSub; the
   30-second expiry repairs missed invalidations and direct database deletions.
+
 - Async ingestion keeps the current run's detected/indexed/simple-indexed
   counts, language lists and final chunk errors in `documents.metadata.ingestion`.
   These metrics are derived from child-job and persisted-chunk state rather than
@@ -198,6 +211,34 @@ if those continue failing, investigate provider access and metadata-fetch errors
   to `.bin`. Original MIME is never
   used to infer the staged format. Bytes, source records, titles and provenance are
   preserved; row and plain-text downloads remain `.md`.
+
+### Knowledge chunk navigation
+
+`Zaq.Ingestion.KnowledgeChunks` owns shared exact hydration, document context,
+navigation metadata and shaping through the existing `DocumentAccess` authority.
+It does not embed, search or score content. Accessible search/fetch chunks contain
+their persisted `chunk_id` plus nullable `previous_chunk_id`/`next_chunk_id`.
+Neighbors are the nearest existing chunks in the same document's `chunk_index`
+order, including gaps. They may cross section/language boundaries, but never
+documents. A scoped SQL window computes adjacent IDs before filtering to matches
+or requested IDs; neighboring content is not loaded for this purpose.
+
+The `:get_knowledge_base_chunks` Ingestion event reuses the authorized batch read
+behind the agent tool. It fetches only requested accessible IDs, preserves their
+first-requested order and reports remaining IDs as unavailable without revealing
+whether they are missing, private or outside the source scope. It does not apply
+the search's count/token budget or perform implicit context expansion. Nil
+identity never bypasses ACLs; privileged bypass requires literal
+`skip_permissions: true` in trusted context, never model-supplied arguments.
+Denied search placeholders redact content, chunk IDs, navigation and selected
+metadata. They currently retain section headings in `section_path`; closing that
+metadata leak requires coordinated fusion changes tracked in
+[#917](https://github.com/www-zaq-ai/zaq/issues/917). Permissions are checked afresh
+on exact fetch, including when a grant was revoked after search.
+
+IDs reference persisted rows, not immutable document versions. Re-ingestion or
+deletion can invalidate them; fetch reports stale IDs as unavailable. No backfill
+or version-independent citation guarantee is implied.
 
 ### Document Access (`Zaq.Ingestion.DocumentAccess`)
 - Centralized permission-filtered queries for counts/listings and source-filter handling
@@ -362,8 +403,8 @@ Back Office System Config (`/bo/system-config`) now owns model-related settings:
 - Embedding provider/model/api/dimension and chunk sizing are loaded via
   `Zaq.System.get_embedding_config/0`
 - Image-to-text config (Scaleway API key) loaded via `Zaq.System.get_image_to_text_config/0`
-- Retrieval thresholds (`max_context_window`, `max_cosine_distance`) are loaded via
-  `Zaq.System.get_llm_config/0`
+- Retrieval distance and fusion tuning are loaded via `Zaq.System.get_retrieval_config/0`.
+  Token budgets are supplied by callers, not read from global LLM settings.
 
 ### Docker storage defaults
 

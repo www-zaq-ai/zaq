@@ -5,8 +5,6 @@ defmodule Zaq.Engine.EventRegistryTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Event
 
-  require Logger
-
   @pubsub Zaq.PubSub
   @topic "node_router:events"
 

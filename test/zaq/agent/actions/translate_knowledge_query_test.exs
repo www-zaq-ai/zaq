@@ -5,6 +5,36 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
   alias Zaq.Agent.Actions.TranslateKnowledgeQuery
   alias Zaq.TestSupport.OpenAIStub
 
+  test "unconfigured translation retains simple results and never uses global LLM" do
+    {child, endpoint} =
+      OpenAIStub.server(fn _conn, _body -> flunk("global model must not be called") end, self())
+
+    start_supervised!(child)
+
+    credential =
+      Zaq.SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    Zaq.System.set_config("llm.credential_id", credential.id)
+    Zaq.System.set_config("llm.model", "test-model")
+
+    assert {:ok,
+            %{
+              queries: %{"simple" => %{semantic_query: "car", lexical_terms: ["car"]}},
+              errors: ["french"]
+            }} =
+             Jido.Exec.run(
+               TranslateKnowledgeQuery,
+               %{query: "car", lexical_terms: ["car"], languages: ["simple", "french"]},
+               %{}
+             )
+
+    refute_received {:openai_request, _, _, _, _}
+  end
+
   defp stub_llm(content) do
     {child_spec, endpoint} =
       OpenAIStub.server(
@@ -13,7 +43,7 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
       )
 
     start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
+    OpenAIStub.seed_operation_model_config(:translation, endpoint)
   end
 
   test "translates all requested languages with validated output" do
@@ -144,6 +174,43 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
                %{query: "mayor", lexical_terms: terms, languages: ["french"]},
                %{}
              )
+  end
+
+  test "semantic preparation accepts no lexical terms and only validates semantic translations" do
+    stub_llm(~s({"french":{"semantic_query":"question sémantique"}}))
+
+    assert {:ok, %{queries: queries, errors: []}} =
+             Jido.Exec.run(
+               TranslateKnowledgeQuery,
+               %{
+                 query: "semantic question",
+                 search_mode: "semantic",
+                 languages: ["simple", "french"]
+               },
+               %{}
+             )
+
+    assert queries["simple"] == %{semantic_query: "semantic question", lexical_terms: []}
+    assert queries["french"] == %{semantic_query: "question sémantique", lexical_terms: []}
+  end
+
+  test "keyword preparation accepts lexical-only translation output" do
+    stub_llm(~s({"french":{"lexical_terms":["identifiant","nom propre"]}}))
+
+    assert {:ok,
+            %{queries: %{"french" => %{semantic_query: "", lexical_terms: terms}}, errors: []}} =
+             Jido.Exec.run(
+               TranslateKnowledgeQuery,
+               %{
+                 query: "question",
+                 search_mode: "keyword",
+                 lexical_terms: ["identifier", "proper name"],
+                 languages: ["french"]
+               },
+               %{}
+             )
+
+    assert terms == ["identifiant", "nom propre"]
   end
 
   property "simple lexical terms keep their first occurrence and do not lose late entries" do

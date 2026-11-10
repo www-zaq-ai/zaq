@@ -13,20 +13,35 @@ defmodule Zaq.Agent.StreamEvents do
   canonical invocation facts, which also drive final delivery's public projection.
   Existing private trace entries retain these normalized facts, including starts
   settled to unknown, so authorized presentation can use the same projector on reload.
+
+  Nested ZAQ Action events share this collection and retain explicit hierarchy.
+  They cannot change public status labels, source aggregation or model tool counts.
+  The stream is nonblocking: cancellation settles consumed starts to unknown and
+  does not wait for late producer events. Supported nested Record payloads use the
+  artifact projection in `Zaq.Agent.TraceEvidence` rather than persisting inline
+  resource bytes. That helper owns typed evidence conversion; this module retains
+  flat invocation relationships, replay handling and native-root turn correlation.
+
+  Answer, reasoning and tool events share an event-driven publication interval in
+  this reducer. Trigger switches select publication opportunities, not snapshot
+  visibility or trace collection. Lifecycle status bypasses this policy and does
+  not consume its interval. There are no timers or forced terminal publications.
+  Meaningful published answer content is tracked separately from reasoning. A
+  failed stream returns any outstanding answer snapshot for Executor's terminal
+  delivery without admitting another intermediate publication.
   """
 
-  alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.Status
-  alias Zaq.Contracts.Record
+  alias Zaq.Agent.TraceEvidence
+  alias Zaq.ConnectorConfig.LiveUpdates
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
 
-  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status invocation_id sequence outcome)
+  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status invocation_id sequence outcome invocation_path parent_id origin)
 
   @flush_chars 20
-  @flush_interval_ms 100
   @terminal_kinds [:request_completed, :request_failed, :request_cancelled]
   @input_token_keys [:input_tokens, :prompt_tokens, :input, :promptTokenCount, :inputTokenCount]
   @output_token_keys [
@@ -41,11 +56,14 @@ defmodule Zaq.Agent.StreamEvents do
 
   @type result :: %{
           answer: term(),
+          answer_published?: boolean(),
+          pending_answer: String.t() | nil,
           usage: map(),
           llm_calls: [map()],
           trace: [map()],
           trace_artifacts: [map()],
           tool_calls: [map()],
+          sources: [String.t()],
           termination_reason: term(),
           incoming: Incoming.t(),
           runtime_pid: pid() | nil
@@ -61,11 +79,14 @@ defmodule Zaq.Agent.StreamEvents do
         state = handle_event(event, state)
 
         if state.answer_binding_failed or terminal_kind?(kind(event)),
-          do: {:halt, flush(state, force?: true, now: field(event, :at_ms))},
+          do: {:halt, state},
           else: {:cont, state}
       end)
 
-    final_state = flush(final_state, force?: true)
+    final_state =
+      if final_state.terminal_received,
+        do: final_state,
+        else: flush_trace_segment(final_state, %{})
 
     case final_state.error do
       # Return the partial result alongside the error so callers can tell whether
@@ -96,6 +117,11 @@ defmodule Zaq.Agent.StreamEvents do
       agent: Keyword.get(opts, :agent),
       started_at: started_at,
       last_flush_ms: started_at,
+      event_ms: started_at,
+      terminal_received: false,
+      latest_answer: nil,
+      published_answer: nil,
+      live_update_policy: live_update_policy(opts),
       current_key: nil,
       current_stage: nil,
       current_intent: nil,
@@ -119,6 +145,12 @@ defmodule Zaq.Agent.StreamEvents do
   end
 
   defp handle_event(event, state) do
+    state = %{
+      state
+      | event_ms: field(event, :at_ms) || System.monotonic_time(:millisecond),
+        terminal_received: terminal_kind?(kind(event))
+    }
+
     state = bind_selected_answer(kind(event), state)
 
     if state.answer_binding_failed,
@@ -265,8 +297,8 @@ defmodule Zaq.Agent.StreamEvents do
       state =
         if state.current_key != nil and state.current_key != event_key do
           state
-          |> flush(force?: true)
           |> flush_trace_segment(event)
+          |> Map.put(:buffer, "")
         else
           state
         end
@@ -286,6 +318,7 @@ defmodule Zaq.Agent.StreamEvents do
           current_stage: stage,
           current_intent: intent,
           current_full: full,
+          latest_answer: latest_answer(state, intent, full),
           current_model: model,
           current_started_at_ms: started_at_ms,
           current_ended_at_ms: field(event, :at_ms),
@@ -298,6 +331,9 @@ defmodule Zaq.Agent.StreamEvents do
       state
     end
   end
+
+  defp latest_answer(_state, :stream_delta, text), do: text
+  defp latest_answer(state, _intent, _text), do: state.latest_answer
 
   defp handle_llm_completed(event, state) do
     usage = normalize_usage(data_get(data(event), :usage))
@@ -312,6 +348,16 @@ defmodule Zaq.Agent.StreamEvents do
     invocation_id = field(event, :tool_call_id) || data_get(data, :tool_call_id)
     tool_call_id = invocation_id || field(event, :id)
     existing = Map.get(state.tool_calls, tool_call_id, %{})
+
+    if compatible_hierarchy?(existing, data) do
+      start_tool_call(event, state, tool_call_id, invocation_id, existing)
+    else
+      state
+    end
+  end
+
+  defp start_tool_call(event, state, tool_call_id, invocation_id, existing) do
+    data = data(event)
 
     tool_call = %{
       "id" => tool_call_id,
@@ -328,7 +374,7 @@ defmodule Zaq.Agent.StreamEvents do
       "status" => "started"
     }
 
-    tool_call = normalize_tool_arguments(tool_call)
+    tool_call = tool_call |> normalize_tool_arguments() |> put_hierarchy(data, state)
 
     # Duplicate/late starts may carry less evidence than an earlier event. They
     # must not erase arguments or downgrade an already completed native call.
@@ -359,7 +405,7 @@ defmodule Zaq.Agent.StreamEvents do
     tool_call_id = invocation_id || field(event, :id)
     existing = Map.get(state.tool_calls, tool_call_id, %{})
 
-    if existing["status"] == "completed" do
+    if existing["status"] == "completed" or not compatible_hierarchy?(existing, data) do
       state
     else
       complete_tool_call(event, state, tool_call_id, invocation_id, existing)
@@ -371,7 +417,12 @@ defmodule Zaq.Agent.StreamEvents do
     tool_name = field(event, :tool_name) || data_get(data, :tool_name) || existing["name"]
 
     {trace_result, trace_artifacts} =
-      externalize_trace_artifacts(data_get(data, :result), tool_call_id, tool_name)
+      TraceEvidence.externalize(
+        data_get(data, :result),
+        tool_call_id,
+        tool_name,
+        data_get(data, :origin) == "zaq_action"
+      )
 
     tool_call =
       existing
@@ -379,17 +430,19 @@ defmodule Zaq.Agent.StreamEvents do
         "id" => tool_call_id,
         "invocation_id" => invocation_id,
         "sequence" => Map.get(existing, "sequence", map_size(state.tool_calls) + 1),
-        "outcome" => tool_outcome(data_get(data, :result)),
+        "outcome" => data_get(data, :outcome) || tool_outcome(data_get(data, :result)),
         "type" => "tool_call",
         "turn_id" => to_string(field(event, :iteration) || 0),
         "content" => tool_name || "tool",
         "name" => tool_name,
         "response" => json_safe(trace_result),
+        "sources" => declared_sources(data_get(data, :result)),
         "duration_ms" => data_get(data, :duration_ms),
         "ended_at" => timestamp(event),
         "ended_at_ms" => field(event, :at_ms),
         "status" => "completed"
       })
+      |> put_hierarchy(data, state)
       |> reject_nil_values()
       |> json_safe()
 
@@ -411,143 +464,32 @@ defmodule Zaq.Agent.StreamEvents do
     if Enum.any?(trace, same_call?), do: updated, else: [tool_call | trace]
   end
 
-  defp externalize_trace_artifacts(
-         {:ok, %ToolResult{} = tool_result, effects},
-         tool_call_id,
-         tool_name
-       ) do
-    case externalize_trace_artifacts({:ok, tool_result.output, effects}, tool_call_id, tool_name) do
-      {{:ok, output, _effects}, artifacts} ->
-        {{:ok, %{tool_result | output: output, content: nil}, effects}, artifacts}
+  defp put_hierarchy(call, data, state) do
+    if data_get(data, :origin) == "zaq_action" do
+      parent = data_get(data, :parent_id)
+      parent_call = Map.get(state.tool_calls, parent, %{})
 
-      {result, artifacts} ->
-        {result, artifacts}
-    end
-  end
-
-  defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name)
-       when is_map(payload) do
-    case skill_resource_parts(payload) do
-      {[_ | _] = parts, safe_payload} ->
-        artifacts = skill_resource_artifacts(parts, safe_payload, tool_call_id, tool_name)
-        {{:ok, safe_payload, effects}, artifacts}
-
-      {[], _safe_payload} ->
-        externalize_record_artifact(payload, effects, tool_call_id, tool_name)
-    end
-  end
-
-  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name), do: {result, []}
-
-  defp externalize_record_artifact(payload, effects, tool_call_id, tool_name) do
-    case payload_record(payload) do
-      {key, %Record{} = record} ->
-        case trace_media_artifact(record, tool_call_id, tool_name) do
-          {:ok, artifact} ->
-            safe_record = %{record | content: nil}
-            {{:ok, Map.put(payload, key, safe_record), effects}, [artifact]}
-
-          {:error, _reason} ->
-            safe_record = %{record | content: nil}
-            {{:ok, Map.put(payload, key, safe_record), effects}, []}
-
-          :not_media ->
-            {{:ok, payload, effects}, []}
-        end
-
-      nil ->
-        {{:ok, payload, effects}, []}
-    end
-  end
-
-  defp skill_resource_parts(payload) do
-    case Map.get(payload, :__content_parts__) || Map.get(payload, "__content_parts__") do
-      parts when is_list(parts) ->
-        {parts, Map.drop(payload, [:__content_parts__, "__content_parts__"])}
-
-      _parts ->
-        {[], payload}
-    end
-  end
-
-  defp skill_resource_artifacts(parts, payload, tool_call_id, tool_name) do
-    Enum.flat_map(parts, fn
-      %ContentPart{type: type, data: content} = part
-      when type in [:image, :file] and is_binary(content) ->
-        [
-          %{
-            record: json_safe(payload),
-            content: content,
-            name: part.filename || map_value(payload, :filename) || "skill-resource",
-            mime_type:
-              part.media_type || map_value(payload, :mime_type) || "application/octet-stream",
-            size: byte_size(content),
-            tool_call_id: tool_call_id,
-            tool_name: tool_name || "tool"
-          }
-        ]
-
-      _part ->
-        []
-    end)
-  end
-
-  defp map_value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
-
-  defp payload_record(payload) do
-    cond do
-      match?(%Record{}, Map.get(payload, :record)) -> {:record, Map.get(payload, :record)}
-      match?(%Record{}, Map.get(payload, "record")) -> {"record", Map.get(payload, "record")}
-      true -> nil
-    end
-  end
-
-  defp trace_media_artifact(
-         %Record{content: content, attributes: attributes} = record,
-         tool_call_id,
-         tool_name
-       )
-       when is_binary(content) and is_map(attributes) do
-    if source_type(attributes) == "communication_media" do
-      case decode_record_content(record, content) do
-        {:ok, decoded_content} ->
-          {:ok,
-           %{
-             record: Record.metadata(record),
-             content: decoded_content,
-             name: record.name || "attachment",
-             mime_type: record.mime_type || "application/octet-stream",
-             size: byte_size(decoded_content),
-             tool_call_id: tool_call_id,
-             tool_name: tool_name || "tool"
-           }}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      Map.merge(call, %{
+        "origin" => "zaq_action",
+        "invocation_path" => data_get(data, :invocation_path),
+        "parent_id" => parent,
+        "turn_id" => parent_call["turn_id"] || call["turn_id"]
+      })
     else
-      :not_media
+      call
     end
   end
 
-  defp trace_media_artifact(_record, _tool_call_id, _tool_name), do: :not_media
+  defp nested?(%{"origin" => "zaq_action"}), do: true
+  defp nested?(_call), do: false
 
-  defp decode_record_content(%Record{attributes: attributes}, content) do
-    if encoding(attributes) == "base64" do
-      case Base.decode64(content) do
-        {:ok, decoded} -> {:ok, decoded}
-        :error -> {:error, :invalid_encoding}
-      end
-    else
-      {:ok, content}
-    end
+  defp compatible_hierarchy?(existing, _data) when map_size(existing) == 0, do: true
+
+  defp compatible_hierarchy?(existing, data) do
+    existing["origin"] == data_get(data, :origin) and
+      existing["invocation_path"] == data_get(data, :invocation_path) and
+      existing["parent_id"] == data_get(data, :parent_id)
   end
-
-  defp source_type(attributes),
-    do: Map.get(attributes, "source_type") || Map.get(attributes, :source_type)
-
-  defp encoding(attributes),
-    do: Map.get(attributes, "encoding") || Map.get(attributes, :encoding)
 
   defp handle_request_completed(state, event) do
     data = data(event)
@@ -570,18 +512,15 @@ defmodule Zaq.Agent.StreamEvents do
   defp maybe_flush(state, event) do
     now = field(event, :at_ms) || System.monotonic_time(:millisecond)
 
-    if byte_size(state.buffer) > @flush_chars and now - state.last_flush_ms >= @flush_interval_ms do
-      flush(state, force?: true, now: now)
+    if byte_size(state.buffer) > @flush_chars and
+         eligible_update?(state, state.current_intent, now) do
+      flush(state, now)
     else
       state
     end
   end
 
-  defp flush(%{buffer: ""} = state, _opts), do: state
-
-  defp flush(state, opts) do
-    now = Keyword.get(opts, :now) || System.monotonic_time(:millisecond)
-
+  defp flush(state, now) do
     incoming =
       state.status_module.broadcast(
         state.incoming,
@@ -592,14 +531,44 @@ defmodule Zaq.Agent.StreamEvents do
         tool_steps: public_tool_steps(state)
       )
 
-    %{state | incoming: incoming, buffer: "", last_flush_ms: now}
+    %{
+      state
+      | incoming: incoming,
+        buffer: "",
+        last_flush_ms: now,
+        published_tool_steps: public_tool_steps(state),
+        published_answer: published_answer(state)
+    }
   end
+
+  defp published_answer(%{current_intent: :stream_delta, current_full: text} = state) do
+    if String.trim(text) == "", do: state.published_answer, else: text
+  end
+
+  defp published_answer(state), do: state.published_answer
+
+  defp live_update_policy(opts) do
+    case LiveUpdates.normalize(Keyword.get(opts, :live_update_policy, LiveUpdates.defaults())) do
+      {:ok, policy} -> policy
+      {:error, _errors} -> Map.put(LiveUpdates.defaults(), "enabled", false)
+    end
+  end
+
+  defp eligible_update?(state, intent, now) do
+    policy = state.live_update_policy
+
+    policy["enabled"] and policy["triggers"][Atom.to_string(intent)] == true and
+      (not policy["throttle_enabled"] or now - state.last_flush_ms >= policy["min_interval_ms"])
+  end
+
+  defp broadcast_tool(state, %{"origin" => "zaq_action"}, _status), do: state
 
   defp broadcast_tool(state, tool_call, status) do
     steps = public_tool_steps(state)
     projected? = Enum.any?(steps, &(&1["id"] == tool_call["invocation_id"]))
 
-    if projected? and steps == state.published_tool_steps do
+    if not eligible_update?(state, :tool_call, state.event_ms) or
+         (projected? and steps == state.published_tool_steps) do
       state
     else
       do_broadcast_tool(state, tool_call, status, steps)
@@ -622,7 +591,7 @@ defmodule Zaq.Agent.StreamEvents do
         tool_steps: steps
       )
 
-    %{state | incoming: incoming, published_tool_steps: steps}
+    %{state | incoming: incoming, published_tool_steps: steps, last_flush_ms: state.event_ms}
   end
 
   # Classify the native envelope before json_safe turns tuples into trace arrays.
@@ -645,20 +614,47 @@ defmodule Zaq.Agent.StreamEvents do
       state
       |> Map.put(:tool_calls, calls)
       |> Map.put(:trace, Enum.reduce(Map.values(calls), state.trace, &put_tool_trace(&2, &1)))
-      |> broadcast_tool(%{}, :unknown)
     end
   end
 
   defp public_tool_steps(state), do: ToolStep.project(Map.values(state.tool_calls))
 
+  defp declared_sources({:ok, output, _effects}), do: declared_sources(output)
+  defp declared_sources({:ok, output}), do: declared_sources(output)
+  defp declared_sources(%ToolResult{output: output}), do: declared_sources(output)
+
+  defp declared_sources(output) when is_map(output) do
+    case Map.get(output, :sources, Map.get(output, "sources")) do
+      sources when is_list(sources) -> Enum.filter(sources, &(is_binary(&1) and &1 != ""))
+      _ -> []
+    end
+  end
+
+  defp declared_sources(_output), do: []
+
   defp result(state) do
+    tool_calls =
+      state.tool_calls
+      |> Map.values()
+      |> Enum.map(&associate_tool_turn(&1, state.tool_calls))
+      |> Enum.sort_by(& &1["sequence"])
+
+    trace = Enum.reduce(tool_calls, state.trace, &put_tool_trace(&2, &1))
+
     %{
-      answer: state.answer || state.current_full,
+      answer: state.answer || state.latest_answer || state.current_full,
+      answer_published?: not is_nil(state.published_answer),
+      pending_answer: pending_answer(state),
       usage: state.usage,
       llm_calls: public_llm_calls(state),
-      trace: Enum.reverse(state.trace),
+      trace: Enum.reverse(trace),
       trace_artifacts: state.trace_artifacts,
-      tool_calls: state.tool_calls |> Map.values() |> Enum.sort_by(& &1["sequence"]),
+      tool_calls: tool_calls,
+      sources:
+        tool_calls
+        |> Enum.reject(&nested?/1)
+        |> Enum.flat_map(&Map.get(&1, "sources", []))
+        |> Enum.uniq(),
       termination_reason: state.termination_reason,
       measurements: measurements(state),
       model: model(state),
@@ -667,6 +663,21 @@ defmodule Zaq.Agent.StreamEvents do
       runtime_pid: state.runtime_pid,
       execution_scope: state.execution_scope
     }
+  end
+
+  defp associate_tool_turn(%{"invocation_path" => [root | _]} = call, calls) do
+    case Map.get(calls, root) do
+      %{"turn_id" => turn} -> Map.put(call, "turn_id", turn)
+      _ -> call
+    end
+  end
+
+  defp associate_tool_turn(call, _calls), do: call
+
+  defp pending_answer(%{published_answer: nil}), do: nil
+
+  defp pending_answer(%{latest_answer: latest, published_answer: published}) do
+    if latest != published and String.trim(latest) != "", do: latest
   end
 
   defp flush_trace_segment(%{current_key: nil} = state, _event), do: state
@@ -720,7 +731,7 @@ defmodule Zaq.Agent.StreamEvents do
       "output_tokens" => usage_value(state.usage, [:output_tokens, :completion_tokens]),
       "turn_count" => measured_turn_count(state),
       "llm_call_count" => measured_llm_call_count(state),
-      "tool_call_count" => map_size(state.tool_calls)
+      "tool_call_count" => Enum.count(state.tool_calls, fn {_id, call} -> not nested?(call) end)
     }
     |> reject_nil_values()
     |> json_safe()
@@ -900,18 +911,11 @@ defmodule Zaq.Agent.StreamEvents do
   defp timestamp(_), do: nil
 
   @doc "Returns a value safe to store in JSON/map database fields."
-  def json_safe(value) do
-    safe = do_json_safe(value)
-
-    case Jason.encode(safe) do
-      {:ok, _encoded} -> safe
-      {:error, _reason} -> inspect(value)
-    end
-  end
+  defdelegate json_safe(value), to: TraceEvidence
 
   @doc """
   Sources the trace/agent/model/measurements fields from an `Outgoing`'s
-  metadata, so chat results (`Zaq.Agent.Pipeline`) and workflow step results
+  metadata, so chat results (`Zaq.Agent.Executor`) and workflow step results
   (`Zaq.Agent.Tools.Workflow.RunAgent`) surface the same telemetry fields.
 
   With `json_safe: true`, present values are passed through `json_safe/1` for
@@ -1064,39 +1068,4 @@ defmodule Zaq.Agent.StreamEvents do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
-
-  defp do_json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp do_json_safe(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
-  defp do_json_safe(%Date{} = value), do: Date.to_iso8601(value)
-  defp do_json_safe(%Time{} = value), do: Time.to_iso8601(value)
-
-  defp do_json_safe(%_{} = struct) do
-    struct
-    |> Map.from_struct()
-    |> Map.new(fn {key, value} -> {safe_key(key), json_safe(value)} end)
-    |> Map.put("__struct__", Atom.to_string(struct.__struct__))
-  end
-
-  defp do_json_safe(map) when is_map(map) do
-    Map.new(map, fn {key, value} -> {safe_key(key), json_safe(value)} end)
-  end
-
-  defp do_json_safe(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> do_json_safe()
-  defp do_json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
-  defp do_json_safe(value) when is_atom(value), do: Atom.to_string(value)
-
-  defp do_json_safe(value)
-       when is_binary(value) or is_integer(value) or is_boolean(value) or is_nil(value), do: value
-
-  defp do_json_safe(value) when is_float(value), do: value
-
-  defp do_json_safe(value)
-       when is_pid(value) or is_reference(value) or is_port(value) or is_function(value),
-       do: inspect(value)
-
-  defp do_json_safe(value), do: inspect(value)
-
-  defp safe_key(key) when is_binary(key), do: key
-  defp safe_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp safe_key(key), do: inspect(key)
 end

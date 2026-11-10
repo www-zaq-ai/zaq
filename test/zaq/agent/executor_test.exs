@@ -6,6 +6,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{Executor, Factory, OpaqueAliases}
+  alias Zaq.Channels.Api, as: ChannelsApi
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
@@ -30,8 +31,6 @@ defmodule Zaq.Agent.ExecutorTest do
   defmodule StubFactory do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
       do: {:ok, %{request: :request, events: [completed_event("stubbed answer")]}}
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
 
     defp completed_event(result, usage \\ %{}) do
       %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
@@ -159,9 +158,6 @@ defmodule Zaq.Agent.ExecutorTest do
       end
     end
 
-    def answering_configured_agent,
-      do: %{id: :answering, name: "answering", job: "Configured job"}
-
     defp completed_event(%{result: result, usage: usage}) do
       %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
     end
@@ -194,11 +190,119 @@ defmodule Zaq.Agent.ExecutorTest do
     def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
   end
 
+  defmodule PolicyRouter do
+    alias Zaq.ConnectorConfig.LiveUpdates
+
+    def dispatch(%Zaq.Event{opts: opts} = event) do
+      if opts[:action] == :resolve_live_update_policy do
+        send(self(), {:resolved_stream_policy, event.request.routing_context, event.actor, opts})
+
+        policy =
+          case event.request.routing_context.channel_config_id do
+            2 -> Map.put(LiveUpdates.defaults(), "enabled", false)
+            _ -> LiveUpdates.defaults()
+          end
+
+        %{event | response: {:ok, policy}}
+      else
+        %{event | response: :ok}
+      end
+    end
+  end
+
+  defmodule PublishedAnswerFactory do
+    def ask_with_config(_server, _content, _agent, _opts) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             kind: :llm_delta,
+             at_ms: 100,
+             data: %{chunk_type: :content, delta: "An answer long enough to publish"}
+           },
+           %{
+             kind: :request_failed,
+             at_ms: 101,
+             data: %{error: ReqLLM.Error.API.Stream.exception(reason: "closed", cause: nil)}
+           }
+         ]
+       }}
+    end
+  end
+
   defmodule MalformedAdmissionRouter do
     def dispatch(%Zaq.Event{opts: [action: :admit_execution, confidential: true]} = event),
       do: %{event | response: {:ok, %{kind: :unexpected}}}
 
     def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
+  end
+
+  defmodule PartialFailureFactory do
+    def ask_with_config(_server, _content, _agent, opts) do
+      scenario = opts[:tool_context].incoming.content
+      prefix = "An answer long enough to publish."
+
+      chunks =
+        case scenario do
+          "whitespace" ->
+            [{100, :content, String.duplicate(" \n", 21)}]
+
+          "reasoning-only" ->
+            [{100, :thinking, "Private reasoning long enough to publish."}]
+
+          "tail-with-reasoning" ->
+            [
+              {100, :content, prefix},
+              {110, :content, " The remaining answer."},
+              {200, :thinking, "Private reasoning long enough to publish."}
+            ]
+
+          "tail" ->
+            [{100, :content, prefix}, {110, :content, " The remaining answer."}]
+        end
+
+      events =
+        Enum.map(chunks, fn {at, type, text} ->
+          %{kind: :llm_delta, at_ms: at, data: %{chunk_type: type, delta: text}}
+        end)
+
+      failure = %{
+        kind: :request_failed,
+        at_ms: 210,
+        data: %{error: ReqLLM.Error.API.Stream.exception(reason: "closed", cause: nil)}
+      }
+
+      {:ok, %{request: :request, events: events ++ [failure]}}
+    end
+  end
+
+  defmodule PartialDeliveryRouter do
+    alias Zaq.ConnectorConfig.LiveUpdates
+
+    def dispatch(%Zaq.Event{opts: opts} = event) do
+      case opts[:action] do
+        :resolve_live_update_policy ->
+          %{event | response: {:ok, LiveUpdates.defaults()}}
+
+        :upsert_message ->
+          send(self(), {:partial_publication, event.request})
+          %{event | response: {:ok, %{message_id: "partial-answer"}}}
+
+        _ ->
+          %{event | response: :ok}
+      end
+    end
+  end
+
+  defmodule PartialDeliveryBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(outgoing, _details) do
+      send(self(), {:terminal_publication, outgoing})
+      :ok
+    end
   end
 
   defmodule AdmissionMustNotAskFactory do
@@ -319,6 +423,35 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule SourceFactory do
+    alias Zaq.Agent.ExecutorTest.ToolStepFactory
+
+    def ask_with_config(server, content, agent, opts) do
+      {:ok, request} = ToolStepFactory.ask_with_config(server, content, agent, opts)
+
+      source_event = %{
+        kind: :tool_completed,
+        at_ms: 0,
+        tool_call_id: "sources",
+        data: %{tool_name: "knowledge", result: {:ok, %{sources: ["returned.md"]}, []}}
+      }
+
+      {:ok, %{request | events: [source_event | request.events]}}
+    end
+  end
+
+  test "Executor preserves declared sources on success and partial terminal paths" do
+    for mode <- ~w(success failure cancelled suppressed) do
+      outgoing =
+        Executor.run(
+          %{@incoming | content: mode},
+          Keyword.merge(@base_opts, factory_module: SourceFactory, status_module: ToolStepStatus)
+        )
+
+      assert outgoing.metadata.sources == ["returned.md"]
+    end
+  end
+
   test "all Executor terminal paths retain canonical facts for the same public projection" do
     for mode <- ~w(success failure cancelled suppressed) do
       outgoing =
@@ -337,8 +470,12 @@ defmodule Zaq.Agent.ExecutorTest do
 
       refute Map.has_key?(outgoing.metadata, :tool_steps)
 
-      assert_receive {:public_tool_snapshot, [%{"state" => "unknown"}, %{"state" => "failed"}]}
-      if mode == "suppressed", do: assert(outgoing.metadata.suppressed)
+      refute_receive {:public_tool_snapshot, [%{"state" => "unknown"}, %{"state" => "failed"}]}
+
+      if mode == "suppressed" do
+        assert outgoing.metadata.error
+        refute outgoing.metadata[:suppressed]
+      end
     end
   end
 
@@ -346,6 +483,44 @@ defmodule Zaq.Agent.ExecutorTest do
     assert Executor.run(@incoming, @base_opts).metadata.tool_calls == []
     opts = Keyword.put(@base_opts, :server_manager_module, MissingRuntimeServerManager)
     assert Executor.run(@incoming, opts).metadata.tool_calls == []
+  end
+
+  test "resolves a confidential request-local stream policy without moving status delivery" do
+    opts = Keyword.merge(@base_opts, node_router: PolicyRouter, status_module: CoverageStubStatus)
+
+    for _request <- 1..2 do
+      assert Executor.run(@incoming, opts).body == "stubbed answer"
+      assert_receive {:resolved_stream_policy, routing, actor, event_opts}
+      assert routing == @incoming.routing_context
+      assert actor == %{kind: :anonymous, subject: "executor-test"}
+      assert event_opts[:confidential]
+      refute_receive {:resolved_stream_policy, _, _, _}
+      assert_receive {:coverage_status, _, :answering, "Formulating your answer…", PolicyRouter}
+    end
+  end
+
+  test "exact connector policy controls partial publication, not traces or answering status" do
+    opts =
+      Keyword.merge(@base_opts,
+        node_router: PolicyRouter,
+        status_module: ToolStepStatus,
+        factory_module: PublishedAnswerFactory
+      )
+
+    for {id, published?} <- [{1, true}, {2, false}, {1, true}] do
+      incoming = put_in(@incoming.routing_context.channel_config_id, id)
+      outgoing = Executor.run(incoming, opts)
+      assert [%{"type" => "content"}] = outgoing.metadata.trace
+
+      if published? do
+        assert_receive {:public_tool_snapshot, []}
+        assert outgoing.metadata.suppressed
+      else
+        refute_receive {:public_tool_snapshot, _}
+        assert outgoing.metadata.error
+        refute outgoing.metadata[:suppressed]
+      end
+    end
   end
 
   test "native failure retains the started assistant identity from the partial stream" do
@@ -361,6 +536,94 @@ defmodule Zaq.Agent.ExecutorTest do
 
     assert outgoing.metadata.error == true
     assert outgoing.metadata.status_message_id == "native-assistant"
+  end
+
+  test "failed streams deliver buffered answer content through the existing terminal channel path" do
+    for scenario <- ["tail", "tail-with-reasoning"] do
+      incoming = %{
+        @incoming
+        | content: scenario,
+          metadata: %{request_id: "partial-root", assistant_message_id: "partial-answer"}
+      }
+
+      outgoing =
+        Executor.run(
+          incoming,
+          Keyword.merge(@base_opts,
+            factory_module: PartialFailureFactory,
+            node_router: PartialDeliveryRouter
+          )
+        )
+
+      assert outgoing.body == "An answer long enough to publish. The remaining answer."
+      assert outgoing.metadata.suppressed
+      refute outgoing.metadata.error
+      assert [%{"type" => "content"} | _] = outgoing.metadata.trace
+      assert outgoing.metadata.request_id == "partial-root"
+      assert outgoing.metadata.assistant_message_id == "partial-answer"
+
+      assert_receive {:partial_publication,
+                      %{
+                        body: "An answer long enough to publish.",
+                        metadata: %{update_intent: :stream_delta}
+                      }}
+
+      refute_receive {:partial_publication, %{metadata: %{update_intent: :stream_delta}}}
+
+      event =
+        Zaq.Event.new(outgoing, :channels,
+          opts: [action: :deliver_outgoing, bridge_module: PartialDeliveryBridge]
+        )
+
+      delivered = ChannelsApi.handle_event(event, :deliver_outgoing, nil)
+      assert delivered.response == {:ok, %{}}
+      assert_receive {:terminal_publication, published}
+      assert published.body == outgoing.body
+      assert published.metadata.assistant_message_id == "partial-answer"
+      assert published.metadata.request_id == "partial-root"
+      refute Map.has_key?(outgoing.metadata, :pending_answer)
+    end
+  end
+
+  test "published whitespace and reasoning cannot suppress a terminal failure" do
+    for scenario <- ["whitespace", "reasoning-only"] do
+      outgoing =
+        Executor.run(
+          %{@incoming | content: scenario, metadata: %{status_message_id: "placeholder"}},
+          Keyword.merge(@base_opts,
+            factory_module: PartialFailureFactory,
+            node_router: PartialDeliveryRouter
+          )
+        )
+
+      assert outgoing.metadata.error
+      refute outgoing.metadata[:suppressed]
+      assert outgoing.body =~ "something went wrong"
+    end
+  end
+
+  test "disabled answer publication retains failure evidence without delivering a partial answer" do
+    incoming = %{
+      @incoming
+      | content: "tail",
+        metadata: %{status_message_id: "placeholder"},
+        routing_context: %{@incoming.routing_context | channel_config_id: 2}
+    }
+
+    outgoing =
+      Executor.run(
+        incoming,
+        Keyword.merge(@base_opts,
+          factory_module: PartialFailureFactory,
+          node_router: PolicyRouter
+        )
+      )
+
+    assert outgoing.metadata.error
+    refute outgoing.metadata[:suppressed]
+    assert outgoing.body =~ "something went wrong"
+    assert [%{"type" => "content"}] = outgoing.metadata.trace
+    refute Map.has_key?(outgoing.metadata, :pending_answer)
   end
 
   test "a missing runtime returns an execution error before asking the factory" do
@@ -598,7 +861,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
-  describe "run/2 — answering agent (no agent_id)" do
+  describe "run/2 — configured agent selection" do
     defmodule StubSMAnswering do
       alias Zaq.Agent.ExecutorTest
 
@@ -610,9 +873,6 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     defmodule StubFactoryAnswering do
-      def answering_configured_agent,
-        do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
-
       def ask_with_config(_server_id, _query, _agent, _opts \\ []),
         do: {:ok, %{request: make_ref(), events: [completed_event("hi")]}}
 
@@ -624,9 +884,6 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     defmodule StubFactoryWithUsage do
-      def answering_configured_agent,
-        do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
-
       def ask_with_config(_server_id, _query, _agent, _opts \\ []) do
         {:ok,
          %{
@@ -647,19 +904,20 @@ defmodule Zaq.Agent.ExecutorTest do
       def runtime_config(_agent), do: {:ok, %{system_prompt: "", tools: [], llm_opts: []}}
     end
 
-    test "routes through answering configured agent, scoped per person and channel" do
+    test "routes through the selected configured agent, scoped per person and channel" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 5}}
 
       result =
         Executor.run(incoming,
-          answering_module: StubFactoryAnswering,
+          agent_id: 77,
+          agent_module: StubAgent,
           factory_module: StubFactoryAnswering,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter
         )
 
       assert %Zaq.Engine.Messages.Outgoing{} = result
-      assert_received {:ensure_server, "answering:scope:bo:person:5"}
+      assert_received {:ensure_server, "Stub Agent:scope:bo:person:5"}
     end
 
     test "uses 'anonymous' scope when person and session_id are absent" do
@@ -671,13 +929,14 @@ defmodule Zaq.Agent.ExecutorTest do
           next_hop: nil,
           actor: %{kind: :anonymous, subject: "answering-test"}
         },
-        answering_module: StubFactoryAnswering,
+        agent_id: 77,
+        agent_module: StubAgent,
         factory_module: StubFactoryAnswering,
         server_manager_module: StubSMAnswering,
         node_router: StubNodeRouter
       )
 
-      assert_received {:ensure_server, "answering:anonymous"}
+      assert_received {:ensure_server, "Stub Agent:anonymous"}
     end
 
     test "propagates answer text and token counts into Outgoing metadata" do
@@ -685,7 +944,8 @@ defmodule Zaq.Agent.ExecutorTest do
 
       result =
         Executor.run(incoming,
-          answering_module: StubFactoryWithUsage,
+          agent_id: 77,
+          agent_module: StubAgent,
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,
@@ -734,7 +994,8 @@ defmodule Zaq.Agent.ExecutorTest do
 
       result =
         Executor.run(incoming,
-          answering_module: StubFactoryWithUsage,
+          agent_id: 77,
+          agent_module: StubAgent,
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,

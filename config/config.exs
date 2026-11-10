@@ -147,7 +147,7 @@ config :tailwind,
   zaq_dev: [
     args: ~w(
       --input=assets/css/app.dev.css
-      --output=priv/static/assets/css/app.css
+      --output=priv/static/assets/css/app.dev.css
     ),
     cd: Path.expand("..", __DIR__)
   ]

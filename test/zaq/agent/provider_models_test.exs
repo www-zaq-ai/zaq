@@ -3,7 +3,6 @@ defmodule Zaq.Agent.ProviderModelsTest do
   use ExUnitProperties
 
   alias Zaq.Agent.ProviderModels
-  alias Zaq.Agent.ZAQRouter
   alias Zaq.System.AIProviderCredential
 
   defmodule FailingAvailabilityAdapter do
@@ -189,6 +188,39 @@ defmodule Zaq.Agent.ProviderModelsTest do
     def get(app, key, default, _opts), do: Application.get_env(app, key, default)
   end
 
+  defmodule CompatibleCatalogAdapter do
+    def models(provider) when provider in [:compatible_vendor, :other_compatible_vendor] do
+      [
+        %LLMDB.Model{
+          id: "vendor-embedding",
+          provider: provider,
+          capabilities: %{embeddings: %{default_dimensions: 1024, max_dimensions: 2048}}
+        },
+        %LLMDB.Model{
+          id: "vendor-vision",
+          provider: provider,
+          capabilities: %{embeddings: false},
+          modalities: %{input: [:text, :image], output: [:text]}
+        },
+        %LLMDB.Model{id: "old-model", provider: provider, deprecated: true},
+        %LLMDB.Model{id: "retired-model", provider: provider, retired: true}
+      ]
+    end
+
+    def models(:empty_compatible_vendor), do: []
+    def models(_), do: []
+    def parse_provider(provider), do: {:ok, String.to_existing_atom(provider)}
+    def provider(provider), do: {:ok, %LLMDB.Provider{id: provider, catalog_only: false}}
+
+    def available_models(opts) do
+      send(self(), {:compatible_available_models_called, opts})
+      ["openai:text-embedding-3-large"]
+    end
+
+    def model("openai:text-embedding-3-large"),
+      do: {:ok, %LLMDB.Model{id: "text-embedding-3-large", provider: :openai}}
+  end
+
   defp adapter_opts(adapter), do: [config: AdapterConfig, provider_models_adapter: adapter]
 
   describe "normalize_provider_id/1" do
@@ -223,28 +255,6 @@ defmodule Zaq.Agent.ProviderModelsTest do
   end
 
   describe "models_for_credential/1 auth gating" do
-    setup do
-      on_exit(fn -> LLMDB.load(ZAQRouter.llmdb_opts()) end)
-      {:ok, _} = ZAQRouter.reload(["openai/gpt-oss-120b", "deepseek/deepseek-v4-pro"])
-      :ok
-    end
-
-    test "returns no models when the credential has no api key" do
-      credential = %{provider: "zaq_router", endpoint: "https://llm.test/v1"}
-
-      assert ProviderModels.models_for_credential(credential) == []
-    end
-
-    test "returns no models when the api key is blank" do
-      credential = %{
-        provider: "zaq_router",
-        endpoint: "https://llm.test/v1",
-        api_key: ""
-      }
-
-      assert ProviderModels.models_for_credential(credential) == []
-    end
-
     test "returns the injected ZAQ Router model only when endpoint and api key are present" do
       credential = %{provider: "zaq_router", endpoint: "https://llm.test/v1"}
       opts = adapter_opts(ZAQRouterAuthAdapter)
@@ -255,35 +265,6 @@ defmodule Zaq.Agent.ProviderModelsTest do
 
       assert [%LLMDB.Model{id: "router-model", provider: :zaq_router}] =
                ProviderModels.models_for_credential(credential, opts)
-    end
-
-    test "returns the catalog once an api key is present" do
-      credential = %{
-        provider: "zaq_router",
-        endpoint: "https://llm.test/v1",
-        api_key: "sk-test-123"
-      }
-
-      model_ids = credential |> ProviderModels.models_for_credential() |> Enum.map(& &1.id)
-
-      assert "openai/gpt-oss-120b" in model_ids
-      assert "deepseek/deepseek-v4-pro" in model_ids
-    end
-
-    test "gating is scoped to zaq_router — other providers keep the fallback" do
-      openai = %AIProviderCredential{provider: "openai"}
-
-      refute ProviderModels.models_for_credential(openai) == []
-    end
-
-    test "gating does not strip models from OAuth credentials without an api key" do
-      codex = %AIProviderCredential{
-        provider: "openai_codex",
-        endpoint: "https://chatgpt.com/backend-api",
-        metadata: %{"auth_kind" => "oauth2"}
-      }
-
-      refute ProviderModels.models_for_credential(codex) == []
     end
   end
 
@@ -331,6 +312,46 @@ defmodule Zaq.Agent.ProviderModelsTest do
 
   test "models_for_credential returns [] for nil credential" do
     assert ProviderModels.models_for_credential(nil) == []
+  end
+
+  describe "find_model/2" do
+    test "matches IDs and aliases without requiring an alias field" do
+      plain = %{id: "plain"}
+      aliased = %{id: "catalog-id", model: "runtime-id"}
+      models = [plain, aliased]
+
+      assert ProviderModels.find_model(models, "plain") == plain
+      assert ProviderModels.find_model(models, "catalog-id") == aliased
+      assert ProviderModels.find_model(models, "runtime-id") == aliased
+    end
+
+    test "returns nil for blank or unknown IDs and empty catalogs" do
+      for id <- [nil, "", "unknown"] do
+        assert ProviderModels.find_model([%{id: "known"}], id) == nil
+        assert ProviderModels.find_model([], id) == nil
+      end
+    end
+
+    test "preserves catalog order when aliases and IDs overlap" do
+      first = %{id: "first", model: "shared"}
+      second = %{id: "shared"}
+
+      assert ProviderModels.find_model([first, second], "shared") == first
+      assert ProviderModels.find_model([second, first], "shared") == second
+    end
+
+    property "appending nonmatching entries cannot change a match" do
+      check all(
+              id <- string(:alphanumeric, min_length: 1),
+              suffix <- list_of(string(:alphanumeric, min_length: 1))
+            ) do
+        model = %{id: id, model: "alias-" <> id}
+        others = Enum.map(suffix, &%{id: "other-" <> &1})
+
+        assert ProviderModels.find_model([model | others], id) == model
+        assert ProviderModels.find_model([model | others], model.model) == model
+      end
+    end
   end
 
   test "model_for_credential returns nil for nil or blank model id" do
@@ -424,6 +445,59 @@ defmodule Zaq.Agent.ProviderModelsTest do
 
     assert [%{id: "mistral-small-3.2-24b-instruct-2506", provider: :scaleway}] =
              ProviderModels.models_for_credential(credential, adapter_opts(CatalogOnlyAdapter))
+  end
+
+  describe "compatible-provider catalog isolation" do
+    test "uses the configured catalog rather than the OpenAI runtime catalog" do
+      credential = %{provider: "compatible_vendor", api_key: "sk-test"}
+
+      models =
+        ProviderModels.models_for_credential(credential, adapter_opts(CompatibleCatalogAdapter))
+
+      assert Enum.map(models, & &1.id) == ["vendor-embedding", "vendor-vision"]
+      assert Enum.all?(models, &(&1.provider == :compatible_vendor))
+
+      assert hd(models).capabilities.embeddings == %{
+               default_dimensions: 1024,
+               max_dimensions: 2048
+             }
+
+      refute_received {:compatible_available_models_called, _}
+    end
+
+    test "does not substitute OpenAI models for an empty or missing catalog" do
+      for provider <- ["empty_compatible_vendor", "missing_compatible_vendor_97531"] do
+        credential = %{provider: provider, api_key: "sk-test"}
+
+        assert ProviderModels.models_for_credential(
+                 credential,
+                 adapter_opts(CompatibleCatalogAdapter)
+               ) == []
+
+        refute_received {:compatible_available_models_called, _}
+      end
+    end
+
+    property "preserves catalog identity across compatible providers and normalized labels" do
+      check all(
+              provider <- member_of([:compatible_vendor, :other_compatible_vendor]),
+              display_case <- boolean(),
+              padding <- member_of(["", " ", "\t"]),
+              max_runs: 32
+            ) do
+        label = Atom.to_string(provider)
+        label = if display_case, do: String.upcase(label), else: label
+        credential = %{provider: padding <> label <> padding, api_key: "sk-test"}
+
+        assert [%{provider: ^provider}, %{provider: ^provider}] =
+                 ProviderModels.models_for_credential(
+                   credential,
+                   adapter_opts(CompatibleCatalogAdapter)
+                 )
+
+        refute_received {:compatible_available_models_called, _}
+      end
+    end
   end
 
   test "models_for_credential falls back to OpenAI catalog models resolved as Codex" do

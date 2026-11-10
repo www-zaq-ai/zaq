@@ -58,7 +58,6 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   defp stub_response(response), do: Process.put(:stub_response, response)
-  defp stub_responses(responses), do: Process.put(:stub_responses, responses)
 
   defp entry(id, attrs \\ %{}) do
     struct!(

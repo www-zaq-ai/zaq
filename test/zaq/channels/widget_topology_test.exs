@@ -1,5 +1,5 @@
 defmodule Zaq.Channels.WidgetTopologyTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: true, group: :widget_vm_startup
   use ExUnitProperties
 
   alias Zaq.Channels.WebBridge

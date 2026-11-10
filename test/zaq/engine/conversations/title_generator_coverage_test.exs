@@ -12,7 +12,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:ok, "Password Reset Steps"} =
                TitleGenerator.generate("How do I reset my password?")
@@ -25,7 +25,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:ok, "Sales Report Analysis"} =
                TitleGenerator.generate("Can you summarize the Q4 sales report?")
@@ -38,7 +38,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:ok, "Employee Onboarding Checklist"} =
                TitleGenerator.generate("How do I onboard new employees?")
@@ -51,7 +51,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:ok, "Admin Panel Password"} =
                TitleGenerator.generate("How do I get into the admin panel?")
@@ -66,7 +66,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:fallback, "How Do I Reset My Password?", "Empty assistant response content"} =
                TitleGenerator.generate("How do I reset my password?")
@@ -92,55 +92,10 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:fallback, "How Do I Reset My Password?", "Empty assistant response content"} =
                TitleGenerator.generate("How do I reset my password?")
-    end
-  end
-
-  describe "generate/2 — model and provider fallback coverage" do
-    test "uses the provided model override" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        assert payload["model"] == "coverage-model"
-
-        {200, OpenAIStub.chat_completion("Coverage Model Title")}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint, model: "base-model")
-
-      assert {:ok, "Coverage Model Title"} =
-               TitleGenerator.generate("Which model handles this?", model: "coverage-model")
-    end
-
-    test "falls back when the provider returns an error tuple" do
-      handler = fn _conn, _body ->
-        {503, %{"error" => %{"message" => "service unavailable"}}}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
-
-      assert {:fallback, "Need A Coverage Title", reason} =
-               TitleGenerator.generate("Need a coverage title")
-
-      refute is_nil(reason)
-    end
-
-    test "falls back to the default title when the user message is blank" do
-      handler = fn _conn, _body ->
-        {503, %{"error" => %{"message" => "service unavailable"}}}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
-
-      assert {:fallback, "New Conversation", _reason} = TitleGenerator.generate("   ")
     end
   end
 
@@ -150,22 +105,6 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
                TitleGenerator.generate("Explain billing retry behavior", :invalid_opts)
 
       refute is_nil(reason)
-    end
-  end
-
-  describe "generate/2 — whitespace-only response after trimming" do
-    test "falls back when content becomes empty after prefix removal" do
-      handler = fn _conn, _body ->
-        # A string that is only whitespace after trimming
-        {200, OpenAIStub.chat_completion("   ")}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-      OpenAIStub.seed_llm_config(endpoint)
-
-      assert {:fallback, "Anything", "Empty assistant response content"} =
-               TitleGenerator.generate("Anything")
     end
   end
 end

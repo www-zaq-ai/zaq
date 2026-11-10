@@ -44,14 +44,23 @@ defmodule Zaq.Agent.RequestControlTest do
 
     handler = fn _conn, body ->
       request = Jason.decode!(body)
+      owner_ref = Process.monitor(owner)
       send(owner, {:request_control_model_request, request, self()})
 
+      # Supervised HTTP workers stop before on_exit callbacks can release them.
+      # Keep requests active for assertions, then release when their test exits.
       receive do
         :release_request_control_model ->
-          {200, MultiAgentOpenAIStub.text_sse("Done", request["model"])}
+          :ok
+
+        {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
+          :ok
       after
-        10_000 -> {200, MultiAgentOpenAIStub.text_sse("Done", request["model"])}
+        10_000 -> :ok
       end
+
+      Process.demonitor(owner_ref, [:flush])
+      {200, MultiAgentOpenAIStub.text_sse("Done", request["model"])}
     end
 
     {child, endpoint} = OpenAIStub.server(handler, owner)

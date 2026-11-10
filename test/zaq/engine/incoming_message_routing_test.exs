@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.IncomingMessageRoutingTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
   import Zaq.CommunicationFixtures, only: [connector_fixture: 1]
 
   alias Zaq.Accounts.{People, Person}
@@ -8,6 +9,165 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
   alias Zaq.Engine.{ChannelConfig, IncomingMessageRouting, IncomingMessageRoutingRule}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.SystemConfigFixtures
+
+  describe "insert-if-absent commands" do
+    test "the existing upsert operation exposes an atomic keep-existing policy" do
+      agent = insert_agent!()
+      assert {:ok, original} = IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none})
+
+      assert {:ok, %{id: nil}} =
+               IncomingMessageRouting.upsert_rule(
+                 %{},
+                 %{
+                   routing_mode: :agent,
+                   configured_agent_id: agent.id
+                 },
+                 on_conflict: :nothing
+               )
+
+      assert IncomingMessageRouting.get_rule(%{}) == original
+
+      assert {:ok, %{id: nil}} =
+               IncomingMessageRouting.upsert_rule(
+                 original,
+                 %{
+                   routing_mode: :agent,
+                   configured_agent_id: agent.id
+                 },
+                 on_conflict: :nothing
+               )
+
+      assert IncomingMessageRouting.get_rule(%{}) == original
+
+      assert {:ok, updated} =
+               IncomingMessageRouting.upsert_rule(%{}, %{
+                 routing_mode: :agent,
+                 configured_agent_id: agent.id
+               })
+
+      assert updated.id == original.id
+      assert updated.configured_agent_id == agent.id
+
+      assert {:error, {:invalid_conflict_policy, :bad}} =
+               IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none}, on_conflict: :bad)
+    end
+
+    test "inserts once through Engine and preserves the existing global rule" do
+      agent = insert_agent!()
+
+      command = %{
+        routing_mode: "agent",
+        configured_agent_id: agent.id,
+        write_mode: "insert_if_absent"
+      }
+
+      event =
+        Zaq.Event.new(%{rules: [command]}, :engine,
+          opts: [action: :upsert_incoming_message_routing_rules]
+        )
+
+      assert %{response: {:ok, %{results: [%{status: "inserted"}]}}} =
+               Zaq.NodeRouter.dispatch(event)
+
+      original = IncomingMessageRouting.get_rule(%{})
+
+      assert {:ok, %{results: [%{status: "noop"}]}} =
+               IncomingMessageRouting.apply_rule_commands([command])
+
+      assert IncomingMessageRouting.get_rule(%{}) == original
+    end
+
+    test "returns a retry error when a conflicting winner disappears before the read" do
+      person = insert_person!()
+      scope = %{person_id: person.id}
+      assert {:ok, winner} = IncomingMessageRouting.upsert_rule(scope, %{routing_mode: :none})
+
+      test_pid = self()
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:zaq, :repo, :query],
+          fn _event, _measurements, metadata, _config ->
+            query = Map.get(metadata, :query, "")
+            result = Map.get(metadata, :result)
+
+            if self() == test_pid and is_binary(query) and
+                 String.contains?(query, "INSERT INTO \"incoming_message_routing_rules\"") and
+                 String.contains?(query, "ON CONFLICT DO NOTHING") and
+                 match?({:ok, %{rows: [], num_rows: 0}}, result) do
+              Repo.delete!(winner)
+              send(test_pid, {:deleted_routing_winner, winner.id})
+            end
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      result =
+        IncomingMessageRouting.apply_rule_commands([
+          %{
+            person_id: person.id,
+            routing_mode: "none",
+            write_mode: "insert_if_absent"
+          }
+        ])
+
+      assert result == {:error, :routing_conflict_retry}
+
+      assert_received {:deleted_routing_winner, winner_id}
+      assert winner_id == winner.id
+      assert IncomingMessageRouting.get_rule(scope) == nil
+    end
+
+    property "bootstrap commands never replace a persisted None or agent choice" do
+      check all(mode <- member_of([:none, :agent]), repeats <- integer(1..5), max_runs: 15) do
+        assert {:ok, _} = IncomingMessageRouting.delete_rule(%{})
+        agent = insert_agent!()
+        attrs = %{routing_mode: mode, configured_agent_id: if(mode == :agent, do: agent.id)}
+        assert {:ok, original} = IncomingMessageRouting.upsert_rule(%{}, attrs)
+
+        for _ <- 1..repeats do
+          assert {:ok, %{results: [%{status: "noop"}]}} =
+                   IncomingMessageRouting.apply_rule_commands([
+                     %{routing_mode: "none", write_mode: "insert_if_absent"}
+                   ])
+
+          assert IncomingMessageRouting.get_rule(%{}) == original
+        end
+      end
+    end
+
+    test "rejects unknown write modes, insert-only clears and ineligible agents" do
+      assert {:error, _} =
+               IncomingMessageRouting.apply_rule_commands([
+                 %{routing_mode: "none", write_mode: "overwrite_anything"}
+               ])
+
+      assert {:error, _} =
+               IncomingMessageRouting.apply_rule_commands([
+                 %{routing_mode: "clear", write_mode: "insert_if_absent"}
+               ])
+
+      agent = insert_agent!(conversation_enabled: false)
+
+      assert {:error, %Ecto.Changeset{}} =
+               IncomingMessageRouting.apply_rule_commands(
+                 [
+                   %{
+                     routing_mode: "agent",
+                     configured_agent_id: agent.id,
+                     write_mode: "insert_if_absent"
+                   }
+                 ],
+                 raw_errors: true
+               )
+
+      assert IncomingMessageRouting.get_rule(%{}) == nil
+    end
+  end
 
   for policy <- [:inactive_agent, :non_conversation_agent, :channel_config_mismatch] do
     test "#{policy} is rejected by read-only change_rule and merge before any write" do
@@ -58,14 +218,17 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       scope = Map.take(attrs, [:channel_config_id, :retrieval_channel_id])
 
       scope =
-        if scope == %{},
-          do: scope,
-          else:
+        case Map.fetch(scope, :retrieval_channel_id) do
+          :error ->
+            scope
+
+          {:ok, retrieval_channel_id} ->
             Map.put(
               scope,
               :channel_config_id,
-              Repo.get!(RetrievalChannel, Map.fetch!(attrs, :retrieval_channel_id)).channel_config_id
+              Repo.get!(RetrievalChannel, retrieval_channel_id).channel_config_id
             )
+        end
 
       {:ok, winner} =
         IncomingMessageRouting.upsert_rule(Map.put(scope, :person_id, survivor.id), %{
@@ -769,9 +932,61 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert configured_agent_id == provider_agent.id
     end
 
-    test "falls back to default ZAQ agent when no rule matches" do
-      assert %{mode: :agent, source: :default_zaq_agent, rule: nil, configured_agent_id: nil} =
+    test "resolves to none when no rule matches" do
+      assert %{mode: :none, source: :no_matching_rule, rule: nil, configured_agent_id: nil} =
                IncomingMessageRouting.resolve(incoming())
+    end
+
+    test "exhausting inactive agent rules resolves to none without changing the rules" do
+      agent = insert_agent!()
+
+      {:ok, rule} =
+        IncomingMessageRouting.upsert_rule(%{}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      agent |> Ecto.Changeset.change(active: false) |> Repo.update!()
+
+      assert %{mode: :none, configured_agent_id: nil, rule: nil} =
+               IncomingMessageRouting.resolve(incoming())
+
+      assert IncomingMessageRouting.get_rule(%{}) == rule
+    end
+
+    property "clearing a scoped override inherits a configured agent and never writes none" do
+      agent = insert_agent!()
+      config = insert_channel_config!()
+
+      {:ok, global_rule} =
+        IncomingMessageRouting.upsert_rule(%{}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      check all(topic <- StreamData.string(:alphanumeric, min_length: 1), max_runs: 20) do
+        scope = %{channel_config_id: config.id, topic_id: topic}
+        {:ok, _} = IncomingMessageRouting.upsert_rule(scope, %{routing_mode: :none})
+
+        assert %{mode: :none} =
+                 IncomingMessageRouting.resolve(
+                   incoming(channel_config_id: config.id, topic_id: topic)
+                 )
+
+        assert {:ok, _} =
+                 IncomingMessageRouting.apply_rule_commands([
+                   Map.put(scope, :routing_mode, :clear)
+                 ])
+
+        assert IncomingMessageRouting.get_rule(scope) == nil
+
+        assert %{mode: :agent, configured_agent_id: id, rule: ^global_rule} =
+                 IncomingMessageRouting.resolve(
+                   incoming(channel_config_id: config.id, topic_id: topic)
+                 )
+
+        assert id == agent.id
+      end
     end
   end
 

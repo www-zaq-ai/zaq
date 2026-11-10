@@ -10,11 +10,9 @@ defmodule Zaq.Agent.FactoryTest do
   alias Jido.AI.Skill.Resources
   alias Zaq.Accounts.Person
   alias Zaq.Agent
-  alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
   alias Zaq.Agent.InputPrompt
-  alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Registry
@@ -229,7 +227,8 @@ defmodule Zaq.Agent.FactoryTest do
       enabled_skill_ids: [],
       credential_id: credential.id,
       credential: credential,
-      advanced_options: %{"temperature" => 0.23}
+      temperature: 0.23,
+      advanced_options: %{}
     }
 
     with_runtime_credential_response({:ok, nil}, fn ->
@@ -374,45 +373,6 @@ defmodule Zaq.Agent.FactoryTest do
     end
   end
 
-  describe "answering_configured_agent/0" do
-    test "returns a ConfiguredAgent with name answering" do
-      agent = Answering.answering_configured_agent()
-      assert %ConfiguredAgent{} = agent
-      assert agent.id == :answering
-      assert agent.name == "answering"
-    end
-
-    test "includes answering tool keys" do
-      agent = Answering.answering_configured_agent()
-      assert "answering.search_knowledge_base" in agent.enabled_tool_keys
-    end
-
-    test "is active and not conversation-enabled" do
-      agent = Answering.answering_configured_agent()
-      assert agent.active == true
-      assert agent.conversation_enabled == true
-    end
-
-    test "uses the configured LLM context window" do
-      Zaq.System.set_config("llm.max_context_window", "128000")
-
-      agent = Answering.answering_configured_agent()
-
-      assert agent.model_max_context_tokens == 128_000
-    end
-
-    test "leaves canonical credential loading to lifecycle authentication resolution" do
-      credential = seed_llm_config(%{api_key: "answering-key"})
-
-      agent = Answering.answering_configured_agent()
-
-      assert agent.credential_id == credential.id
-      assert agent.credential == nil
-      assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
-      assert runtime.llm_opts[:api_key] == "answering-key"
-    end
-  end
-
   test "strategy_opts does not include model option" do
     refute Keyword.has_key?(Factory.strategy_opts(), :model)
   end
@@ -430,31 +390,27 @@ defmodule Zaq.Agent.FactoryTest do
     assert Jido.MCP.JidoAI.Actions.UnsyncToolsFromAgent in actions
   end
 
-  describe "ProviderSpec.build/0" do
-    setup do
-      seed_llm_config(%{
-        endpoint: "https://api.example.com/v1",
-        model: "test-model",
-        temperature: 0.1,
-        top_p: 0.8
-      })
+  test "Factory sampling is owned by the agent and remains independent of global changes" do
+    for {global_temperature, global_top_p} <- [{1.2, 0.6}, {0.7, 0.4}] do
+      Zaq.System.set_config("llm.temperature", global_temperature)
+      Zaq.System.set_config("llm.top_p", global_top_p)
 
-      :ok
-    end
+      for {agent, temperature, top_p} <- [
+            {%ConfiguredAgent{}, 0.0, 0.9},
+            {%ConfiguredAgent{temperature: 0.25, top_p: 0.8}, 0.25, 0.8}
+          ] do
+        agent = %{
+          agent
+          | job: "Sampling",
+            advanced_options: %{"temperature" => 1.9, "top_p" => 0.1, "max_tokens" => 40}
+        }
 
-    test "returns model spec with provider, id, and base_url" do
-      spec = ProviderSpec.build()
-
-      assert spec.provider == :openai
-      assert spec.id == "test-model"
-      assert spec.base_url == "https://api.example.com/v1"
-    end
-
-    test "generation_opts returns temperature and top_p" do
-      opts = Factory.generation_opts()
-
-      assert opts[:temperature] == 0.1
-      assert opts[:top_p] == 0.8
+        assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
+        assert runtime.llm_opts[:temperature] == temperature
+        assert runtime.llm_opts[:top_p] == top_p
+        assert runtime.llm_opts[:max_tokens] == 40
+        refute Keyword.has_key?(runtime.llm_opts, :api_key)
+      end
     end
   end
 
@@ -867,6 +823,7 @@ defmodule Zaq.Agent.FactoryTest do
         name: "Prompt Override Agent #{System.unique_integer([:positive])}",
         description: "",
         job: "original system prompt",
+        temperature: 0.11,
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",

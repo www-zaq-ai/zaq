@@ -100,6 +100,32 @@ defmodule Zaq.Channels.HttpClientTest do
       )
     end
 
+    test "sends QUERY with its literal method, path, and JSON body" do
+      with_server(
+        fn conn, parent ->
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          send(parent, {:query_request, conn.method, conn.request_path, Jason.decode!(body)})
+
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(200, ~s({"matched":1}))
+        end,
+        fn base_url ->
+          prepared =
+            spec(
+              base_url,
+              %{method: "QUERY", body: %{"sku" => "A1"}},
+              policy(%{allowed_methods: ["QUERY"]})
+            )
+
+          assert {:ok, %{status: 200, success: true, body: %{"matched" => 1}}} =
+                   Client.request(prepared)
+
+          assert_received {:query_request, "QUERY", "/v1/things", %{"sku" => "A1"}}
+        end
+      )
+    end
+
     test "sends query parameters and credentials from the prepared contract" do
       with_server(
         fn conn, parent ->

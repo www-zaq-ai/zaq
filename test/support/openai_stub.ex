@@ -23,6 +23,14 @@ defmodule Zaq.TestSupport.OpenAIStub do
     # ExUnit timeout. `Connection: close` prevents Finch from pooling it.
     conn = put_resp_header(conn, "connection", "close")
 
+    # Error-mapping fixtures can keep real HTTP retries without waiting for
+    # backoff. Leave retry timing unchanged unless the fixture opts in.
+    conn =
+      case opts[:retry_after] do
+        nil -> conn
+        seconds -> put_resp_header(conn, "retry-after", to_string(seconds))
+      end
+
     case opts[:handler].(conn, body) do
       %Plug.Conn{} = response ->
         response
@@ -42,38 +50,25 @@ defmodule Zaq.TestSupport.OpenAIStub do
     end
   end
 
-  def server(handler, test_pid) do
+  def server(handler, test_pid, opts \\ []) do
     port = free_port()
 
-    child_spec =
-      {Bandit,
-       plug: {__MODULE__, test_pid: test_pid, handler: handler}, scheme: :http, port: port}
-
-    {child_spec, "http://127.0.0.1:#{port}/v1"}
+    {server_spec(handler, test_pid, port, opts), "http://127.0.0.1:#{port}/v1"}
   end
 
-  def llm_config(endpoint, overrides \\ []) do
-    [
-      provider: "openai",
-      endpoint: endpoint,
-      api_key: "test-key",
-      model: "test-model",
-      temperature: 0.0,
-      top_p: 0.9,
-      supports_logprobs: false,
-      supports_json_mode: false
-    ]
-    |> Keyword.merge(overrides)
+  @doc "Starts a supervised fixture using the port actually bound by the OS."
+  def start!(handler, test_pid, opts \\ []) do
+    pid = ExUnit.Callbacks.start_supervised!(server_spec(handler, test_pid, 0, opts))
+    {:ok, {_address, port}} = ThousandIsland.listener_info(pid)
+    {pid, "http://127.0.0.1:#{port}/v1"}
   end
 
-  def seed_llm_config(endpoint, overrides \\ []) do
-    params =
-      llm_config(endpoint, overrides)
-      |> Map.new()
-      |> Map.merge(%{max_context_window: 5000, distance_threshold: 1.2})
-
-    SystemConfigFixtures.seed_llm_config(params)
-    :ok
+  defp server_spec(handler, test_pid, port, opts) do
+    {Bandit,
+     plug: {__MODULE__, test_pid: test_pid, handler: handler, retry_after: opts[:retry_after]},
+     scheme: :http,
+     ip: {127, 0, 0, 1},
+     port: port}
   end
 
   def chat_completion(content, opts \\ []) do
@@ -102,6 +97,39 @@ defmodule Zaq.TestSupport.OpenAIStub do
       "choices" => [choice],
       "usage" => usage
     }
+  end
+
+  @doc "A scripted decision response; answers retain the provider's wire representation."
+  def decision_response(answers, opts \\ []) do
+    %{
+      "id" => "decision-test",
+      "model" => Keyword.get(opts, :model, "test-model"),
+      "answers" => answers,
+      "usage" => Keyword.get(opts, :usage, %{"input_tokens" => 10, "output_tokens" => 5})
+    }
+  end
+
+  @doc "Seeds an explicitly selected dedicated operation model at the stub endpoint."
+  def seed_operation_model_config(kind, endpoint, overrides \\ []) do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{
+        name: "#{kind} stub #{System.unique_integer([:positive])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    prefix = if kind == :translation, do: "rag.translation", else: "global.small_model"
+
+    for {key, value} <-
+          Keyword.merge(
+            [credential_id: credential.id, model: "test-model", temperature: 0.0, top_p: 0.9],
+            overrides
+          ) do
+      Zaq.System.set_config("#{prefix}.#{key}", to_string(value))
+    end
+
+    Zaq.System.get_operation_model_config(kind)
   end
 
   @doc "OpenAI-compatible embedding response for the existing Req.Test HTTP boundary."

@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryFailureTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Actions.TranslateKnowledgeQuery
   alias Zaq.TestSupport.OpenAIStub
@@ -40,7 +40,8 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryFailureTest do
 
   defp context(generator) do
     %{
-      llm_config: OpenAIStub.llm_config("http://example.test/v1") |> Map.new(),
+      translation_config:
+        OpenAIStub.seed_operation_model_config(:translation, "http://example.test/v1"),
       generation: generator
     }
   end

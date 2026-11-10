@@ -67,6 +67,28 @@ async function main() {
     if (opts.scenario === "rejection") await checkpoint("revoke-sender")
     await composer.fill("Please add 2 and 3")
     await composer.press("Enter")
+    if (opts.scenario === "stream-policy") {
+      await checkpoint("policy-pending")
+      await expect(widget.locator(".zaq-working")).toBeVisible()
+      await expect(widget.locator("[data-step-id][data-kind='tool_call']")).toHaveCount(0)
+      await expect(widget.locator(".zaq-answer-content")).not.toContainText(opts.answer)
+      await checkpoint("policy-release")
+      await expect(widget.getByText(opts.answer, { exact: true })).toBeVisible({ timeout: 20000 })
+      await expect(widget.locator("[data-role='assistant']")).toHaveAttribute("data-running", "false")
+      const steps = widget.locator("[data-step-id][data-kind='tool_call']")
+      await expect(steps).toHaveCount(1)
+      await expect(steps.first()).toHaveAttribute("data-status", "complete")
+      const saved = await checkpoint("policy-saved")
+      await page.reload()
+      await expect.poll(() => page.evaluate(() => window.zaq?.widget.isReady())).toBe(true)
+      const restored = await page.evaluate(id => window.zaq.widget.updateContext({ conversation_id: id }), saved.conversation_id)
+      expect(restored.ok).toBe(true)
+      await expect(widget.getByText(opts.answer, { exact: true })).toBeVisible()
+      await expect(steps.first()).toHaveAttribute("data-status", "complete")
+      expect(errors).toEqual([])
+      console.log("history journey passed")
+      return
+    }
     if (opts.scenario === "rejection") {
       await expect(widget.locator(".zaq-widget-error")).toBeVisible({ timeout: 20000 })
       await expect(composer).toHaveValue("Please add 2 and 3")
@@ -76,15 +98,20 @@ async function main() {
       console.log("history journey passed")
       return
     }
-    if (opts.scenario === "no-answer") {
+    if (["no-answer", "routing-inheritance"].includes(opts.scenario)) {
       await expect(widget.locator("[data-role='user']")).toHaveCount(1)
       await expect(composer).toHaveValue("")
       await checkpoint("no-answer")
       await expect(widget.locator("[data-role='assistant']")).toHaveCount(0)
       await expect(widget.locator(".zaq-working")).toHaveCount(0)
       expect(errors).toEqual([])
-      console.log("history journey passed")
-      return
+      if (opts.scenario === "no-answer") {
+        console.log("history journey passed")
+        return
+      }
+      await checkpoint("inherit")
+      await composer.fill("Please add 2 and 3 after restoring inherited routing")
+      await composer.press("Enter")
     }
     const tools = widget.locator("[data-step-id][data-kind='tool_call']")
     await expect(tools).toHaveCount(1, { timeout: 20000 })
@@ -123,7 +150,7 @@ async function main() {
     await expect(widget.locator(".zaq-working")).toHaveCount(0)
     const saved = await checkpoint("saved")
     expect(saved.answer_id).toBeTruthy()
-    expect(saved.steps[0].id).toBe(invocation)
+    if (opts.scenario !== "routing-inheritance") expect(saved.steps[0].id).toBe(invocation)
     const duration = await tools.first().textContent()
     await page.reload()
     await expect(widget.getByRole("textbox")).toBeEditable({ timeout: 20000 })
@@ -132,7 +159,7 @@ async function main() {
     expect(restored.ok).toBe(true)
     await expect(widget.getByText("The real sum is 5.", { exact: true })).toBeVisible()
     await expect(widget.locator("[data-role='assistant']")).toHaveCount(1)
-    await expect(widget.locator("[data-role='user']")).toHaveCount(1)
+    await expect(widget.locator("[data-role='user']")).toHaveCount(opts.scenario === "routing-inheritance" ? 2 : 1)
     await expect(tools).toHaveCount(1)
     await expect(tools.first()).toHaveAttribute("data-step-id", invocation)
     await expect(tools.first()).toHaveAttribute("data-status", "complete")

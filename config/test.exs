@@ -13,13 +13,29 @@ db_name_slug =
 
 e2e? = System.get_env("E2E") == "1"
 test_partition = System.get_env("MIX_TEST_PARTITION", "")
+database_prefix = if e2e?, do: "zaq_test_e2e_", else: "zaq_test_"
 
-test_database =
-  if e2e? do
-    "zaq_test_e2e_#{db_name_slug}#{test_partition}"
+# PostgreSQL identifiers are limited to 63 bytes. Merge-queue refs can exceed
+# that alone; reserve suffix space and hash shortened slugs to retain isolation.
+slug_budget = 63 - byte_size(database_prefix) - byte_size(test_partition)
+
+db_name_slug =
+  if byte_size(db_name_slug) > slug_budget do
+    if slug_budget < 18 do
+      raise "MIX_TEST_PARTITION leaves insufficient space for an isolated test database name"
+    end
+
+    hash =
+      :crypto.hash(:sha256, db_name_slug)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    binary_part(db_name_slug, 0, slug_budget - 17) <> "_" <> hash
   else
-    "zaq_test_#{db_name_slug}#{test_partition}"
+    db_name_slug
   end
+
+test_database = database_prefix <> db_name_slug <> test_partition
 
 # Configure your database
 #
@@ -63,7 +79,6 @@ config :bcrypt_elixir, :log_rounds, 4
 
 # --MOX--
 config :zaq,
-  chunk_title_module: Zaq.Agent.ChunkTitleMock,
   document_processor: Zaq.DocumentProcessorMock,
   node_router: Zaq.NodeRouterMock
 

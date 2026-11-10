@@ -3,6 +3,8 @@ name: Protect opencode workflow
 on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened, ready_for_review]
+  merge_group:
+    types: [checks_requested]
 
 env:
   ZAQ_ALLOWED_ROLES: maintain,admin
@@ -14,6 +16,8 @@ permissions:
 
 jobs:
   enforce-protected-files:
+    # Enforce each PR before queue admission; merge groups have no PR payload.
+    if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
       - name: Enforce maintainer-only changes to protected files

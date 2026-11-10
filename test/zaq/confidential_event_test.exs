@@ -1,5 +1,7 @@
 defmodule Zaq.ConfidentialEventTest do
-  use ExUnit.Case, async: true
+  # The remote-continuation case asserts that the global observer stream is
+  # empty. Unrelated async requests are allowed to publish public events.
+  use ExUnit.Case, async: false
   use ExUnitProperties
 
   alias Zaq.{Event, NodeRouter}

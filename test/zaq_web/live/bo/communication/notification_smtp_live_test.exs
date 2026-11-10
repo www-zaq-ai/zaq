@@ -846,7 +846,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assigns =
       case state do
         %{socket: %{assigns: assigns}} -> assigns
-        %{socket: socket} -> socket.assigns
         %{assigns: assigns} -> assigns
       end
 
@@ -859,7 +858,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assigns =
       case state do
         %{socket: %{assigns: assigns}} -> assigns
-        %{socket: socket} -> socket.assigns
         %{assigns: assigns} -> assigns
       end
 

@@ -124,7 +124,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
       dimension: @dimension
     })
 
-    SystemConfigFixtures.seed_llm_config(%{max_cosine_distance: @evaluation_threshold})
+    assert {:ok, _} =
+             Zaq.System.save_retrieval_config(%{max_cosine_distance: @evaluation_threshold})
 
     doc_ids = seed_documents!(fixtures.documents)
     ChunkLanguages.invalidate()
@@ -154,7 +155,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
 
     test "retrieval evaluation: #{id}", %{fixtures: fixtures, doc_ids: doc_ids} do
       question = Enum.find(fixtures.questions, &(&1.data["id"] == unquote(id))).data
-      config = OpenAIStub.llm_config("http://example.test/v1") |> Map.new()
+      config = OpenAIStub.seed_operation_model_config(:translation, "http://example.test/v1")
 
       lexical_terms =
         question["variants"]
@@ -168,8 +169,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
                  SearchKnowledgeBase,
                  %{query: question["question"], lexical_terms: lexical_terms},
                  %{
+                   context_window: %{max_context_tokens: 25_000},
                    generation: FixtureGeneration,
-                   llm_config: config,
+                   translation_config: config,
                    person_id: nil
                  }
                )

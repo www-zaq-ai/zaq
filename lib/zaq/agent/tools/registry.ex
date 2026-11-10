@@ -46,11 +46,25 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
+      key: "answering.get_knowledge_base_chunks",
+      label: "Get knowledge base chunks",
+      description:
+        "Fetch exact chunk IDs, including previous/next IDs, to expand context explicitly",
+      module: Zaq.Agent.Tools.GetKnowledgeBaseChunks
+    },
+    %{
       key: "general.encode_base64",
       label: "Encode Base64",
       description:
         "Encode text as Base64, in the standard or URL-safe alphabet, with optional padding",
       module: Zaq.Agent.Tools.General.EncodeBase64
+    },
+    %{
+      key: "general.evaluate_decisions",
+      label: "Evaluate decisions",
+      description:
+        "Evaluate supplied state with the global decision model, returning typed values and optional alternative probabilities",
+      module: Zaq.Agent.Actions.EvaluateDecisions
     },
     %{
       key: "general.decode_base64",

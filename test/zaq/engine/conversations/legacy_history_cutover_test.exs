@@ -1,8 +1,12 @@
-Code.require_file("priv/repo/migrations/20260926000000_restrict_legacy_channel_history.exs")
+unless Code.ensure_loaded?(Zaq.Repo.Migrations.RestrictLegacyChannelHistory) do
+  Code.require_file("priv/repo/migrations/20260926000000_restrict_legacy_channel_history.exs")
+end
 
-Code.require_file(
-  "priv/repo/migrations/20260926000001_include_unplaced_legacy_provider_messages.exs"
-)
+unless Code.ensure_loaded?(Zaq.Repo.Migrations.IncludeUnplacedLegacyProviderMessages) do
+  Code.require_file(
+    "priv/repo/migrations/20260926000001_include_unplaced_legacy_provider_messages.exs"
+  )
+end
 
 defmodule Zaq.Engine.Conversations.LegacyHistoryCutoverTest do
   use Zaq.DataCase, async: false

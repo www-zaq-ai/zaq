@@ -19,9 +19,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.EmbeddingConfig
+  alias Zaq.UserPortal.{ClientMock, Onboarding}
 
   # Explicit non-mutating mount reads and the credential changeset builder; all other actions fail.
   @web_browsing_stub_read_actions [
@@ -33,7 +35,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     :system_config_mcp_filter_endpoints,
     :system_config_mcp_predefined_catalog,
     :system_config_get_telemetry_config,
-    :system_config_get_llm_config,
+    :system_config_get_retrieval_config,
     :system_config_get_embedding_config,
     :system_config_get_image_to_text_config,
     :system_config_embedding_ready,
@@ -60,7 +62,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     :connect_fetch_credential,
     :connect_list_grants,
     :system_config_connect_next_refresh_jobs_for_grants,
-    :system_config_get_llm_config,
+    :system_config_get_retrieval_config,
     :system_config_get_embedding_config,
     :system_config_get_image_to_text_config,
     :system_config_embedding_ready
@@ -166,7 +168,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert_patch(view, ~p"/bo/system-config?tab=global")
       assert has_element?(view, "#global-default-agent-select")
-      assert render(view) =~ "Default Zaq Agent"
+      refute render(view) =~ "Default Zaq Agent"
+      assert render(view) =~ "None"
     end
 
     test "switches to Skills tab", %{conn: conn} do
@@ -189,8 +192,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, _view, telemetry_html} = live(conn, ~p"/bo/system-config?tab=telemetry")
       assert telemetry_html =~ "telemetry-config-form"
 
-      {:ok, _view, llm_html} = live(conn, ~p"/bo/system-config?tab=llm")
-      assert llm_html =~ "llm-config-form"
+      {:ok, _view, rag_html} = live(conn, ~p"/bo/system-config?tab=rag")
+      assert rag_html =~ "retrieval-config-form"
 
       {:ok, _view, embedding_html} = live(conn, ~p"/bo/system-config?tab=embedding")
       assert embedding_html =~ "embedding-config-form"
@@ -206,7 +209,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
       assert global_html =~ "Global"
-      assert global_html =~ "Default Zaq Agent"
+      refute global_html =~ "Default Zaq Agent"
+      assert global_html =~ "None"
 
       {:ok, _view, outbound_html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
       assert outbound_html =~ "Outbound HTTP"
@@ -3765,7 +3769,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           endpoint: "https://api.openai.com/v1"
         })
 
-      System.set_config("llm.credential_id", credential.id)
+      System.set_config("embedding.credential_id", credential.id)
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -3788,392 +3792,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
-  describe "LLM config with credential" do
-    test "saves llm config using selected credential", %{conn: conn} do
-      {:ok, credential} =
-        System.create_ai_provider_credential(%{
-          name: "LLM Credential",
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1",
-          auth_kind: "none"
-        })
+  describe "retired global LLM configuration" do
+    test "legacy links open RAG without exposing a global chat configuration form", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/bo/system-config?tab=rag"}}} =
+               live(conn, ~p"/bo/system-config?tab=llm")
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      render_submit(view, "save_llm", %{
-        "llm_config" => %{
-          "credential_id" => Integer.to_string(credential.id),
-          "model" => "gpt-4o",
-          "temperature" => "0.2",
-          "top_p" => "0.9",
-          "supports_logprobs" => "true",
-          "supports_json_mode" => "true",
-          "max_context_window" => "5000",
-          "distance_threshold" => "1.0",
-          "path" => "/chat/completions"
-        }
-      })
-
-      cfg = System.get_llm_config()
-      assert cfg.credential_id == credential.id
-      assert cfg.provider == "openai"
-      assert cfg.endpoint == "https://api.openai.com/v1"
-      assert cfg.model == "gpt-4o"
-    end
-
-    test "save_llm with invalid params renders errors", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_submit(view, "save_llm", %{
-          "llm_config" => %{
-            "credential_id" => "",
-            "model" => "",
-            "temperature" => "3.0",
-            "top_p" => "2.0",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "0",
-            "distance_threshold" => "0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-      refute html =~ "LLM settings saved."
-    end
-
-    test "validate_llm updates form state when switching credential", %{conn: conn} do
-      credential =
-        ai_credential_fixture(%{
-          name: "OpenAI LLM",
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "gpt-4o",
-            "temperature" => "0.2",
-            "top_p" => "0.9",
-            "supports_logprobs" => "true",
-            "supports_json_mode" => "true",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-      assert has_element?(view, "#llm-credential-select")
-      assert html =~ "GPT-4o"
-    end
-
-    test "validate_llm lists ReqLLM-only Codex models and path metadata", %{conn: conn} do
-      credential =
-        ai_credential_fixture(%{
-          name: "Codex LLM",
-          provider: "openai_codex",
-          endpoint: "https://chatgpt.com/backend-api"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "gpt-5.3-codex-spark",
-            "temperature" => "0.2",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "GPT-5.3 Codex Spark"
-      assert html =~ ~s(data-select-value="gpt-5.3-codex-spark")
-      assert html =~ ~s(name="llm_config[path]" value="/responses")
-    end
-
-    test "validate_llm keeps capabilities when provider and model are unchanged", %{conn: conn} do
-      credential =
-        seed_llm_config(%{
-          model: "steady-llm-model",
-          temperature: 0.1,
-          top_p: 0.8,
-          supports_logprobs: true,
-          supports_json_mode: true
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "steady-llm-model",
-            "temperature" => "0.1",
-            "top_p" => "0.8",
-            "supports_logprobs" => "true",
-            "supports_json_mode" => "true",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.2",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm handles unknown provider by falling back safely", %{conn: conn} do
-      credential =
-        ai_credential_fixture(%{
-          name: "Unknown Provider",
-          provider: "provider-not-in-lldb",
-          endpoint: "https://example.invalid/v1"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "unknown-model",
-            "temperature" => "0.2",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm handles missing credential id safely", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "999999999",
-            "model" => "",
-            "temperature" => "0.2",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm handles switch to custom provider path", %{conn: conn} do
-      credential =
-        seed_llm_config(%{
-          model: "switchable-model",
-          temperature: 0.1,
-          top_p: 0.8
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "",
-            "model" => "",
-            "temperature" => "0.1",
-            "top_p" => "0.8",
-            "supports_logprobs" => "true",
-            "supports_json_mode" => "true",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.2",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-      assert System.get_llm_config().credential_id == credential.id
-    end
-
-    test "validate_llm handles unknown model capabilities fallback", %{conn: conn} do
-      credential =
-        ai_credential_fixture(%{
-          name: "OpenAI Unknown Model",
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "model-not-in-lldb",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "true",
-            "supports_json_mode" => "true",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm handles empty or missing model values safely", %{conn: conn} do
-      credential =
-        ai_credential_fixture(%{
-          name: "OpenAI Empty Model",
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html_empty =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      html_missing =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html_empty =~ "llm-config-form"
-      assert html_missing =~ "llm-config-form"
-      assert html_empty =~ ~s(name="llm_config[path]" value="/chat/completions")
-      assert html_missing =~ ~s(name="llm_config[path]" value="/chat/completions")
-    end
-
-    test "validate_llm sorts model options alphabetically for provider-backed credentials", %{
-      conn: conn
-    } do
-      credential =
-        ai_credential_fixture(%{
-          name: "OpenAI Codex Sort",
-          provider: "openai_codex",
-          endpoint: "https://chatgpt.com/backend-api"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => Integer.to_string(credential.id),
-            "model" => "",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      models =
-        ProviderModels.models("openai_codex")
-        |> Enum.map(&(&1.name || &1.id))
-        |> Enum.uniq()
-        |> Enum.sort()
-
-      rendered_models =
-        Enum.filter(models, fn model ->
-          String.contains?(html, ~s(data-select-option="#{model}"))
-        end)
-
-      case rendered_models do
-        [first, second | _] ->
-          assert :binary.match(html, ~s(data-select-option="#{first}")) <
-                   :binary.match(html, ~s(data-select-option="#{second}"))
-
-        _ ->
-          flunk("expected at least two openai_codex models to exercise ordering")
-      end
-    end
-
-    test "validate_llm renders a manual model input for custom providers", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "",
-            "model" => "",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-      refute html =~ ~s(id="llm-model-select")
-      assert html =~ ~s(name="llm_config[model]" value="")
-    end
-
-    test "validate_llm treats omitted credential ids as custom providers", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "model" => "",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-      refute html =~ ~s(id="llm-model-select")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
+      refute has_element?(view, "#llm-tab")
+      refute has_element?(view, "#llm-config-form")
+      assert has_element?(view, "#retrieval-config-form")
     end
   end
 
@@ -4233,7 +3860,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html =
         view
-        |> element("button[phx-click='cancel_unlock_embedding']")
+        |> element("button[phx-click='cancel_unlock_embedding']:not([aria-label])")
         |> render_click()
 
       refute html =~ "Unlock Model Selection"
@@ -4436,6 +4063,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
 
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
       html =
         render_change(view, "validate_embedding", %{
           "embedding_config" => %{
@@ -4447,7 +4077,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ "bg-red-500"
+      assert html =~ "zaq-btn-danger"
     end
   end
 
@@ -4897,13 +4527,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
-  describe "LLM fusion weight controls" do
-    test "validate_llm adjusts bm25_weight when vector_weight changes", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+  describe "retrieval fusion weight controls" do
+    test "validate_retrieval adjusts bm25_weight when vector_weight changes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
+        render_change(view, "validate_retrieval", %{
+          "retrieval_config" => %{
             "credential_id" => "",
             "model" => "test-model",
             "temperature" => "0.1",
@@ -4918,15 +4548,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ "llm-config-form"
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.3
     end
 
-    test "validate_llm passes params unchanged when no weight changes", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+    test "validate_retrieval passes params unchanged when no weight changes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
+        render_change(view, "validate_retrieval", %{
+          "retrieval_config" => %{
             "credential_id" => "",
             "model" => "test-model",
             "temperature" => "0.1",
@@ -4941,15 +4571,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ "llm-config-form"
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.5
     end
 
-    test "validate_llm handles non-numeric fusion weight gracefully", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+    test "validate_retrieval handles non-numeric fusion weight gracefully", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
+        render_change(view, "validate_retrieval", %{
+          "retrieval_config" => %{
             "credential_id" => "",
             "model" => "test-model",
             "temperature" => "0.1",
@@ -4964,10 +4594,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ "llm-config-form"
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.5
     end
 
-    test "save_llm shows error when fusion weights sum is below minimum", %{conn: conn} do
+    test "save_retrieval shows error when fusion weights sum is below minimum", %{conn: conn} do
       {:ok, credential} =
         System.create_ai_provider_credential(%{
           name: "LLM Fusion Weights",
@@ -4976,11 +4606,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           auth_kind: "none"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_submit(view, "save_llm", %{
-          "llm_config" => %{
+        render_submit(view, "save_retrieval", %{
+          "retrieval_config" => %{
             "credential_id" => Integer.to_string(credential.id),
             "model" => "gpt-4o",
             "temperature" => "0.1",
@@ -4998,81 +4628,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "combined fusion weights must sum to at least 0.1"
     end
 
-    test "validate_llm uses custom path when switching to no-credential", %{conn: conn} do
-      _credential = seed_llm_config(%{model: "switchable-for-custom"})
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+    test "validate_retrieval clamps float fusion weight inputs", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "",
-            "model" => "switchable-for-custom",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions",
-            "fusion_bm25_weight" => "0.5",
-            "fusion_vector_weight" => "0.5"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm handles non-integer credential_id string as custom", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "not-a-number",
-            "model" => "test-model",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions",
-            "fusion_bm25_weight" => "0.5",
-            "fusion_vector_weight" => "0.5"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm tolerates non-string credential id", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => URI.parse("https://example.com/cred"),
-            "model" => "",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm clamps float fusion weight inputs", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_hook(view, "validate_llm", %{
-          "llm_config" =>
+        render_hook(view, "validate_retrieval", %{
+          "retrieval_config" =>
             Map.merge(llm_validation_params(), %{
               "credential_id" => "",
               "model" => "test-model",
@@ -5081,12 +4642,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             })
         })
 
-      assert html =~ ~s(name="llm_config[fusion_bm25_weight]" value="0.75")
-      assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.75
+      assert input_number(html, "retrieval_config[fusion_vector_weight]") == 0.25
     end
 
     test "numeric LLM fusion weights are normalized", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       for {bm25, vector, expected_bm25, expected_vector} <- [
             {-0.2, 0.5, 0.0, 1.0},
@@ -5094,22 +4655,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             {0.756, 0.5, 0.76, 0.24}
           ] do
         html =
-          render_hook(view, "validate_llm", %{
-            "llm_config" =>
+          render_hook(view, "validate_retrieval", %{
+            "retrieval_config" =>
               Map.merge(llm_validation_params(), %{
                 "fusion_bm25_weight" => bm25,
                 "fusion_vector_weight" => vector
               })
           })
 
-        assert input_number(html, "llm_config[fusion_bm25_weight]") == expected_bm25
-        assert input_number(html, "llm_config[fusion_vector_weight]") == expected_vector
+        assert input_number(html, "retrieval_config[fusion_bm25_weight]") == expected_bm25
+        assert input_number(html, "retrieval_config[fusion_vector_weight]") == expected_vector
       end
     end
 
     property "normalized LLM fusion weights remain bounded complements", %{conn: conn} do
       check all(weight <- integer(-2000..3000), side <- member_of([:bm25, :vector]), max_runs: 25) do
-        {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+        {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
         try do
           value = weight / 1000
@@ -5120,9 +4681,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
               "fusion_vector_weight" => if(side == :vector, do: value, else: "0.5")
             })
 
-          html = render_hook(view, "validate_llm", %{"llm_config" => params})
-          bm25 = input_number(html, "llm_config[fusion_bm25_weight]")
-          vector = input_number(html, "llm_config[fusion_vector_weight]")
+          html = render_hook(view, "validate_retrieval", %{"retrieval_config" => params})
+          bm25 = input_number(html, "retrieval_config[fusion_bm25_weight]")
+          vector = input_number(html, "retrieval_config[fusion_vector_weight]")
           assert bm25 >= 0.0 and bm25 <= 1.0
           assert vector >= 0.0 and vector <= 1.0
           assert_in_delta bm25 + vector, 1.0, 0.0001
@@ -5130,41 +4691,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           assert_in_delta vector * 100, Float.round(vector * 100), 0.0001
 
           stable =
-            render_hook(view, "validate_llm", %{
-              "llm_config" =>
+            render_hook(view, "validate_retrieval", %{
+              "retrieval_config" =>
                 Map.merge(llm_validation_params(), %{
                   "fusion_bm25_weight" => bm25,
                   "fusion_vector_weight" => vector
                 })
             })
 
-          assert input_number(stable, "llm_config[fusion_bm25_weight]") == bm25
-          assert input_number(stable, "llm_config[fusion_vector_weight]") == vector
+          assert input_number(stable, "retrieval_config[fusion_bm25_weight]") == bm25
+          assert input_number(stable, "retrieval_config[fusion_vector_weight]") == vector
         after
           if Process.alive?(view.pid), do: GenServer.stop(view.pid)
         end
       end
-    end
-
-    test "validate_llm treats non-map credential ids as custom providers", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => %{},
-            "model" => "test-model",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions"
-          }
-        })
-
-      assert html =~ "llm-config-form"
     end
   end
 
@@ -5254,7 +4794,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html_small =~ ~s(name="embedding_config[dimension]" value="1536")
+      assert input_number(html_small, "embedding_config[dimension]") == 1536
 
       html_large =
         render_change(view, "validate_embedding", %{
@@ -5267,7 +4807,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html_large =~ ~s(name="embedding_config[dimension]" value="3072")
+      assert input_number(html_large, "embedding_config[dimension]") == 3072
     end
 
     test "validate_embedding keeps dimension when lookup returns nil", %{conn: conn} do
@@ -5316,7 +4856,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ ~s(name="embedding_config[dimension]" value="1536")
+      assert input_number(html, "embedding_config[dimension]") == 1536
     end
   end
 
@@ -5338,6 +4878,53 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "global default agent saving" do
+    test "clearing leaves no selection and allows initial portal bootstrap", %{
+      conn: conn,
+      user: user
+    } do
+      assert {:ok, _} = IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none})
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(view, "#global-default-agent-select input[value='none']")
+
+      assert render_submit(view, "save_global_default_agent", %{"global_default_agent_id" => ""}) =~
+               "Global default agent saved."
+
+      assert IncomingMessageRouting.get_rule(%{}) == nil
+
+      expect(ClientMock, :onboard_user, fn _ -> {:ok, %{litellm_api_key: "sk-cleared-root"}} end)
+      assert {:ok, _} = Onboarding.activate_portal(user, nil)
+
+      assert %{routing_mode: :agent, configured_agent_id: id} =
+               IncomingMessageRouting.get_rule(%{})
+
+      assert id == System.get_global_default_agent_id()
+    end
+
+    test "saved None survives reload and subsequent portal activation", %{conn: conn, user: user} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      for _ <- 1..2 do
+        assert render_submit(view, "save_global_default_agent", %{
+                 "global_default_agent_id" => "none"
+               }) =~
+                 "Global default agent saved."
+      end
+
+      assert %{routing_mode: :none, configured_agent_id: nil} =
+               rule = IncomingMessageRouting.get_rule(%{})
+
+      {:ok, reloaded, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(reloaded, "#global-default-agent-select input[value='none']")
+
+      expect(ClientMock, :onboard_user, fn email ->
+        assert email == user.email
+        {:ok, %{litellm_api_key: "sk-explicit-none"}}
+      end)
+
+      assert {:ok, _} = Onboarding.activate_portal(user, nil)
+      assert IncomingMessageRouting.get_rule(%{}) == rule
+    end
+
     test "accepts empty global_default_agent_id and saves", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
 
@@ -5454,7 +5041,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       html = render_hook(view, "detect_timezone", %{"offset" => "-180"})
 
       assert html =~ "GMT+03:00"
-      assert has_element?(view, "option[value='GMT+03:00'][selected]")
+
+      assert has_element?(
+               view,
+               "#global-timezone-select input[data-select-value][value='GMT+03:00']"
+             )
+
       refute html =~ "Failed to save timezone"
     end
 
@@ -5503,7 +5095,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       html = render_hook(view, "detect_timezone", %{"offset" => "60"})
 
       assert html =~ "GMT+02:00"
-      assert has_element?(view, "option[value='GMT+02:00'][selected]")
+
+      assert has_element?(
+               view,
+               "#global-timezone-select input[data-select-value][value='GMT+02:00']"
+             )
     end
   end
 
@@ -6644,53 +6240,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
-  describe "LLM validate_llm — fusion weight edge cases" do
-    test "validate_llm handles float fusion weights", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "",
-            "model" => "test-model",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions",
-            "fusion_bm25_weight" => "0.5",
-            "fusion_vector_weight" => "0.8"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-
-    test "validate_llm handles out-of-range bm25 weight clamping", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => "",
-            "model" => "test-model",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions",
-            "fusion_bm25_weight" => "0.7"
-          }
-        })
-
-      assert html =~ "llm-config-form"
-    end
-  end
-
   describe "MCP — save error handling" do
     setup do
       prev = Application.get_env(:zaq, :mcp_test_module)
@@ -7585,13 +7134,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   defp stub_response_for_action(:system_config_get_telemetry_config),
     do: %Zaq.System.TelemetryConfig{}
 
-  defp stub_response_for_action(:system_config_get_llm_config), do: %Zaq.System.LLMConfig{}
+  defp stub_response_for_action(:system_config_get_retrieval_config),
+    do: %Zaq.System.RetrievalConfig{}
 
   defp stub_response_for_action(:system_config_get_embedding_config),
     do: %Zaq.System.EmbeddingConfig{}
 
   defp stub_response_for_action(:system_config_get_image_to_text_config),
     do: %Zaq.System.ImageToTextConfig{}
+
+  defp stub_response_for_action(:system_config_get_operation_model_config),
+    do: %Zaq.System.OperationModelConfig{}
+
+  defp stub_response_for_action(:system_config_get_decision_model_config),
+    do: %Zaq.System.OperationModelConfig{}
 
   defp stub_response_for_action(:system_config_embedding_ready), do: false
   defp stub_response_for_action(:system_config_get_global_default_agent_id), do: nil
@@ -7741,7 +7297,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
               :system_config_change_http_credential_provider,
               :system_config_list_http_credential_providers,
               :system_config_get_telemetry_config,
-              :system_config_get_llm_config,
+              :system_config_get_retrieval_config,
               :system_config_get_embedding_config,
               :system_config_embedding_ready,
               :system_config_get_image_to_text_config
@@ -7789,7 +7345,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
               :system_config_mcp_change_endpoint,
               :system_config_change_http_credential_provider,
               :system_config_get_telemetry_config,
-              :system_config_get_llm_config,
+              :system_config_get_retrieval_config,
               :system_config_get_embedding_config,
               :system_config_embedding_ready,
               :system_config_get_image_to_text_config,
@@ -8021,6 +7577,56 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       assert html =~ "Failed to save timezone"
+    end
+
+    test "save decision model handles dispatch failure and keeps submitted values", %{conn: conn} do
+      credential = ai_credential_fixture(%{provider: "custom"})
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_decision_model_config ->
+            %Zaq.Event{event | response: %Zaq.System.OperationModelConfig{}}
+
+          :system_config_save_decision_model_config ->
+            assert event.next_hop.destination == :engine
+
+            assert event.request[:attrs] == %{
+                     "credential_id" => to_string(credential.id),
+                     "model" => "custom-decision"
+                   }
+
+            %Zaq.Event{event | response: {:error, :unavailable}}
+
+          _ ->
+            Zaq.NodeRouter.dispatch(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      assert has_element?(view, "#decision-model-form")
+      assert Zaq.System.get_decision_model_config().model == nil
+
+      html =
+        render_submit(view, "save_decision_model", %{
+          "decision_model_config" => %{
+            "credential_id" => to_string(credential.id),
+            "model" => "custom-decision"
+          }
+        })
+
+      assert html =~ "Could not save decision model settings. Please retry."
+      refute html =~ "Decision model settings saved."
+      assert has_element?(view, "#decision-model-form")
+
+      assert has_element?(
+               view,
+               "input[name='decision_model_config[model]'][value='custom-decision']"
+             )
+
+      assert Zaq.System.get_decision_model_config().model == nil
     end
   end
 
@@ -8537,6 +8143,27 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "Unable to delete HTTP credential provider."
     end
 
+    test "Albert is selectable through catalog execution without a native ReqLLM provider", %{
+      conn: conn
+    } do
+      assert {:ok, %{catalog_only: false, runtime: runtime}} = LLMDB.provider(:albert)
+      assert is_map(runtime)
+      assert {:error, _} = ReqLLM.provider(:albert)
+
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      view |> element("button[phx-click='new_ai_credential']") |> render_click()
+
+      assert has_element?(
+               view,
+               "#ai-credential-provider-select [data-select-value='albert'][data-select-disabled='false']"
+             )
+
+      refute has_element?(
+               view,
+               "#ai-credential-provider-select [data-select-value='albert'][data-select-disabled='true']"
+             )
+    end
+
     test "controlled catalogs retain custom providers and can expose zaq_router", %{conn: conn} do
       with_catalog(fn providers, models ->
         provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :zaq_router)
@@ -8616,35 +8243,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute html =~ "router.example.test/v1"
     end
 
-    test "validate_llm uses manual input for non-scalar credentials and renders weights", %{
+    test "validating retrieval weights does not persist configuration", %{
       conn: conn
     } do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-      before = System.get_llm_config()
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
+      before = System.get_retrieval_config()
 
       html =
-        render_hook(view, "validate_llm", %{
-          "llm_config" => %{
-            "credential_id" => true,
-            "model" => "manual-model",
-            "temperature" => "0.1",
-            "top_p" => "0.9",
-            "supports_logprobs" => "false",
-            "supports_json_mode" => "false",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0",
-            "path" => "/chat/completions",
+        render_hook(view, "validate_retrieval", %{
+          "retrieval_config" => %{
             "fusion_bm25_weight" => "0.75",
             "fusion_vector_weight" => "0.25"
           }
         })
 
-      refute html =~ ~s(id="llm-model-select")
-      assert html =~ ~s(name="llm_config[model]" value="manual-model")
-      assert html =~ "is invalid"
-      assert html =~ ~s(name="llm_config[fusion_bm25_weight]" value="0.75")
-      assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
-      assert System.get_llm_config() == before
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.75
+      assert input_number(html, "retrieval_config[fusion_vector_weight]") == 0.25
+      assert System.get_retrieval_config() == before
     end
 
     test "catalog model options are sorted", %{conn: conn} do
@@ -8673,11 +8288,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           endpoint: "https://example.test"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
 
       html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
+        render_change(view, "validate_operation_model", %{
+          "kind" => "small",
+          "operation_model_config" => %{
             "credential_id" => to_string(credential.id),
             "model" => "",
             "temperature" => "0.1",
@@ -8720,6 +8336,211 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "embedding-config-form"
       assert html =~ ~s(id="embedding-model-select")
+    end
+
+    test "compatible-provider embedding selection keeps catalog identity when switching credentials",
+         %{conn: conn} do
+      with_compatible_provider_catalog()
+
+      vendor =
+        ai_credential_fixture(%{
+          provider: "compatible_catalog",
+          endpoint: "https://vendor.test/v1"
+        })
+
+      openai = ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+      render_click(view, "unlock_embedding", %{})
+      render_click(view, "confirm_unlock_embedding", %{})
+
+      params = %{
+        "model" => "",
+        "dimension" => "768",
+        "chunk_min_tokens" => "400",
+        "chunk_max_tokens" => "900"
+      }
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.put(params, "credential_id", to_string(openai.id))
+      })
+
+      assert has_element?(
+               view,
+               "#embedding-model-select [data-select-value='text-embedding-3-large']"
+             )
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.put(params, "credential_id", to_string(vendor.id))
+      })
+
+      assert has_element?(view, "#embedding-model-select [data-select-value='vendor-embedding']")
+
+      refute has_element?(
+               view,
+               "#embedding-model-select [data-select-value='text-embedding-3-large']"
+             )
+
+      refute has_element?(view, "#embedding-model-select [data-select-value='vendor-rerank']")
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" =>
+          Map.merge(params, %{
+            "credential_id" => to_string(vendor.id),
+            "model" => "vendor-embedding"
+          })
+      })
+
+      assert has_element?(view, "input[name='embedding_config[dimension]'][value='1024']")
+
+      assert %{
+               provider: :compatible_catalog,
+               capabilities: %{embeddings: %{default_dimensions: 1024}}
+             } =
+               ProviderModels.model_for_credential(vendor, "vendor-embedding")
+
+      assert ProviderModels.model_for_credential(vendor, "text-embedding-3-large") == nil
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.put(params, "credential_id", to_string(openai.id))
+      })
+
+      assert has_element?(
+               view,
+               "#embedding-model-select [data-select-value='text-embedding-3-large']"
+             )
+
+      refute has_element?(view, "#embedding-model-select [data-select-value='vendor-embedding']")
+    end
+
+    test "compatible-provider image selection filters its own catalog", %{conn: conn} do
+      with_compatible_provider_catalog()
+
+      vendor =
+        ai_credential_fixture(%{
+          provider: "compatible_catalog",
+          endpoint: "https://vendor.test/v1"
+        })
+
+      openai = ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{"credential_id" => to_string(openai.id), "model" => ""}
+      })
+
+      assert has_element?(view, "#image-to-text-model-select [data-select-value='gpt-4o']")
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{"credential_id" => to_string(vendor.id), "model" => ""}
+      })
+
+      assert has_element?(view, "#image-to-text-model-select [data-select-value='vendor-vision']")
+      refute has_element?(view, "#image-to-text-model-select [data-select-value='gpt-4o']")
+
+      refute has_element?(
+               view,
+               "#image-to-text-model-select [data-select-value='vendor-embedding']"
+             )
+
+      refute has_element?(view, "#image-to-text-model-select [data-select-value='vendor-rerank']")
+      refute has_element?(view, "#image-to-text-model-compatibility-note")
+    end
+
+    test "image-to-text suggestions mark unknown output and exclude explicit non-text output", %{
+      conn: conn
+    } do
+      model_specs =
+        for {input, i} <- Enum.with_index([[], [:text], [:image], [:text, :image]]),
+            {output, j} <- Enum.with_index([[], [:text], [:embedding], [:text, :embedding]]) do
+          status =
+            cond do
+              :image not in input -> :excluded
+              output == [] -> :unconfirmed
+              :text in output -> :confirmed
+              true -> :excluded
+            end
+
+          {"modality-#{i}-#{j}", %{input: input, output: output}, status}
+        end
+
+      model_specs =
+        model_specs ++
+          [
+            {"missing-modalities", nil, :excluded},
+            {"empty-modalities", %{}, :excluded},
+            {"text-input-only", %{input: [:text]}, :excluded},
+            {"image-input-only", %{input: [:image]}, :unconfirmed},
+            {"output-only", %{output: [:text]}, :excluded},
+            {"nil-modalities", %{input: nil, output: nil}, :excluded},
+            {"nil-input", %{input: nil, output: [:text]}, :excluded},
+            {"nil-output", %{input: [:image], output: nil}, :unconfirmed}
+          ]
+
+      with_catalog(fn providers, models ->
+        provider =
+          Enum.find(providers, &(&1.id == :openai))
+          |> Map.merge(%{id: :image_to_text_capabilities, alias_of: nil, catalog_only: true})
+
+        source =
+          Enum.find(models, &(&1.provider == :openai and not &1.deprecated and not &1.retired))
+
+        custom_models =
+          Enum.map(model_specs, fn {id, modalities, _eligible} ->
+            Map.merge(source, %{
+              provider: :image_to_text_capabilities,
+              id: id,
+              name: id,
+              modalities: modalities,
+              capabilities: %{chat: false}
+            })
+          end)
+
+        {[provider | providers], custom_models ++ models}
+      end)
+
+      credential =
+        ai_credential_fixture(%{provider: "image_to_text_capabilities", auth_kind: "none"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{"credential_id" => to_string(credential.id), "model" => ""}
+      })
+
+      for {id, _modalities, status} <- model_specs do
+        selector = "#image-to-text-model-select [data-select-value='#{id}']"
+
+        assert has_element?(view, selector) == (status != :excluded),
+               "incorrect image-to-text eligibility for #{id}"
+
+        assert has_element?(view, "#{selector} em", "Compatibility unconfirmed") ==
+                 (status == :unconfirmed),
+               "incorrect compatibility cue for #{id}"
+
+        if status == :unconfirmed do
+          assert has_element?(view, "#{selector}[data-select-disabled='false']")
+        end
+      end
+
+      assert has_element?(
+               view,
+               "#image-to-text-model-compatibility-note",
+               "Output capabilities are missing from the catalog"
+             )
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{
+          "credential_id" => to_string(credential.id),
+          "model" => "image-input-only"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "input[name='image_to_text_config[model]'][value='image-input-only']"
+             )
     end
 
     test "embedding capability booleans and dimension metadata drive model validation", %{
@@ -9057,6 +8878,266 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     }
   end
 
+  describe "RAG configuration" do
+    test "operation selectors distinguish incompatible catalogs from catalog-free credentials", %{
+      conn: conn
+    } do
+      with_catalog(fn providers, models ->
+        provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :catalog_test)
+
+        model =
+          models
+          |> Enum.find(&(&1.provider == :openai and not &1.deprecated and not &1.retired))
+          |> Map.merge(%{
+            id: "embedding-only",
+            provider: :catalog_test,
+            modalities: %{input: [:text], output: [:embedding]}
+          })
+
+        {providers ++ [provider], models ++ [model]}
+      end)
+
+      catalog = ai_credential_fixture(%{provider: "catalog_test"})
+      custom = ai_credential_fixture()
+
+      for {kind, tab} <- [{"translation", "rag"}, {"small", "global"}] do
+        {:ok, view, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
+        params = %{
+          "kind" => kind,
+          "operation_model_config" => %{"credential_id" => to_string(catalog.id), "model" => ""}
+        }
+
+        html = render_change(view, "validate_operation_model", params)
+        assert html =~ "No compatible text-generation models"
+        assert has_element?(view, "##{kind}-model-select")
+
+        refute has_element?(
+                 view,
+                 "##{kind}-model-form input[type='text'][name='operation_model_config[model]']"
+               )
+
+        assert render_submit(
+                 view,
+                 "save_operation_model",
+                 put_in(params, ["operation_model_config", "model"], "embedding-only")
+               ) =~ "is not a compatible model"
+
+        assert System.get_operation_model_config(String.to_existing_atom(kind)).model == nil
+
+        params = put_in(params, ["operation_model_config", "credential_id"], to_string(custom.id))
+        render_change(view, "validate_operation_model", params)
+
+        assert has_element?(
+                 view,
+                 "##{kind}-model-form input[name='operation_model_config[model]'][value='']"
+               )
+
+        assert render_submit(
+                 view,
+                 "save_operation_model",
+                 put_in(params, ["operation_model_config", "model"], "custom-model")
+               ) =~ "Model settings saved"
+
+        assert System.get_operation_model_config(String.to_existing_atom(kind)).model ==
+                 "custom-model"
+      end
+    end
+
+    test "decision selection belongs to Global and saves independently from generation models", %{
+      conn: conn
+    } do
+      credential = ai_credential_fixture(%{provider: "custom"})
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(view, "#decision-model-section")
+
+      assert has_element?(
+               view,
+               "#global-model-row.grid-cols-1.xl\\:grid-cols-2 > #small-model-section"
+             )
+
+      assert has_element?(view, "#global-model-row > #decision-model-section")
+      assert has_element?(view, "#small-model-section .zaq-ai-model-selector--stacked")
+      assert has_element?(view, "#decision-model-section .zaq-ai-model-selector--stacked")
+
+      params = %{
+        "decision_model_config" => %{
+          "credential_id" => to_string(credential.id),
+          "model" => "custom-decision"
+        }
+      }
+
+      assert render_submit(view, "save_decision_model", params) =~ "Decision model settings saved"
+      assert System.get_decision_model_config().model == "custom-decision"
+      assert System.get_operation_model_config(:small).model == nil
+      assert System.get_config("rag.decision.model") == nil
+
+      {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=global")
+
+      assert has_element?(
+               reloaded,
+               "#decision-model-form input[name='decision_model_config[model]'][value='custom-decision']"
+             )
+
+      assert render_submit(reloaded, "save_decision_model", %{
+               "decision_model_config" => %{"credential_id" => "", "model" => ""}
+             }) =~ "Decision model settings saved"
+
+      assert System.get_decision_model_config().model == nil
+
+      {:ok, rag, _} = live(conn, ~p"/bo/system-config?tab=rag")
+      refute has_element?(rag, "#decision-model-section")
+      refute has_element?(rag, "#rag-decision-section")
+      assert has_element?(rag, "#rag-reranking-section")
+    end
+
+    test "custom endpoint specialized models use manual fields, save and reload", %{conn: conn} do
+      credential = ai_credential_fixture(%{provider: "custom"})
+
+      for {kind, tab, prefix, form_name, validate, save, message} <- [
+            {"reranking", "rag", "rag-reranking", "rag_model_config", "validate_rag_model",
+             "save_rag_model", "RAG model settings saved"},
+            {"decision", "global", "decision", "decision_model_config", "validate_decision_model",
+             "save_decision_model", "Decision model settings saved"}
+          ] do
+        {:ok, view, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
+        params = %{
+          "kind" => kind,
+          form_name => %{"credential_id" => to_string(credential.id), "model" => ""}
+        }
+
+        render_change(view, validate, params)
+        assert has_element?(view, "input[name='#{form_name}[model]']")
+        refute has_element?(view, "##{prefix}-model-select")
+        assert has_element?(view, "##{prefix}-modalities")
+
+        params = put_in(params, [form_name, "model"], "custom/#{kind}")
+        assert render_submit(view, save, params) =~ message
+        {:ok, reloaded, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
+        assert has_element?(
+                 reloaded,
+                 "input[name='#{form_name}[model]'][value='custom/#{kind}']"
+               )
+      end
+    end
+
+    test "specialized selectors filter, reject incompatible models, save and reload independently",
+         %{conn: conn} do
+      with_catalog(fn providers, models ->
+        provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :catalog_test)
+
+        source =
+          Enum.find(models, &(&1.provider == :openai and not &1.deprecated and not &1.retired))
+
+        base =
+          Map.merge(source, %{
+            provider: :catalog_test,
+            modalities: %{input: [:text], output: [:text]}
+          })
+
+        {providers ++ [provider],
+         models ++
+           [
+             Map.merge(base, %{
+               id: "rag-reranker",
+               name: "RAG reranker",
+               capabilities: %{rerank: true}
+             }),
+             Map.merge(base, %{
+               id: "rag-decider",
+               name: "RAG decider",
+               capabilities: %{},
+               modalities: %{input: [:text], output: [:decisions]}
+             }),
+             Map.merge(base, %{id: "rag-chat", name: "RAG chat", capabilities: %{chat: true}})
+           ]}
+      end)
+
+      credential = ai_credential_fixture(%{provider: "catalog_test"})
+      other = ai_credential_fixture()
+
+      for {kind, model, excluded, tab, prefix, form_name, validate, save, message} <- [
+            {"reranking", "rag-reranker", "rag-decider", "rag", "rag-reranking",
+             "rag_model_config", "validate_rag_model", "save_rag_model",
+             "RAG model settings saved"},
+            {"decision", "rag-decider", "rag-reranker", "global", "decision",
+             "decision_model_config", "validate_decision_model", "save_decision_model",
+             "Decision model settings saved"}
+          ] do
+        {:ok, view, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
+        params = %{
+          "kind" => kind,
+          form_name => %{"credential_id" => to_string(credential.id), "model" => ""}
+        }
+
+        render_change(view, validate, params)
+        assert has_element?(view, "##{prefix}-model-select li[data-select-value='#{model}']")
+        refute has_element?(view, "##{prefix}-model-select li[data-select-value='#{excluded}']")
+        refute has_element?(view, "##{prefix}-model-select li[data-select-value='rag-chat']")
+        invalid = put_in(params, [form_name, "model"], "rag-chat")
+        assert render_submit(view, save, invalid) =~ "is not a compatible model"
+        assert System.get_rag_model_config(String.to_existing_atom(kind)).model == nil
+        valid = put_in(params, [form_name, "model"], model)
+        assert render_submit(view, save, valid) =~ message
+        assert System.get_rag_model_config(String.to_existing_atom(kind)).model == model
+        switched = put_in(valid, [form_name, "credential_id"], to_string(other.id))
+        render_change(view, validate, switched)
+
+        assert has_element?(
+                 view,
+                 "input[name='#{form_name}[model]'][value='']"
+               )
+      end
+
+      {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=rag")
+      assert has_element?(reloaded, "#rag-reranking-model-select input[value='rag-reranker']")
+      refute has_element?(reloaded, "#rag-decision-model-select")
+      {:ok, global, _} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(global, "#decision-model-select input[value='rag-decider']")
+    end
+
+    test "locked model changes are ignored and retrieval saves preserve chat configuration", %{
+      conn: conn
+    } do
+      credential = seed_embedding_config(%{model: "locked-model", dimension: 1536})
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=rag")
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => %{
+          "credential_id" => to_string(credential.id),
+          "model" => "forged-model",
+          "dimension" => "42"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "input[name='embedding_config[dimension]'][value='1536'][disabled]"
+             )
+
+      assert has_element?(
+               view,
+               "input[name='embedding_config[model]'][value='locked-model'][disabled]"
+             )
+
+      System.set_config("llm.model", "keep-model")
+
+      assert render_submit(view, "save_retrieval", %{
+               "retrieval_config" => %{
+                 "max_cosine_distance" => "0.8",
+                 "fusion_bm25_weight" => "0.3",
+                 "fusion_vector_weight" => "0.7"
+               }
+             }) =~ "Retrieval settings saved"
+
+      assert System.get_retrieval_config().max_cosine_distance == 0.8
+      assert System.get_config("llm.model") == "keep-model"
+    end
+  end
+
   defp input_number(html, name) do
     [value] =
       Regex.run(~r/name="#{Regex.escape(name)}"[^>]*value="([^"]*)"/, html,
@@ -9067,6 +9148,45 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {number, ""} -> number
       :error -> String.to_integer(value) * 1.0
     end
+  end
+
+  defp with_compatible_provider_catalog do
+    with_catalog(fn providers, models ->
+      provider =
+        providers
+        |> Enum.find(&(&1.id == :openai))
+        |> Map.merge(%{
+          id: :compatible_catalog,
+          name: "Compatible Catalog",
+          alias_of: nil,
+          catalog_only: false
+        })
+
+      source =
+        Enum.find(models, &(&1.provider == :openai and not &1.deprecated and not &1.retired))
+
+      vendor_models =
+        Enum.map(
+          [
+            {"vendor-embedding", %{embeddings: %{default_dimensions: 1024, max_dimensions: 2048}},
+             %{input: [:text], output: [:embedding]}},
+            {"vendor-vision", %{embeddings: false}, %{input: [:text, :image], output: [:text]}},
+            {"vendor-rerank", %{embeddings: false, rerank: true},
+             %{input: [:text], output: [:text]}}
+          ],
+          fn {id, capabilities, modalities} ->
+            Map.merge(source, %{
+              provider: :compatible_catalog,
+              id: id,
+              name: id,
+              capabilities: capabilities,
+              modalities: modalities
+            })
+          end
+        )
+
+      {[provider | providers], vendor_models ++ models}
+    end)
   end
 
   defp with_catalog(transform) do

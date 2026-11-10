@@ -1026,7 +1026,6 @@ defmodule Zaq.Channels.JidoChatBridge do
                channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
                retrieval_channel_id:
                  RetrievalChannel.id_by_config_and_channel(config, msg.channel_id),
-               pipeline_module: pipeline_module(),
                node_router: node_router_module()
              )
            ) do
@@ -1697,12 +1696,9 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp normalize_pipeline_result(result)
 
   defp normalize_pipeline_result(:ok), do: :ok
-  defp normalize_pipeline_result(nil), do: :ok
   defp normalize_pipeline_result(%Outgoing{}), do: :ok
   defp normalize_pipeline_result({:ok, _}), do: :ok
   defp normalize_pipeline_result({:error, _} = error), do: error
-
-  defp normalize_pipeline_result(other), do: {:error, {:invalid_pipeline_response, other}}
 
   defp provider_context(config) when is_map(config) do
     provider = config_value(config, :provider)
@@ -1854,10 +1850,6 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp hooks_module do
     Zaq.Config.get(:zaq, :pipeline_hooks_module, Zaq.Hooks)
-  end
-
-  defp pipeline_module do
-    Zaq.Config.get(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
   end
 
   def runtime_chat_module do

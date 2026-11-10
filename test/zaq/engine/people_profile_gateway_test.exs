@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.PeopleProfileGatewayTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: true, group: :people_permission_grants
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions, PersonSession}
   alias Zaq.Engine.{Api, Events, PeopleAuthGateway}
 
@@ -14,7 +14,10 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
       })
 
     {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
-    {:ok, c} = PeopleAuth.issue_challenge(p, {127, 2, 1, 1})
+    # Own the rate-limit key instead of accumulating attempts across test runs.
+    ip_suffix = rem(System.unique_integer([:positive]), 16_777_216)
+    <<a, b, c>> = <<ip_suffix::24>>
+    {:ok, c} = PeopleAuth.issue_challenge(p, {127, a, b, c})
 
     {:ok, %{token: token, session: session}} =
       PeopleAuth.verify_challenge(c.challenge_id, c.code)

@@ -17,7 +17,10 @@ defmodule Zaq.System.UpdateBadgeWorkerTest do
     Application.put_env(
       :zaq,
       ReleaseUpdate,
-      Keyword.merge(original, plug: {Req.Test, __MODULE__.HTTP})
+      Keyword.merge(original,
+        plug: {Req.Test, __MODULE__.HTTP},
+        retry_delay: fn _attempt -> 0 end
+      )
     )
 
     on_exit(fn -> Application.put_env(:zaq, ReleaseUpdate, original) end)

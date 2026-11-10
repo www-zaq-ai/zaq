@@ -2,10 +2,8 @@ defmodule Zaq.Agent.Executor do
   @moduledoc """
   Single execution boundary for all agent runs.
 
-  This module orchestrates the full request lifecycle for both:
-
-  - the default answering configuration (`Zaq.Agent.Answering`) and
-  - explicitly selected BO-configured agents.
+  This module orchestrates the full request lifecycle for explicitly selected
+  configured agents. A missing agent ID is rejected, never replaced by a default.
 
   Key concerns handled here:
 
@@ -23,6 +21,10 @@ defmodule Zaq.Agent.Executor do
     channel adapters receive a consistent payload shape.
   - Canonical tool invocation evidence on successful, partial and handled-error
     results; public step snapshots are derived only at publication boundaries.
+  - Per-request, secret-free streamed-update policy resolution through Engine,
+    passed only to StreamEvents; progress/status producers remain independent.
+  - Terminal delivery of buffered answer content after a partially published
+    stream failure, without exposing reasoning or forcing intermediate updates.
 
   In short, `Executor` is the workflow coordinator; it does not build provider
   specs or runtime tool config itself. Those responsibilities stay in
@@ -34,18 +36,19 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Agent
 
   alias Zaq.Agent.{
-    Answering,
     ErrorMessage,
     Factory,
     HistoryLoader,
     HistorySync,
     InputPrompt,
     LogprobsAnalyzer,
+    ProviderSpec,
     RequestControl,
     ServerManager,
     StreamEvents
   }
 
+  alias Zaq.ConnectorConfig.LiveUpdates
   alias Zaq.Engine.Conversations.MessageAuthor
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
@@ -140,19 +143,20 @@ defmodule Zaq.Agent.Executor do
   @doc """
   Runs the full agent execution pipeline for an incoming message.
 
-  Loads the configured agent (or the default answering agent when no `:agent_id` opt is
-  given), ensures its Jido server is running, sends a typing indicator, submits the
+  Loads the explicitly selected configured agent, ensures its Jido server is
+  running, sends a typing indicator, submits the
   question via `Factory.ask_with_config/4`, consumes stream events for realtime
   updates and trace capture, then records telemetry and returns a normalized
   `Outgoing.t()`.
 
   On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
   event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
-  never raises.
+  does not raise for execution failures. Callers must supply the required agent ID;
+  the Agent API validates selection before entering this execution boundary.
 
   ## Options
 
-  - `:agent_id` — integer ID of the configured agent to use; omit for the default answering agent
+  - `:agent_id` — required ID of the configured agent to use
   - `:scope` — explicit server scope string; defaults to the trusted conversation binding when present, otherwise `derive_scope/1`
   - `:conversation_binding` — trusted Engine-issued conversation and user-message references
   - `:question` — override the question text; defaults to `incoming.content`
@@ -160,11 +164,12 @@ defmodule Zaq.Agent.Executor do
   - `:person_id` — passed into the retrieval context for permission scoping
   - `:team_ids` — list of team IDs passed into the retrieval context
   - `:context` — a pre-built `Jido.AI.Context` used as the agent's cold-start context (e.g. `RunAgent`'s step turns); when present the server spawns with it and skips history loading. Only consumed on cold start
+  - `:config` — optional configuration provider for the runtime's cold-start drain timeout
   - `:event` — the dispatching `%Zaq.Event{}`; its validated actor binds the server lifecycle and is exposed to tools. Without an event actor, a trusted Incoming Person is required; missing identity never becomes anonymous implicitly
-  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
+  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:node_router` — injectable runtime dependencies
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t() | RequestControl.handoff()
-  def run(%Incoming{} = incoming, opts \\ []) do
+  def run(%Incoming{} = incoming, opts) do
     if is_reference(Keyword.get(opts, :history_session)) do
       do_run(incoming, opts)
     else
@@ -180,7 +185,7 @@ defmodule Zaq.Agent.Executor do
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
     factory_module = Keyword.get(opts, :factory_module, Factory)
     actor_result = execution_actor(opts, incoming)
-    selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
+    selected_agent_result = agent_module.get_active_agent(Keyword.fetch!(opts, :agent_id))
     dims = telemetry_dimensions(incoming, selected_agent_result)
 
     :ok = Telemetry.record("qa.message.count", 1, dims)
@@ -261,6 +266,7 @@ defmodule Zaq.Agent.Executor do
                agent: configured_agent,
                node_router: node_router(execution_opts),
                status_module: status_mod(execution_opts),
+               live_update_policy: live_update_policy(incoming, actor, execution_opts),
                notify_execution_lifecycle:
                  Keyword.get(execution_opts, :notify_execution_lifecycle, false)
              ) do
@@ -336,8 +342,8 @@ defmodule Zaq.Agent.Executor do
     result
   end
 
-  # A streaming error after tokens were already delivered means the answer is
-  # visible; suppress the error bubble so we don't overlay a complete response.
+  # A streaming error after meaningful tokens were delivered keeps the answer
+  # visible; deliver any buffered tail without replacing it with an error bubble.
   # Otherwise (failed before any content — e.g. budget/rate limit on the first
   # token) surface the error instead of an empty bubble.
   defp handle_stream_error(
@@ -380,8 +386,7 @@ defmodule Zaq.Agent.Executor do
     not is_nil(get_in(incoming.metadata, [:status_message_id])) and content_delivered?(partial)
   end
 
-  defp content_delivered?(%{answer: answer}) when is_binary(answer),
-    do: String.trim(answer) != ""
+  defp content_delivered?(%{answer_published?: published?}), do: published? == true
 
   defp content_delivered?(_), do: false
 
@@ -498,6 +503,7 @@ defmodule Zaq.Agent.Executor do
 
   defp ensure_agent_server(server_manager_module, configured_agent, server_id, opts, actor) do
     server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context),
+      config: Keyword.get(opts, :config),
       actor: actor,
       execution_scope: Keyword.get(opts, :scope),
       canonical_execution: Keyword.get(opts, :canonical_execution, false),
@@ -505,15 +511,6 @@ defmodule Zaq.Agent.Executor do
       history_binding: history_binding(opts),
       history_cursors: (Keyword.get(opts, :execution_history) || %{})[:cursors]
     )
-  end
-
-  defp load_selected_agent(opts, agent_module, _factory_module) do
-    answering_module = Keyword.get(opts, :answering_module, Answering)
-
-    case Keyword.get(opts, :agent_id) do
-      nil -> {:ok, answering_module.answering_configured_agent()}
-      agent_id -> agent_module.get_active_agent(agent_id)
-    end
   end
 
   defp ensure_scope_for_answering_path(opts, incoming, actor) do
@@ -648,6 +645,35 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
+  defp live_update_policy(incoming, actor, opts) do
+    event =
+      Event.new(incoming, :engine,
+        actor: actor,
+        opts: [action: :resolve_live_update_policy, confidential: true]
+      )
+
+    case node_router(opts).dispatch(event) do
+      %{response: {:ok, policy}} -> validated_live_update_policy(policy)
+      _ -> unavailable_live_update_policy()
+    end
+  rescue
+    _error -> unavailable_live_update_policy()
+  catch
+    :exit, _reason -> unavailable_live_update_policy()
+  end
+
+  defp validated_live_update_policy(policy) do
+    case LiveUpdates.normalize(policy) do
+      {:ok, normalized} -> normalized
+      {:error, _errors} -> unavailable_live_update_policy()
+    end
+  end
+
+  defp unavailable_live_update_policy do
+    Logger.warning("Streamed-update policy unavailable; suppressing managed stream updates")
+    Map.put(LiveUpdates.defaults(), "enabled", false)
+  end
+
   defp queue_busy_input(runtime, %{incoming: incoming, actor: actor, opts: opts}) do
     with {:ok, {request_id, _state}} <-
            RequestControl.find_native_request(Keyword.get(opts, :scope), actor, runtime),
@@ -758,13 +784,13 @@ defmodule Zaq.Agent.Executor do
       llm_calls: Map.get(stream_result, :llm_calls, []),
       trace: stream_result.trace,
       trace_artifacts: Map.get(stream_result, :trace_artifacts, []),
-      sources: []
+      sources: Map.get(stream_result, :sources, [])
     }
   end
 
   defp suppressed_stream_error_result(_reason, partial) do
     %{
-      answer: "",
+      answer: partial[:pending_answer] || "",
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
@@ -808,6 +834,7 @@ defmodule Zaq.Agent.Executor do
       :trace,
       :trace_artifacts,
       :tool_calls,
+      :sources,
       :llm_calls,
       :termination_reason,
       :measurements,
@@ -995,8 +1022,11 @@ defmodule Zaq.Agent.Executor do
   defp llm_provider_and_model(_model, configured_provider), do: {configured_provider, nil}
 
   defp configured_provider(%Zaq.Agent.ConfiguredAgent{} = configured_agent) do
-    case Agent.runtime_provider_for_agent(configured_agent) do
-      {:ok, provider} -> to_string(provider)
+    with provider when is_binary(provider) <- Agent.provider_for_agent(configured_agent),
+         true <- ProviderSpec.known_provider?(provider),
+         {:ok, runtime_provider} <- Agent.runtime_provider_for_agent(configured_agent) do
+      to_string(runtime_provider)
+    else
       _ -> nil
     end
   end
