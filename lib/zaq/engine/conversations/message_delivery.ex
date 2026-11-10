@@ -5,7 +5,8 @@ defmodule Zaq.Engine.Conversations.MessageDelivery do
   Engine validates the exact stored input/answer and origin before recording
   bounded transport facts. Confirmation remains authoritative. These writes
   neither place messages in transcripts nor schedule transport delivery.
-  Queries here establish message ownership, not permission to read a transcript.
+  Eligibility composes `AnswerOwnership` relationships with delivery-specific reply
+  and origin checks; neither grants permission to read a transcript.
   """
 
   import Ecto.Query
@@ -13,8 +14,7 @@ defmodule Zaq.Engine.Conversations.MessageDelivery do
   alias Zaq.Engine.ChannelHistoryUpdates
 
   alias Zaq.Engine.Conversations.{
-    Conversation,
-    ExecutionRecord,
+    AnswerOwnership,
     Message,
     Transcript,
     TranscriptMessage
@@ -50,22 +50,30 @@ defmodule Zaq.Engine.Conversations.MessageDelivery do
 
   @doc "Builds an internal exact-answer query; callers must authorize their read scope."
   def answers_query do
-    from answer in Message,
-      as: :answer,
-      join: input in Message,
-      as: :input,
-      on: fragment("?->>'in_reply_to_message_id' = ?::text", answer.metadata, input.id),
-      join: conversation in Conversation,
-      as: :conversation,
-      on: conversation.id == input.conversation_id and answer.conversation_id == conversation.id,
-      left_join: execution in ExecutionRecord,
-      on: execution.user_message_id == input.id and is_nil(execution.root_execution_id),
-      where: input.role == "user" and answer.role == "assistant",
-      where:
-        (is_nil(execution.id) and
-           fragment("?->>'execution_status' = 'completed'", input.metadata)) or
-          (execution.status == "completed" and execution.public_answer_message_id == answer.id and
-             execution.person_id == conversation.person_id)
+    completed_roots =
+      AnswerOwnership.owned_root_executions_query()
+      |> where([execution: execution], execution.status == "completed")
+      |> where(
+        [execution: execution, answer: answer],
+        execution.id == parent_as(:execution).id and answer.id == parent_as(:answer).id
+      )
+      |> select([execution: execution], execution.id)
+
+    AnswerOwnership.conversation_pairs_query()
+    |> where(
+      [answer: answer, input: input],
+      fragment("?->>'in_reply_to_message_id' = ?::text", answer.metadata, input.id)
+    )
+    |> join(:left, [input: input], execution in subquery(AnswerOwnership.root_executions_query()),
+      as: :execution,
+      on: execution.user_message_id == input.id
+    )
+    |> where(
+      [answer: answer, input: input, execution: execution],
+      (is_nil(execution.id) and
+         fragment("?->>'execution_status' = 'completed'", input.metadata)) or
+        exists(subquery(completed_roots))
+    )
   end
 
   @doc "Restricts answers to exact origin placements, including safely scoped legacy origins."

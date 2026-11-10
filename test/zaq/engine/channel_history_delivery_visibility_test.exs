@@ -127,6 +127,79 @@ defmodule Zaq.Engine.ChannelHistoryDeliveryVisibilityTest do
     assert Repo.aggregate(TranscriptMessage, :count) == before
   end
 
+  test "an invalid existing root cannot use completed legacy metadata as a fallback", ctx do
+    private =
+      stored_channel_answer(config: ctx.config, room: "invalid-root", private_execution: true)
+
+    execution = Repo.get_by!(ExecutionRecord, public_answer_message_id: private.answer.id)
+    execution |> ExecutionRecord.owner_changeset(ctx.person.id) |> Repo.update!()
+
+    private.input
+    |> Message.confirmation_changeset(
+      Map.put(private.input.metadata, "execution_status", "completed")
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{pending_messages: []}} =
+             request(ctx.admin, %{op: :detail, id: private.captured.transcript_id})
+
+    assert {:error, :invalid_delivery_scope} =
+             MessageDelivery.record(observation(private, :failed, :rejected))
+
+    assert {:error, :not_found} =
+             request(ctx.admin, %{
+               op: :message_info,
+               id: private.captured.transcript_id,
+               message_id: private.answer.id
+             })
+  end
+
+  test "legacy eligibility requires recorded completion", ctx do
+    ctx.input
+    |> Message.confirmation_changeset(Map.delete(ctx.input.metadata, "execution_status"))
+    |> Repo.update!()
+
+    assert {:ok, %{pending_messages: []}} =
+             request(ctx.admin, %{op: :detail, id: ctx.captured.transcript_id})
+
+    assert {:error, :invalid_delivery_scope} =
+             MessageDelivery.record(observation(ctx, :failed, :rejected))
+  end
+
+  test "a pending raw input root also blocks legacy fallback", ctx do
+    %ExecutionRecord{}
+    |> ExecutionRecord.changeset(%{
+      person_id: ctx.person.id,
+      user_message_id: ctx.input.id,
+      status: "pending",
+      finalization_token_hash: Base.encode64(:crypto.strong_rand_bytes(32))
+    })
+    |> Repo.insert!()
+
+    assert {:ok, %{pending_messages: []}} =
+             request(ctx.admin, %{op: :detail, id: ctx.captured.transcript_id})
+
+    assert {:error, :invalid_delivery_scope} =
+             MessageDelivery.record(observation(ctx, :failed, :rejected))
+  end
+
+  test "delivery eligibility still requires the exact metadata reply link", ctx do
+    private =
+      stored_channel_answer(config: ctx.config, room: "no-reply-link", private_execution: true)
+
+    private.answer
+    |> Message.confirmation_changeset(
+      Map.delete(private.answer.metadata, "in_reply_to_message_id")
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{pending_messages: []}} =
+             request(ctx.admin, %{op: :detail, id: private.captured.transcript_id})
+
+    assert {:error, :invalid_delivery_scope} =
+             MessageDelivery.record(observation(private, :failed, :rejected))
+  end
+
   test "delayed association is shown only in the exact confirmation target and then deduplicates",
        ctx do
     delivery = confirmation(ctx)

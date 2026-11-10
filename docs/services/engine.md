@@ -2,6 +2,13 @@
 
 ## Channel delivery observations and BO invalidation
 
+`Conversations.AnswerOwnership` owns the persisted input/answer/root-execution
+relationship queries shared by tool history, delivery eligibility and privileged
+inspection. Raw root lookup stays separate from validated ownership so invalid
+evidence cannot become a missing-evidence fallback. Canonical conversation-less
+evidence requires both transcript placements and does not grant private inspection.
+Reader authorization and completion/delivery policy remain with the callers.
+
 `Conversations.MessageDelivery` records bounded delivery observations against an
 exact persisted input/answer and connector scope. Confirmation is authoritative;
 an observation never creates transcript membership or schedules a send. Unknown
