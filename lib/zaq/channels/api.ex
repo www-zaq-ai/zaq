@@ -38,7 +38,6 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Channels.DeliveryError
   alias Zaq.Channels.DeliveryFiles
-  alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Channels.MessageFormatter
@@ -223,9 +222,7 @@ defmodule Zaq.Channels.Api do
 
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
-         {:ok, connection_details} <- delivery_connection(bridge_module, outgoing, event.opts),
-         {:ok, connection_details} <-
-           email_attachment_connection(bridge, outgoing, connection_details) do
+         {:ok, connection_details} <- delivery_connection(bridge_module, outgoing, bridge) do
       formatted_outgoing =
         outgoing
         |> publish_tool_steps()
@@ -238,7 +235,14 @@ defmodule Zaq.Channels.Api do
         formatted_outgoing
         |> deliver_reply(bridge, details)
         |> normalize_delivery_response()
-        |> report_file_failure(formatted_outgoing, bridge, details, bridge_module, event.opts)
+        |> report_file_failure(
+          formatted_outgoing,
+          outgoing,
+          bridge,
+          details,
+          bridge_module,
+          event.opts
+        )
         |> DeliveryConfirmation.record(outgoing, event.opts)
 
       %{event | response: response}
@@ -1104,6 +1108,7 @@ defmodule Zaq.Channels.Api do
   defp report_file_failure(
          response,
          %Outgoing{attachments: [], attachment_error: nil},
+         _canonical_outgoing,
          _bridge,
          _details,
          _resolver,
@@ -1114,6 +1119,7 @@ defmodule Zaq.Channels.Api do
   defp report_file_failure(
          response,
          _outgoing,
+         _canonical_outgoing,
          _bridge,
          %{attachment_failure_policy: :abort},
          _resolver,
@@ -1124,6 +1130,7 @@ defmodule Zaq.Channels.Api do
   defp report_file_failure(
          {:error, %DeliveryError{reason: {:attachment_delivery_failed, _report}}} = response,
          _outgoing,
+         _canonical_outgoing,
          _bridge,
          _details,
          _resolver,
@@ -1134,6 +1141,7 @@ defmodule Zaq.Channels.Api do
   defp report_file_failure(
          {:error, %DeliveryError{} = error} = response,
          %Outgoing{body: body} = outgoing,
+         canonical_outgoing,
          bridge,
          details,
          resolver,
@@ -1151,7 +1159,10 @@ defmodule Zaq.Channels.Api do
 
     deliver_failure_notice(error, notice, bridge, details, resolver)
     |> normalize_delivery_response()
-    |> DeliveryConfirmation.record(notice, opts)
+    |> DeliveryConfirmation.record(
+      %{canonical_outgoing | attachments: [], attachment_error: nil},
+      opts
+    )
 
     response
   rescue
@@ -1164,7 +1175,16 @@ defmodule Zaq.Channels.Api do
       response
   end
 
-  defp report_file_failure(response, _outgoing, _bridge, _details, _resolver, _opts), do: response
+  defp report_file_failure(
+         response,
+         _outgoing,
+         _canonical_outgoing,
+         _bridge,
+         _details,
+         _resolver,
+         _opts
+       ),
+       do: response
 
   defp deliver_failure_notice(
          %DeliveryError{stage: stage, delivery: :not_sent},
@@ -1206,38 +1226,20 @@ defmodule Zaq.Channels.Api do
     end)
   end
 
-  defp email_attachment_connection(
-         _bridge,
-         %Outgoing{attachments: [], attachment_error: nil},
-         details
-       ),
-       do: {:ok, details}
-
-  defp email_attachment_connection(EmailBridge, outgoing, details) do
-    with {:ok, config} <- EmailBridge.reply_smtp_config(outgoing) do
-      {:ok,
-       details
-       |> Map.put(:smtp_config_id, config && config.id)
-       |> Map.put(:attachment_failure_policy, Settings.attachment_failure_policy(config || %{}))}
-    end
-  end
-
-  defp email_attachment_connection(_bridge, _outgoing, details), do: {:ok, details}
-
   defp validate_destination_files(bridge, resolver, outgoing, opts) do
-    with {:ok, details} <- delivery_connection(resolver, outgoing, opts) do
+    with {:ok, details} <- delivery_connection(resolver, outgoing, nil) do
       bridge.validate_files(outgoing, details, opts)
     end
   end
 
-  defp delivery_connection(bridge_module, %Outgoing{provider: provider}, _opts)
+  defp delivery_connection(bridge_module, %Outgoing{provider: provider} = outgoing, bridge)
        when provider in [:web, "web"],
-       do: {:ok, bridge_module.fetch_connection_details(provider)}
+       do: delivery_connection_details(bridge_module, bridge, nil, outgoing)
 
   defp delivery_connection(
          bridge_module,
-         %Outgoing{provider: provider, routing_context: %{channel_config_id: id}},
-         _opts
+         %Outgoing{provider: provider, routing_context: %{channel_config_id: id}} = outgoing,
+         bridge
        )
        when is_integer(id) and id > 0 do
     with {:ok, config} <- Bridge.fetch_channel_config_by_id(id),
@@ -1246,27 +1248,44 @@ defmodule Zaq.Channels.Api do
            (config.kind in [:retrieval, "retrieval"] and
               (platform == to_string(provider) or config.provider == to_string(provider))) ||
              {:error, :connector_mismatch} do
-      {:ok, bridge_module.fetch_connection_details_for_config(config)}
+      delivery_connection_details(bridge_module, bridge, config, outgoing)
     end
   end
 
   defp delivery_connection(
          _bridge_module,
          %Outgoing{routing_context: %{channel_config_id: id}},
-         _opts
+         _bridge
        )
        when not is_nil(id), do: {:error, :invalid_connector_id}
 
-  defp delivery_connection(bridge_module, %Outgoing{provider: provider}, _opts) do
+  defp delivery_connection(bridge_module, %Outgoing{provider: provider} = outgoing, bridge) do
     case bridge_module.fetch_channel_config(provider) do
       {:ok, config} ->
-        {:ok, bridge_module.fetch_connection_details_for_config(config)}
+        delivery_connection_details(bridge_module, bridge, config, outgoing)
 
       {:error, {:channel_not_configured, _}} ->
-        {:ok, bridge_module.fetch_connection_details(provider)}
+        delivery_connection_details(bridge_module, bridge, nil, outgoing)
 
       error ->
         error
+    end
+  end
+
+  defp delivery_connection_details(resolver, bridge, config, outgoing) do
+    if (outgoing.attachments != [] or not is_nil(outgoing.attachment_error)) and
+         supports_callback?(bridge, :fetch_connection_details_for_config, 2) do
+      bridge.fetch_connection_details_for_config(config,
+        outgoing: outgoing,
+        connection_resolver: resolver
+      )
+    else
+      details =
+        if is_nil(config),
+          do: resolver.fetch_connection_details(outgoing.provider),
+          else: resolver.fetch_connection_details_for_config(config)
+
+      {:ok, details}
     end
   end
 

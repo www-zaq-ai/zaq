@@ -210,14 +210,12 @@ defmodule Zaq.Engine.History.DeliveryTest do
 
     expected = [
       %{
-        "id" => "first.txt",
         "kind" => "file",
         "name" => "first.txt",
         "mime_type" => "text/plain",
         "size" => 12
       },
       %{
-        "id" => "last.txt",
         "kind" => "file",
         "name" => "last.txt",
         "mime_type" => "text/plain",

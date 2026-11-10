@@ -92,7 +92,16 @@ defmodule Zaq.Channels.EmailBridge.OutgoingAttachmentsTest do
 
     assert receipt.confirmation == :confirmed
     assert receipt.delivered_attachment_indices == [0]
-    refute Map.has_key?(receipt, :attachments)
+
+    assert receipt.attachments == [
+             %{
+               "kind" => "file",
+               "name" => "report.bin",
+               "mime_type" => "application/octet-stream",
+               "size" => 5
+             }
+           ]
+
     assert_receive {:email, %{attachments: [attachment]}}
     assert Swoosh.Attachment.get_content(attachment) == "ready"
     refute_receive {:email, _}

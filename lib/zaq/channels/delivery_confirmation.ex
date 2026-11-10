@@ -83,7 +83,7 @@ defmodule Zaq.Channels.DeliveryConfirmation do
        ) do
     metadata =
       Enum.map(attachments, fn record ->
-        record |> Record.attachment_metadata() |> Map.delete("attributes")
+        record |> Record.attachment_metadata() |> Map.drop(["id", "attributes"])
       end)
 
     Map.put_new(receipt, :attachments, metadata)

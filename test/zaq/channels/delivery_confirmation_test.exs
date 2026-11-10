@@ -132,12 +132,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
       report = if partial?, do: %{confirmation: :partial, messages: [receipt]}, else: receipt
 
       expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-        assert [%Record{id: "sent", content: nil, materialization_handle: "original-handle"}] =
-                 event.request.outgoing.attachments
-
-        refute Map.has_key?(event.request.receipt, :delivered_attachment_indices)
-        assert event.request.receipt.attachments == [%{"id" => "sent", "kind" => "file"}]
-        refute inspect(event.request.receipt.attachments) =~ "private"
+        send(self(), {:confirmed_request, event.request})
         %{event | response: {:ok, event.request.receipt}}
       end)
 
@@ -147,6 +142,14 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
                )
 
       assert outgoing.attachments == attachments
+      assert_received {:confirmed_request, request}
+
+      assert [%Record{id: "sent", content: nil, materialization_handle: "original-handle"}] =
+               request.outgoing.attachments
+
+      refute Map.has_key?(request.receipt, :delivered_attachment_indices)
+      assert request.receipt.attachments == [%{"kind" => "file"}]
+      refute inspect(request.receipt.attachments) =~ "private"
     end
   end
 
@@ -165,6 +168,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
             for index <- 0..(count - 1) do
               %Record{
                 id: to_string(index),
+                name: "file-#{index}",
                 kind: :file,
                 content: "private bytes",
                 materialization_handle: "private handle",
@@ -180,7 +184,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
         |> Enum.filter(&(is_integer(&1) and &1 >= 0 and &1 < count))
         |> Enum.uniq()
         |> Enum.sort()
-        |> Enum.map(&%{"id" => to_string(&1), "kind" => "file"})
+        |> Enum.map(&%{"name" => "file-#{&1}", "kind" => "file"})
 
       receipt = %{
         confirmation: :confirmed,
@@ -191,13 +195,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
       report = if partial?, do: %{confirmation: :partial, messages: [receipt]}, else: receipt
 
       expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-        assert event.request.receipt.attachments == selected
-
-        assert Enum.map(event.request.outgoing.attachments, & &1.id) ==
-                 Enum.map(selected, & &1["id"])
-
-        refute Map.has_key?(event.request.receipt, :delivered_attachment_indices)
-        refute Jason.encode!(event.request.receipt.attachments) =~ "private"
+        send(self(), {:confirmed_request, event.request})
         %{event | response: {:ok, event.request.receipt}}
       end)
 
@@ -205,6 +203,15 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
                DeliveryConfirmation.record({:ok, report}, outgoing,
                  delivery_node_router: Zaq.NodeRouterMock
                )
+
+      assert_received {:confirmed_request, request}
+      assert request.receipt.attachments == selected
+
+      assert Enum.map(request.outgoing.attachments, & &1.id) ==
+               Enum.map(selected, &String.replace_prefix(&1["name"], "file-", ""))
+
+      refute Map.has_key?(request.receipt, :delivered_attachment_indices)
+      refute Jason.encode!(request.receipt.attachments) =~ "private"
     end
   end
 
@@ -228,7 +235,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
       }
 
       expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-        assert event.request.receipt.attachments == evidence
+        send(self(), {:confirmed_request, event.request})
         %{event | response: {:ok, event.request.receipt}}
       end)
 
@@ -236,6 +243,9 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
                DeliveryConfirmation.record({:ok, receipt}, outgoing,
                  delivery_node_router: Zaq.NodeRouterMock
                )
+
+      assert_received {:confirmed_request, request}
+      assert request.receipt.attachments == evidence
     end
   end
 

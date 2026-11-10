@@ -15,6 +15,7 @@ defmodule Zaq.Channels.Bridge do
   """
 
   alias Zaq.Channels.{CommunicationBridge, DataSourceBridge}
+  alias Zaq.ConnectorConfig.Settings
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -115,6 +116,7 @@ defmodule Zaq.Channels.Bridge do
       defdelegate fetch_channel_config(provider), to: Zaq.Channels.Bridge
       defdelegate fetch_channel_config_by_id(id), to: Zaq.Channels.Bridge
       defdelegate fetch_connection_details_for_config(config), to: Zaq.Channels.Bridge
+      defdelegate fetch_connection_details_for_config(config, opts), to: Zaq.Channels.Bridge
       defdelegate fetch_any_channel_config(provider), to: Zaq.Channels.Bridge
 
       defdelegate dispatch_provider_runtime_sync(bridge, config),
@@ -165,7 +167,8 @@ defmodule Zaq.Channels.Bridge do
 
       def runtime_bridge_id(config), do: ChannelBridge.default_bridge_id(config)
 
-      defoverridable start_runtime: 1,
+      defoverridable fetch_connection_details_for_config: 2,
+                     start_runtime: 1,
                      start_runtime: 2,
                      stop_runtime: 1,
                      sync_runtime: 2,
@@ -386,6 +389,31 @@ defmodule Zaq.Channels.Bridge do
       token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token"),
       settings: Map.get(runtime_config, :settings) || Map.get(runtime_config, "settings") || %{}
     }
+  end
+
+  @doc """
+  Resolves connection details and attachment policy for an outgoing delivery.
+
+  Uses the selected config's existing projection, or provider lookup when config
+  is nil. `:outgoing` supplies the delivery context; `:connection_resolver` can
+  supply the existing lookup implementation. Bridges may extend this lookup to
+  resolve an outbound binding without changing the outgoing history identity.
+  The one-argument projection remains independent of delivery resolution.
+  """
+  @spec fetch_connection_details_for_config(map() | nil, keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def fetch_connection_details_for_config(config, opts) do
+    resolver = Keyword.get(opts, :connection_resolver, __MODULE__)
+
+    details =
+      if is_nil(config),
+        do: resolver.fetch_connection_details(Keyword.fetch!(opts, :outgoing).provider),
+        else: resolver.fetch_connection_details_for_config(config)
+
+    {:ok,
+     Map.put_new_lazy(details, :attachment_failure_policy, fn ->
+       Settings.attachment_failure_policy(details)
+     end)}
   end
 
   @doc "Fetches an enabled connector by provider; supply its ID if the provider is ambiguous."

@@ -8,6 +8,38 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocumentsTest do
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Engine.Messages.Incoming
+
+  property "destination validation preserves trusted event options without sending file content" do
+    Mox.verify_on_exit!()
+
+    check all(bypass? <- boolean(), max_runs: 12) do
+      {:ok, record} = Provenance.seal(%{record("validation") | content: "private file bytes"})
+      actor = context().actor
+
+      Mox.expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        assert event.actor == actor
+        assert event.opts[:action] == :validate_files
+        assert event.opts[:confidential] == true
+        assert event.opts[:bridge_module] == SelectedBridge
+        assert Keyword.get(event.opts, :skip_permissions, false) == bypass?
+        refute Keyword.has_key?(event.opts, :untrusted_option)
+        assert [%Record{content: nil}] = event.request.attachments
+        %{event | response: :ok}
+      end)
+
+      ctx =
+        Map.merge(context(), %{
+          skip_permissions: bypass?,
+          node_router: Zaq.NodeRouterMock,
+          event_opts: [bridge_module: SelectedBridge, untrusted_option: "ignored"],
+          incoming: Incoming.new(%{provider: :mattermost, channel_id: "room", content: "files"})
+        })
+
+      assert {:ok, _} =
+               Jido.Exec.run(AttachDocuments, %{operation: "add", records: [record]}, ctx)
+    end
+  end
 
   test "validated commands preserve native scope, expose Records and never deliver files" do
     record = record("a")

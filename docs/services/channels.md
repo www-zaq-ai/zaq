@@ -560,24 +560,35 @@ boolean or form-string false selects `:abort`, otherwise `:continue`. The resolv
 delivery has no attachment policy. Direct bridge calls without that supplied
 policy retain their fail-fast preparation contract.
 
-For email attachments, `EmailBridge.reply_smtp_config/1` resolves the actual
-outbound SMTP connector before Channels selects the policy. An IMAP inbox's
+Attachment delivery uses the existing `fetch_connection_details_for_config`
+lookup. Its outbound two-argument form returns resolved details or a binding error;
+the one-argument projection remains unchanged for ingress and other callers.
+`EmailBridge` extends the outbound lookup to bind the SMTP connector and its policy. An IMAP inbox's
 binding still controls SMTP selection; its own failure setting does not override
 the sender's setting. Channels retains the original IMAP routing/history identity
 and freezes the SMTP ID and policy for the attempt. Submission revalidates that
 same SMTP ID through the existing sender. The SMTP configuration screen exposes
 the default-on switch under **Advanced SMTP**; the IMAP form is unchanged.
 
+`JidoChatBridge` inherits the shared outbound lookup to resolve attachment policy
+from its selected connector, retaining transport details from the configured
+resolver and any explicitly resolved policy. Both bridges use their existing `send_reply/2`
+paths; connection resolution does not validate, materialize or upload files.
+
 Continue mode retains files that can be prepared and reports omitted files by
 original index, stage and safe reason. Email applies the decision before one
 SMTP submission. Its receipt carries transient successful attachment indices;
 `DeliveryConfirmation` filters the original content-free Records and removes those
-indices before Engine dispatch. It projects their bounded display metadata into
-the receipt, excluding source attributes, paths, bytes and handles. Existing
-provider attachment evidence remains authoritative. SMTP descriptors do not
+indices before Engine dispatch. EmailBridge supplies receipt display metadata from
+the prepared files, so filenames, MIME types and sizes describe the submitted
+representation. SMTP metadata and the shared source-record fallback exclude source
+document IDs, attributes, paths, bytes and handles.
+Existing provider attachment evidence remains authoritative. SMTP descriptors do not
 invent a remote download reference.
 An unsplit email receipt omits a per-part body so confirmation keeps the original
 canonical assistant content. Split chat receipts retain their explicit part bodies.
+Successful fallback notices also confirm the original canonical answer with no
+attachments; the appended transport notice does not replace canonical content.
 Chat passes the policy through existing send/edit options only when the adapter
 declares `attachment_failure_policy: :native`. Strict mode without explicit support
 fails before materialization or transport; message-edit support alone is insufficient.
@@ -608,7 +619,7 @@ they never create a replacement post. SMTP transport failures never trigger anot
 email send. Notice failures preserve the original structured error. Notices do not
 retry attachments, invoke reply callbacks or confirm successful attachment delivery.
 Confirmed notice receipts are recorded through the existing delivery confirmation
-path with the text-only notice and no attachments; the original attachment error
+path with the canonical answer and no attachments; the original attachment error
 remains the caller's result even if notice delivery or confirmation recording fails.
 Direct bridge calls return failures without initiating fallback operations.
 Legacy unstructured errors do not trigger automatic fallback.

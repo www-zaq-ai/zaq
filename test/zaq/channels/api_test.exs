@@ -336,6 +336,50 @@ defmodule Zaq.Channels.ApiTest do
       do: {:error, DeliveryFiles.delivery_error(:attachment_content_unavailable)}
   end
 
+  defmodule DeliveryConnectionBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{attachment_failure_policy: :continue}
+
+    def fetch_connection_details_for_config(_config, opts) do
+      outgoing = Keyword.fetch!(opts, :outgoing)
+      details = fetch_connection_details(outgoing.provider)
+      send(self(), {:resolve_delivery_connection, outgoing, details})
+      Process.get(:delivery_connection_result)
+    end
+
+    def send_reply(outgoing, details) do
+      send(self(), {:connection_bridge_send, outgoing, details})
+      :ok
+    end
+  end
+
+  test "bridge-owned connection policy controls fallback without concrete bridge coupling" do
+    outgoing = %Outgoing{
+      provider: :web,
+      channel_id: "recipient",
+      body: "Original answer",
+      attachment_error: :invalid_attachment_selection
+    }
+
+    event = Event.new(outgoing, :channels, opts: [bridge_module: DeliveryConnectionBridge])
+    Process.put(:delivery_connection_result, {:ok, %{attachment_failure_policy: :abort}})
+
+    assert {:error, %DeliveryError{stage: :selection}} =
+             Api.handle_event(event, :deliver_outgoing, nil).response
+
+    assert_received {:resolve_delivery_connection, ^outgoing,
+                     %{attachment_failure_policy: :continue}}
+
+    refute_received {:connection_bridge_send, _, _}
+
+    Process.put(:delivery_connection_result, {:error, :connector_mismatch})
+
+    assert {:error, :connector_mismatch} =
+             Api.handle_event(event, :deliver_outgoing, nil).response
+
+    refute_received {:connection_bridge_send, _, _}
+  end
+
   test "confirmed email delivery captures only receipt evidence, and persistence failure does not relabel delivery" do
     sender = insert_config(:"email:smtp")
 
@@ -872,7 +916,7 @@ defmodule Zaq.Channels.ApiTest do
         assert_received {:confirmed_email_history, confirmation}
         assert confirmation.opts[:action] == :record_delivery_confirmation
         assert confirmation.request.receipt == receipt
-        assert confirmation.request.outgoing.body == notice.body
+        assert confirmation.request.outgoing.body == outgoing.body
         assert confirmation.request.outgoing.attachments == []
 
         assert confirmation.request.outgoing.metadata == %{

@@ -44,6 +44,41 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert has_element?(view, "button[phx-click='activate']", "Activate")
   end
 
+  test "selecting an SMTP connector uses the latest Engine form snapshot", %{conn: conn} do
+    insert_smtp_channel(%{
+      name: "First",
+      enabled: true,
+      settings: %{"relay" => "first.example.com"}
+    })
+
+    second =
+      insert_smtp_channel(%{
+        name: "Second",
+        enabled: true,
+        settings: %{"relay" => "old.example.com", "send_on_file_failure" => false}
+      })
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    second
+    |> Ecto.Changeset.change(
+      settings:
+        Map.merge(second.settings, %{
+          "relay" => "fresh.example.com",
+          "send_on_file_failure" => true
+        })
+    )
+    |> Repo.update!()
+
+    view
+    |> element("#smtp-connector-#{second.id} [phx-click='select_connector']")
+    |> render_click()
+
+    assert has_element?(view, "input[name='email_config[relay]'][value='fresh.example.com']")
+    assert has_element?(view, "#smtp-send-on-file-failure[checked]")
+    refute has_element?(view, "input[name='email_config[relay]'][value='old.example.com']")
+  end
+
   test "attachment failure switch defaults on and both values survive save and reopen", %{
     conn: conn
   } do

@@ -2010,10 +2010,6 @@ defmodule Zaq.Channels.JidoChatBridge do
     }
   end
 
-  defp local_transport_opts(details) do
-    details |> Map.take([:transport]) |> Map.to_list()
-  end
-
   defp handle_send_with_adapter(
          %Outgoing{} = outgoing,
          adapter_module,
@@ -2021,7 +2017,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          files
        ) do
     metadata = outgoing.metadata || %{}
-    opts = [files: files] ++ local_transport_opts(details)
+    opts = [files: files]
 
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
          {:ok, receipt} <-
@@ -2258,8 +2254,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            Chat.Thread.post(
              thread,
              post_body,
-             format_delivery_opts(provider, connection, metadata) ++
-               Keyword.take(opts, [:transport])
+             format_delivery_opts(provider, connection, metadata)
            ) do
       receipt = %{action: :created, message_id: post.id}
 

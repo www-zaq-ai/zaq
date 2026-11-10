@@ -3,8 +3,61 @@ defmodule Zaq.Channels.AttachmentPolicyTest do
   use ExUnitProperties
 
   alias Zaq.Channels.DeliveryFiles
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.ConnectorConfig.Settings
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Messages.Outgoing
+
+  defmodule ConnectionResolver do
+    def fetch_connection_details_for_config(config), do: config
+  end
+
+  property "Jido outbound resolution preserves connection details and resolves the connector policy" do
+    check all(
+            {setting, expected} <-
+              member_of([
+                {false, :abort},
+                {"false", :abort},
+                {true, :continue},
+                {"true", :continue},
+                {nil, :continue}
+              ]),
+            token <- string(:alphanumeric, min_length: 1),
+            max_runs: 25
+          ) do
+      connection = %{
+        url: "https://chat.example.test",
+        token: token,
+        settings: %{"send_on_file_failure" => setting},
+        adapter_opts: [max_file_size: 1024]
+      }
+
+      assert {:ok, resolved} =
+               JidoChatBridge.fetch_connection_details_for_config(connection,
+                 outgoing: outgoing(),
+                 connection_resolver: ConnectionResolver
+               )
+
+      assert resolved.attachment_failure_policy == expected
+      assert Map.delete(resolved, :attachment_failure_policy) == connection
+    end
+  end
+
+  test "Jido outbound resolution defaults to continue and retains an explicit resolved policy" do
+    assert {:ok, %{attachment_failure_policy: :continue}} =
+             JidoChatBridge.fetch_connection_details_for_config(%{},
+               outgoing: outgoing(),
+               connection_resolver: ConnectionResolver
+             )
+
+    connection = %{attachment_failure_policy: :abort, settings: %{"send_on_file_failure" => true}}
+
+    assert {:ok, ^connection} =
+             JidoChatBridge.fetch_connection_details_for_config(connection,
+               outgoing: outgoing(),
+               connection_resolver: ConnectionResolver
+             )
+  end
 
   test "continue prepares usable files and records safe failures in input order" do
     files = [
@@ -74,6 +127,9 @@ defmodule Zaq.Channels.AttachmentPolicyTest do
       assert length(failures) == length(bytes)
     end
   end
+
+  defp outgoing,
+    do: %Outgoing{body: "Answer", channel_id: "room", provider: :mattermost}
 
   defp file(id, content, attributes \\ %{}),
     do: %Record{id: id, kind: :file, name: "#{id}.txt", content: content, attributes: attributes}

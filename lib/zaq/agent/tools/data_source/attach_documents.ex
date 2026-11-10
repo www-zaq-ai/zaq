@@ -19,6 +19,7 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Identity.ActorNormalizer
 
   use Zaq.Engine.Workflows.Action,
@@ -95,10 +96,7 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
       attachments: Enum.map(records, &%{&1 | content: nil})
     }
 
-    opts = [
-      actor: Map.get(context, :actor),
-      node_router: Map.get(context, :node_router, Zaq.NodeRouter)
-    ]
+    opts = TrustedContext.event_builder_opts(context)
 
     case Events.build_and_dispatch_validate_files_event(outgoing, opts) do
       %Event{response: :ok} -> :ok
