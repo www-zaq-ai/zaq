@@ -64,6 +64,9 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapper do
   defp emoji_to_rating(:discord, "thumbsdown"), do: {:ok, 1}
   defp emoji_to_rating(:discord, "-1"), do: {:ok, 1}
 
+  defp emoji_to_rating(:teams, type) when type in ["like", "heart"], do: {:ok, 5}
+  defp emoji_to_rating(:teams, type) when type in ["sad", "angry"], do: {:ok, 1}
+
   defp emoji_to_rating(:mattermost, emoji) do
     case Regex.run(@mattermost_shortcode, emoji, capture: [2]) do
       [base] -> emoji_to_rating(:mattermost, base)

@@ -29,6 +29,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   alias Jido.Chat.Adapter
   alias Jido.Chat.EventEnvelope
   alias Zaq.Channels.JidoChatBridge
+  alias Zaq.Channels.JidoChatBridge.AdapterOptions
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.ConnectorConfig.Settings
 
@@ -201,7 +202,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
                state.chat,
                provider,
                request,
-               adapters: %{provider => adapter}
+               [adapters: %{provider => adapter}] ++ AdapterOptions.build(provider, config)
              ) do
         {:ok, %{chat: chat, event: event, response: response}}
       else

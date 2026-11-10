@@ -1,6 +1,7 @@
 defmodule ZaqWeb.Live.People.ProfileLive do
   @moduledoc "Authenticated self-service profile and atomic channel priorities through the confidential Engine boundary."
   use ZaqWeb, :live_view
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.{Events, PeopleProfile}
   alias ZaqWeb.ChannelOrder
   alias ZaqWeb.Components.DesignSystem.{Button, PersonHeader, PersonProfile}
@@ -254,7 +255,7 @@ defmodule ZaqWeb.Live.People.ProfileLive do
       %{
         id: to_string(channel.id),
         channel_id: channel.id,
-        provider: if(channel.platform == "microsoft_teams", do: "teams", else: channel.platform),
+        provider: ProviderCatalog.connector_provider(channel.platform),
         platform: channel.platform,
         identifier: channel.channel_identifier
       }

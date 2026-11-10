@@ -3,6 +3,11 @@ defmodule Zaq.Channels.ProviderCatalogTest do
 
   alias Zaq.Channels.ProviderCatalog
 
+  test "translates the Teams connector provider and its person platform" do
+    assert ProviderCatalog.person_platform("teams") == "microsoft_teams"
+    assert ProviderCatalog.connector_provider("microsoft_teams") == "teams"
+  end
+
   test "routes google_drive file and sheet capabilities to expected connector providers" do
     assert ProviderCatalog.connector_provider_for_capability("google_drive", :update_item) ==
              :google_drive

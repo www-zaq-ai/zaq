@@ -14,6 +14,7 @@ defmodule Zaq.People.IdentityResolver do
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.Audience
@@ -56,7 +57,7 @@ defmodule Zaq.People.IdentityResolver do
        when is_integer(id) and id > 0 and is_binary(sender) do
     with true <- String.trim(sender) != "",
          {:ok, config} <- fetch_connector(scope, Map.get(scope, :provider), true) do
-      {:ok, config.provider, sender, id}
+      {:ok, ProviderCatalog.person_platform(config.provider), sender, id}
     else
       _ -> {:error, :unauthorized}
     end
@@ -187,7 +188,7 @@ defmodule Zaq.People.IdentityResolver do
 
   defp resolve_author(incoming, platform, opts) do
     config_id = incoming.routing_context.channel_config_id
-    raw_dm_channel_id = if incoming.is_dm, do: incoming.channel_id, else: nil
+    raw_dm_channel_id = if incoming.is_dm, do: dm_delivery_id(incoming), else: nil
 
     canonical =
       Resolver.normalize(platform, %{
@@ -215,6 +216,14 @@ defmodule Zaq.People.IdentityResolver do
         slow_path(platform, enriched, channel_id, config_id, incoming, opts)
     end
   end
+
+  defp dm_delivery_id(%Incoming{
+         routing_context: %{attributes: %{"delivery_external_room_id" => reference}}
+       })
+       when is_binary(reference),
+       do: reference
+
+  defp dm_delivery_id(%Incoming{channel_id: channel_id}), do: channel_id
 
   defp match_author(platform, channel_id, config_id),
     do: People.match_by_channel(platform, channel_id, config_id)
@@ -268,7 +277,7 @@ defmodule Zaq.People.IdentityResolver do
         event =
           Zaq.Event.new(
             %{
-              provider: platform,
+              provider: ProviderCatalog.connector_provider(platform),
               author_id: author_id,
               channel_config_id: config_id,
               profile_context: Keyword.get(opts, :profile_context)
@@ -327,7 +336,7 @@ defmodule Zaq.People.IdentityResolver do
         event =
           Zaq.Event.new(
             %{
-              provider: platform,
+              provider: ProviderCatalog.connector_provider(platform),
               author_id: incoming.author_id,
               channel_config_id: incoming.routing_context.channel_config_id
             },

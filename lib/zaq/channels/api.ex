@@ -29,6 +29,7 @@ defmodule Zaq.Channels.Api do
     CommunicationBridge,
     ConnectorRuntime,
     DataSourceBridge,
+    ProviderCatalog,
     WebBridge
   }
 
@@ -198,6 +199,7 @@ defmodule Zaq.Channels.Api do
     bridge_module = bridge_module(event)
 
     with {:ok, outgoing} <- outgoing_from_event(event),
+         outgoing = connector_outgoing(outgoing),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
          {:ok, connection_details} <- delivery_connection(bridge_module, outgoing, event.opts) do
       formatted_outgoing =
@@ -846,7 +848,8 @@ defmodule Zaq.Channels.Api do
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
       when is_binary(platform) do
     bridge_module = bridge_module(event)
-    %{event | response: not is_nil(bridge_module.bridge_for(platform, event.opts))}
+    provider = ProviderCatalog.connector_provider(platform)
+    %{event | response: not is_nil(bridge_module.bridge_for(provider, event.opts))}
   end
 
   # Conversation identity is computed here on the channels node and consumed by
@@ -1027,6 +1030,11 @@ defmodule Zaq.Channels.Api do
   defp outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(%Event{response: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(_event), do: {:error, {:invalid_request, :missing_outgoing_payload}}
+
+  defp connector_outgoing(%Outgoing{provider: provider} = outgoing) when is_binary(provider),
+    do: %{outgoing | provider: ProviderCatalog.connector_provider(provider)}
+
+  defp connector_outgoing(outgoing), do: outgoing
 
   defp upsert_outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
 

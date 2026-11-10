@@ -25,10 +25,12 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat.Adapter
   alias Jido.Chat.Capabilities
   alias Jido.Chat.Media
+  alias Jido.Chat.Teams.Auth
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
     Bridge,
+    ProviderCatalog,
     RetrievalChannel,
     Supervisor,
     WebhookUrl
@@ -205,8 +207,27 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   def sync_runtime(_before, _after), do: :ok
 
-  @doc "Tests adapter connectivity by sending a test message."
+  @doc """
+  Tests adapter connectivity by sending a test message.
+
+  Teams cannot post without a conversation reference, so it requests a Bot Connector
+  token instead, which checks the App ID, Tenant ID and client secret.
+  """
   @impl true
+  def test_connection(%{provider: provider} = config, _channel_id)
+      when provider in [:teams, "teams"] do
+    case Auth.fetch_token(AdapterOptions.build(provider, config)) do
+      {:ok, _token} ->
+        {:ok, :credentials_valid}
+
+      {:error, {:oauth_error, _status, %{"error_description" => description}}} ->
+        {:error, description}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   def test_connection(config, channel_id) do
     with {:ok, adapter} <- adapter_for(config.provider) do
       adapter.send_message(
@@ -490,8 +511,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
-    do_send_reply(outgoing, %{url: url, token: token})
+  def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
+    do_send_reply(outgoing, connection_details)
   end
 
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
@@ -515,7 +536,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          true <- is_atom(provider_atom) || {:error, {:unsupported_provider, provider}},
          true <- supports_message_updates?(adapter) || {:ok, %{action: :noop, message_id: nil}} do
       thread_id = Map.get(request, :thread_id)
-      channel_id = Map.get(request, :channel_id)
+      channel_id = delivery_room_id(provider, request)
       body = Map.get(request, :body)
       request_metadata = Map.get(request, :metadata, request)
 
@@ -704,8 +725,10 @@ defmodule Zaq.Channels.JidoChatBridge do
         channel_config_id: channel_config_id,
         conversation_type: facts[:conversation_type],
         source_scope: facts[:source_scope],
+        identity_platform: identity_platform(provider),
         sender_membership: sender_membership(incoming, provider, facts),
-        provider_sent_at: facts[:provider_sent_at]
+        provider_sent_at: facts[:provider_sent_at],
+        attributes: delivery_attributes(incoming, provider)
       },
       attachments:
         media_records(
@@ -720,6 +743,26 @@ defmodule Zaq.Channels.JidoChatBridge do
       metadata: incoming.metadata || %{}
     })
   end
+
+  # Teams can only post to the reference from the inbound activity.
+  defp delivery_attributes(%Chat.Incoming{delivery_external_room_id: reference}, provider)
+       when provider in [:teams, "teams"] and is_binary(reference),
+       do: %{"delivery_external_room_id" => reference}
+
+  defp delivery_attributes(_incoming, _provider), do: %{}
+
+  defp delivery_room_id(provider, %{
+         routing_context: %{attributes: %{"delivery_external_room_id" => reference}}
+       })
+       when provider in [:teams, "teams"],
+       do: reference
+
+  defp delivery_room_id(_provider, request), do: Map.get(request, :channel_id)
+
+  defp identity_platform(provider) when provider in [:teams, "teams"],
+    do: ProviderCatalog.person_platform("teams")
+
+  defp identity_platform(_provider), do: nil
 
   defp normalized_communication_facts(%Chat.Incoming{} = incoming, provider) do
     metadata = incoming.channel_meta
@@ -743,7 +786,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          sender_id: id
        })
        when is_binary(id) and id != "" do
-    %{identity_platform: to_string(provider), member_id: id}
+    %{identity_platform: ProviderCatalog.person_platform(to_string(provider)), member_id: id}
   end
 
   defp sender_membership(_, _, _), do: nil
@@ -769,12 +812,12 @@ defmodule Zaq.Channels.JidoChatBridge do
     max_bytes = max_media_bytes(config_opts)
     size = Map.get(request, :size) || Map.get(request, "size")
 
-    with :ok <- enforce_media_size(size, max_bytes),
+    with :ok <- check_declared_size(provider, size, max_bytes),
          true <- present_reference?(reference) || {:error, :invalid_media_reference},
          {:ok, adapter} <- resolve_adapter_for_provider(provider, config_opts),
          true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
          {:ok, content} when is_binary(content) <-
-           adapter.fetch_media(reference, media_opts(details)),
+           adapter.fetch_media(reference, media_opts(provider, details, max_bytes)),
          :ok <- enforce_media_size(byte_size(content), max_bytes) do
       {:ok,
        %{
@@ -1420,6 +1463,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     if ingress_mode_for(config.provider) == :webhook do
       case ensure_ingress_subscription(config, %{}) do
         {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
         {:error, reason} -> {:error, {:ingress_ensure_failed, reason}}
       end
     else
@@ -1431,6 +1475,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     if ingress_mode_for(before_config.provider) == :webhook do
       case delete_ingress_subscription(after_config, %{}) do
         {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
         {:error, reason} -> {:error, reason}
       end
     else
@@ -1755,6 +1800,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp maybe_put_source_scope_value(attributes, key, value),
     do: Map.put(attributes, key, to_string(value))
 
+  # Teams attachments carry no size. The adapter stops the download past ZAQ's limit, and
+  # the real size is checked once the content arrives.
+  defp check_declared_size(provider, nil, _max_bytes) when provider in [:teams, "teams"], do: :ok
+  defp check_declared_size(_provider, size, max_bytes), do: enforce_media_size(size, max_bytes)
+
   defp enforce_media_size(size, max_bytes) when is_integer(size) and size > max_bytes,
     do: {:error, :media_too_large}
 
@@ -1768,12 +1818,15 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp media_opts(details) do
-    Enum.reduce(details, [], fn
-      {key, _value}, opts when key in [:config, :config_opts] -> opts
-      {key, value}, opts when is_atom(key) and not is_nil(value) -> Keyword.put(opts, key, value)
-      _, opts -> opts
-    end)
+  defp media_opts(provider, details, max_bytes) when provider in [:teams, "teams"],
+    do: [max_media_bytes: max_bytes] ++ adapter_media_opts(provider, details)
+
+  defp media_opts(provider, details, _max_bytes), do: adapter_media_opts(provider, details)
+
+  defp adapter_media_opts(provider, details) do
+    provider
+    |> AdapterOptions.build(details)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
   defp config_opts(%{config_opts: opts}) when is_list(opts), do: opts
@@ -1865,7 +1918,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            edit_message(
              outgoing.provider,
              adapter_module,
-             outgoing.channel_id,
+             delivery_room_id(outgoing.provider, outgoing),
              message_id,
              outgoing.body,
              connection,
@@ -1895,7 +1948,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            create_message(
              outgoing.provider,
              adapter_module,
-             outgoing.channel_id,
+             delivery_room_id(outgoing.provider, outgoing),
              outgoing.thread_id,
              outgoing.body,
              connection,

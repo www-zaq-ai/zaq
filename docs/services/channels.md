@@ -71,12 +71,13 @@ original event kind, configured provider, and room. `ChannelMeta.is_dm` defaults
 to false, and some adapters default an absent kind to `:channel` or `:dm`;
 neither default authorizes shared or direct history. The currently verified
 kind matrix is Mattermost D/O/P (DM/public/private room), Telegram explicit
-private/group/supergroup/channel, and Discord guild messages plus threads with
+private/group/supergroup/channel, Teams personal/groupChat/channel with a matching
+adapter kind, and Discord guild messages plus threads with
 an explicit guild and parent. Discord Direct requires matching independently
 fetched channel metadata with channel type 1; message `type` and absent guild
 fields are not evidence. Unknown kinds, Mattermost group DM, Discord DM
 without independent room evidence, and missing Discord thread parents remain
-unknown. Slack and Teams have no configured adapter in `config/config.exs`.
+unknown. Slack has no configured adapter in `config/config.exs`.
 This is only transport context, not authentication of arbitrary external
 envelopes, a grant, passive capture, or a resolved Person. Engine resolves the
 actor after routing; strategy consumers must use authorized transcript reads.
@@ -143,11 +144,14 @@ Canonical Incoming construction normalizes numeric room/thread identifiers using
 the transport-neutral ConversationIdentity helper. External numeric IDs may be
 negative (for example group chats); internal connector/Person IDs remain positive.
 Channels stamps `routing_context.source_scope` for chat-local message identifiers
-(Telegram uses its chat ID; IMAP uses its exact mailbox). Engine capture, admission,
+(Telegram uses its chat ID; Teams uses its room ID; IMAP uses its exact mailbox). Engine capture, admission,
 locking and replay share `SourceIdentity.account_key/3`. Scope strings are opaque:
 trimming can merge distinct mailbox identities, and malformed scopes never become
 the connector-global `nil` namespace. Channels also stamps `identity_platform`,
 message-local `Audience`, factual `conversation_type` and UTC `provider_sent_at`.
+Teams connectors use the provider `teams`, and their Person links use the platform
+`microsoft_teams`; `ProviderCatalog.person_platform/1` and `connector_provider/1`
+translate between the two names.
 The conversation identity stamp carries
 its explicit `scoped` policy; Engine never infers it from a provider name.
 Chat providers produce those fields through provider-local normalization integrations
@@ -367,6 +371,7 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.JidoChatBridge.AdapterOptions` | `lib/zaq/channels/jido_chat_bridge/adapter_options.ex` | Per-provider adapter credential options |
+| `Zaq.Channels.JidoChatBridge.Incoming.Teams` | `lib/zaq/channels/jido_chat_bridge/incoming/teams.ex` | Verified Teams conversation, sender and source-scope facts |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
 | `Zaq.Channels.Web.*`                | `lib/zaq/channels/web/`                      | Shared BO/widget transport contracts            |
@@ -580,7 +585,10 @@ calls `EmailBridge.materialize_record/3`, which delegates to
 `ImapAdapter.download_attachment/2`. The 100 MiB default byte limit is
 configurable through `:message_trace_artifact_max_bytes`; declared sizes above
 that limit are rejected before provider fetch and downloaded bytes are checked
-again before returning content.
+again before returning content. An attachment without a valid declared size is
+refused, except on Teams, which never declares one; ZAQ passes its limit to the
+Teams adapter as `max_media_bytes`, and the adapter stops the download once the
+file passes it.
 
 ---
 
@@ -720,6 +728,8 @@ The controller wraps each request into a normalized payload map before dispatch:
   "raw" => conn.assigns[:raw_body]
 }
 ```
+
+Route params replace body keys of the same name, so `body_payload` restores a body `type`. Teams activities need theirs.
 
 Response behavior:
 
@@ -943,7 +953,8 @@ delivery; bridges do not write whole exchanges.
 - Adapters own transport runtime details: connection lifecycle, listener child specs, and transport parsing.
 - Bridges must request runtime specs from adapters (for example `adapter.runtime_specs/3`) instead of building listener specs directly.
 - Adapter-specific callback names (for example `from_imap_listener/3`) are not allowed in bridge public APIs.
-- Adapter credential options come from `Zaq.Channels.JidoChatBridge.AdapterOptions.build/2`, not from inline `url:`/`token:` lists at call sites. Mattermost, Discord and Telegram share the default `[url: url, token: token]` shape; a provider whose adapter expects other credentials adds its shape there.
+- Adapter credential options come from `Zaq.Channels.JidoChatBridge.AdapterOptions.build/2`, not from inline `url:`/`token:` lists at call sites. Mattermost, Discord and Telegram share the default `[url: url, token: token]` shape; a provider whose adapter expects other credentials adds its shape there. Teams uses `[app_id:, app_password:, app_tenant_id:]`, read from the connector token and `settings["jido_chat"]`, so connection details carry `settings`.
+
 
 ### Ingress flow
 
@@ -991,10 +1002,34 @@ Reaction removals and unrelated emoji still dispatch no rating.
 
 Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_reply/2`):
 
-1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
+1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token, settings}`.
 2. Resolves the adapter module for the provider.
 3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`.
 4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).
+
+Teams cannot post to a plain conversation ID, so `to_internal/2` keeps the adapter's `teamsref:v1:` delivery reference in `routing_context.attributes["delivery_external_room_id"]`. Create, edit and upsert use it as the adapter room ID, and `channel_id` stays the conversation identity. In a channel, the reference's conversation is the thread, so the reply lands in the original thread. The reference holds routing data and no secret. Other providers carry no such attribute and keep posting to `channel_id`. Teams has no typing indicator yet, because typing events carry only the provider and `channel_id`.
+
+### Microsoft Teams
+
+Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microsoft Teams](../guides/teams-channel-setup.md).
+
+- **Ingress:** Azure posts to the connector-scoped endpoint `/channels/webhook/conversation/teams/:config_id`. Teams has no subscription API, so the endpoint is configured in Azure, and `JidoChatBridge` treats the adapter's `:unsupported` ingress result as success.
+- **Verification:** the adapter's `JwtVerifier` checks the Bot Connector token's signature, issuer, audience (the App ID), expiry and `serviceUrl`. A failed check returns 401 and nothing reaches the Engine. `conversationUpdate`, `installationUpdate`, `event` and `typing` activities return 200 without processing.
+- **Answers:** personal chats are always answered. Group chats and channels follow the central mention policy, so ZAQ answers an @mention and only records other messages. Every channel message carries a thread ID, so a first @mention is admitted through `explicit_bot_mention?/2`.
+- **Credentials:** the client secret is in `token`. App ID and Tenant ID are in `settings["jido_chat"]`, trimmed on save. `url` stays empty because the adapter builds the token URL from the tenant.
+- **Connection test:** `test_connection/2` requests a Bot Connector token and sends no message.
+- **Reaction ratings:** Teams sends reaction types as words. `like` and `heart` rate 5, `sad` and `angry` rate 1, and `laugh` and `surprised` are ignored. In a channel, the adapter reports the channel as the reaction's room, so the rating finds the message under its source scope.
+- **Notifications:** a personal chat stores its `delivery_external_room_id` reference as the person's `dm_channel_id`, which notifications target. `Channels.Api` maps the `microsoft_teams` person platform to the `teams` connector. A person who has never messaged the bot has no reference, so their notification falls back to their next channel.
+
+**Not supported yet:**
+
+- Typing indicators.
+- Starting a new conversation with someone who has never messaged the bot.
+- Multi-tenant bots.
+- Sending files and Adaptive Cards.
+- Files in group chats and channels, which need Microsoft Graph. Pasted images are expected to work there.
+
+The Back Office tools on the provider page (channel browsing, Send Message, Browse Posts and Clear Channel) are built for Mattermost and don't work for Teams.
 
 ### Thread watch management
 

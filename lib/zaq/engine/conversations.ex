@@ -34,6 +34,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{People, Person, PersonChannel, User}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements, SourceIdentity}
@@ -2749,6 +2750,8 @@ defmodule Zaq.Engine.Conversations do
         %{channel_user_id: actor_id, rating: rating} = attrs
       )
       when is_binary(provider) and is_integer(config_id) and config_id > 0 and rating in 1..5 do
+    platform = ProviderCatalog.person_platform(provider)
+
     with {:scope, true} <-
            {:scope,
             valid_rating_identifiers?([channel_id, external_id, actor_id]) and
@@ -2757,7 +2760,7 @@ defmodule Zaq.Engine.Conversations do
           %ChannelConfig{provider: ^provider, enabled: true, archived_at: nil, kind: "retrieval"}} <-
            {:connector, Repo.get(ChannelConfig, config_id)},
          {:actor, {:ok, %Person{status: "active"} = person}} <-
-           {:actor, People.match_by_channel(provider, actor_id, config_id)} do
+           {:actor, People.match_by_channel(platform, actor_id, config_id)} do
       Repo.transaction(fn -> rate_source_locked(reference, person, attrs) end)
     else
       {:scope, _} -> {:error, :invalid_source_scope}
