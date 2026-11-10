@@ -3527,14 +3527,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       stub_teams_token_endpoint(fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
-        send(test_pid, {:token_request, URI.decode_query(body)})
+        send(test_pid, {:token_request, conn.host, conn.request_path, URI.decode_query(body)})
         Req.Test.json(conn, %{"access_token" => "bot-token", "expires_in" => 3600})
       end)
 
       assert {:ok, :credentials_valid} =
                JidoChatBridge.test_connection(teams_connection_config(), "")
 
-      assert_received {:token_request, form}
+      assert_received {:token_request, host, path, form}
+      assert host == "login.microsoftonline.com"
+      assert path == "/tenant-1/oauth2/v2.0/token"
       assert form["client_id"] == "app-1"
       assert form["client_secret"] == "client-secret"
     end

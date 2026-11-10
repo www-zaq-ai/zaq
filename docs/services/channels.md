@@ -1025,8 +1025,6 @@ Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microso
 - Sending files and Adaptive Cards.
 - Files in group chats and channels, which need Microsoft Graph. Pasted images are expected to work there.
 
-Attachment download also needs a `jido_chat_teams` version with `fetch_media`. Until the pinned dependency has it, ZAQ records attachments and answers the message, but can't read the files.
-
 The Back Office tools on the provider page (channel browsing, Send Message, Browse Posts and Clear Channel) are built for Mattermost and don't work for Teams.
 
 ### Thread watch management
