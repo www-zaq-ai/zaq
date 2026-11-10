@@ -17,6 +17,7 @@ defmodule Zaq.Channels.DeliveryFiles do
   alias Zaq.Materialization
 
   @type prepared :: %{
+          optional(:attachment_index) => non_neg_integer(),
           content: binary(),
           name: String.t(),
           mime_type: String.t(),
@@ -30,8 +31,13 @@ defmodule Zaq.Channels.DeliveryFiles do
   accepting whitespace and optional padding; nil or `"binary"` encoding
   preserves bytes verbatim. Empty attachments return `{:ok, []}` without source access.
   `:node_router` in opts is a local execution dependency, never an identity input.
+  With `:attachment_failure_policy`, returns `{:ok, files, failures}` and gives
+  each prepared file its original `:attachment_index`. `:continue` retains usable
+  files after failures; `:abort` returns the first preparation error. Omitting the
+  option preserves the two-element success tuple and fail-fast behavior.
   """
-  @spec prepare([Record.t()], map(), keyword()) :: {:ok, [prepared()]} | {:error, term()}
+  @spec prepare([Record.t()], map(), keyword()) ::
+          {:ok, [prepared()]} | {:ok, [prepared()], [map()]} | {:error, term()}
   def prepare(records, context, opts \\ [])
 
   def prepare(records, context, opts)
@@ -42,7 +48,13 @@ defmodule Zaq.Channels.DeliveryFiles do
       |> Map.from_struct()
       |> Map.merge(Map.new(Keyword.take(opts, [:node_router])))
 
-    prepare_all(records, source_context)
+    case Keyword.get(opts, :attachment_failure_policy) do
+      policy when policy in [nil, :continue, :abort] ->
+        prepare_all(records, source_context, policy)
+
+      policy ->
+        {:error, {:invalid_attachment_failure_policy, policy}}
+    end
   end
 
   def prepare(_records, _context, _opts),
@@ -83,17 +95,37 @@ defmodule Zaq.Channels.DeliveryFiles do
 
   defp preparation_message(_reason), do: "The attachment content could not be accessed."
 
-  defp prepare_all(records, context) do
+  defp prepare_all(records, context, policy) do
     records
-    |> Enum.reduce_while({:ok, []}, fn record, {:ok, files} ->
-      case prepare_record(record, context) do
-        {:ok, file} -> {:cont, {:ok, [file | files]}}
-        {:error, _} = error -> {:halt, error}
-      end
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, [], []}, fn {record, index}, accumulator ->
+      prepare_next(record, index, context, policy, accumulator)
     end)
     |> case do
-      {:ok, files} -> {:ok, Enum.reverse(files)}
+      {:ok, files, _failures} when is_nil(policy) -> {:ok, Enum.reverse(files)}
+      {:ok, files, failures} -> {:ok, Enum.reverse(files), Enum.reverse(failures)}
       error -> error
+    end
+  end
+
+  defp prepare_next(record, index, context, policy, {:ok, files, failures}) do
+    case prepare_record(record, context) do
+      {:ok, file} ->
+        prepared = if is_nil(policy), do: file, else: Map.put(file, :attachment_index, index)
+        {:cont, {:ok, [prepared | files], failures}}
+
+      {:error, reason} when policy == :continue ->
+        failure = %{
+          attachment_index: index,
+          stage: :preparation,
+          delivery: :not_sent,
+          reason: delivery_error(reason).message
+        }
+
+        {:cont, {:ok, files, [failure | failures]}}
+
+      {:error, _} = error ->
+        {:halt, error}
     end
   end
 

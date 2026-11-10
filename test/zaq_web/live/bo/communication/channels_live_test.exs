@@ -808,6 +808,46 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert state.socket.assigns.posts == []
   end
 
+  test "file failure toggle defaults on and persists both choices", %{conn: conn} do
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok, %{resolved: %{file: :native, configurable_max_file_size: :native}}}
+    )
+
+    config = insert_channel_config(%{settings: %{"max_file_size" => 2048}})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#edit-config-#{config.id}") |> render_click()
+    assert has_element?(view, "#channel-send-on-file-failure[checked]")
+
+    for value <- ["false", "true"] do
+      view
+      |> form("#config-form", %{
+        "form" => %{"settings" => %{"send_on_file_failure" => value}}
+      })
+      |> render_submit()
+
+      saved = Repo.get!(ChannelConfig, config.id)
+      assert saved.settings["send_on_file_failure"] in [value, value == "true"]
+      assert saved.settings["max_file_size"] == 2048
+
+      view |> element("#edit-config-#{config.id}") |> render_click()
+      assert has_element?(view, "#channel-send-on-file-failure[checked]") == (value == "true")
+    end
+  end
+
+  test "file failure toggle follows send file capability independently of upload size", %{
+    conn: conn
+  } do
+    for capability <- [:native, :unsupported, nil, false] do
+      BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{file: capability}}})
+      {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      view |> element("#new-config-button") |> render_click()
+
+      assert has_element?(view, "#channel-send-on-file-failure") == (capability == :native)
+      refute has_element?(view, "#channel-max-file-size")
+    end
+  end
+
   test "upload limit settings follow capability rather than provider identity", %{conn: conn} do
     channels = Application.get_env(:zaq, :channels)
 
@@ -841,7 +881,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{file: :native}}})
     {:ok, unsupported, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
     unsupported |> element("#new-config-button") |> render_click()
-    refute has_element?(unsupported, "#channel-advanced-settings")
+    assert has_element?(unsupported, "#channel-advanced-settings")
+
+    assert has_element?(
+             unsupported,
+             "input[name='form[settings][send_on_file_failure]'][type=checkbox]"
+           )
+
     refute has_element?(unsupported, "input[name='form[settings][max_file_size]']")
   end
 
@@ -864,7 +910,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
       {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
       view |> element("#new-config-button") |> render_click()
-      refute has_element?(view, "#channel-advanced-settings")
+      assert has_element?(view, "#channel-advanced-settings")
+
+      assert has_element?(
+               view,
+               "input[name='form[settings][send_on_file_failure]'][type=checkbox]"
+             )
+
       refute has_element?(view, "input[name='form[settings][max_file_size]']")
     end
   end

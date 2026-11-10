@@ -79,6 +79,49 @@ defmodule Zaq.Channels.EmailBridge.OutgoingAttachmentsTest do
     end
   end
 
+  test "explicit continue submits one email with usable files and confirms no failed file" do
+    config = smtp_config("selected@example.test")
+
+    outgoing = %{
+      outgoing(config.id)
+      | attachments: [file("ready"), file("%%%", %{"encoding" => "base64"})]
+    }
+
+    assert {:ok, %{confirmation: :partial, messages: [receipt], failed_files: [_]}} =
+             EmailBridge.send_reply(outgoing, %{attachment_failure_policy: :continue})
+
+    assert receipt.confirmation == :confirmed
+    assert receipt.delivered_attachment_indices == [0]
+    refute Map.has_key?(receipt, :attachments)
+    assert_receive {:email, %{attachments: [attachment]}}
+    assert Swoosh.Attachment.get_content(attachment) == "ready"
+    refute_receive {:email, _}
+  end
+
+  test "explicit continue submits one text email when no file can be prepared" do
+    config = smtp_config("selected@example.test")
+
+    assert {:ok, %{messages: [%{delivered_attachment_indices: []}]}} =
+             EmailBridge.send_reply(%{outgoing(config.id) | attachments: [file(nil)]}, %{
+               attachment_failure_policy: :continue
+             })
+
+    assert_receive {:email, %{attachments: []}}
+    refute_receive {:email, _}
+  end
+
+  test "explicit abort sends no email after preparation failure" do
+    config = smtp_config("selected@example.test")
+
+    assert {:error, %{stage: :preparation, delivery: :not_sent}} =
+             EmailBridge.send_reply(
+               %{outgoing(config.id) | attachments: [file("ready"), file(nil)]},
+               %{attachment_failure_policy: :abort}
+             )
+
+    refute_receive {:email, _}
+  end
+
   test "lazy files carry only trusted context and materialize once before delivery" do
     config = smtp_config("selected@example.test")
     assert {:ok, handle} = DiskDocument.issue("source-file")

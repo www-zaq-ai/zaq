@@ -105,6 +105,98 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
              )
   end
 
+  test "SMTP selection filters transient source Records without inventing provider attachment evidence" do
+    attachments = [
+      %Record{id: "failed", kind: :file, content: "failed"},
+      %Record{id: "sent", kind: :file, content: "sent", materialization_handle: "original-handle"}
+    ]
+
+    outgoing = %{outgoing() | attachments: attachments}
+
+    for partial? <- [false, true] do
+      receipt = %{
+        confirmation: :confirmed,
+        message_id: "smtp-id",
+        body: "answer",
+        delivered_attachment_indices: [1, 1, -1, 50]
+      }
+
+      report = if partial?, do: %{confirmation: :partial, messages: [receipt]}, else: receipt
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        assert [%Record{id: "sent", content: nil, materialization_handle: "original-handle"}] =
+                 event.request.outgoing.attachments
+
+        refute Map.has_key?(event.request.receipt, :delivered_attachment_indices)
+        refute Map.has_key?(event.request.receipt, :attachments)
+        %{event | response: {:ok, event.request.receipt}}
+      end)
+
+      assert {:ok, _} =
+               DeliveryConfirmation.record({:ok, report}, outgoing,
+                 delivery_node_router: Zaq.NodeRouterMock
+               )
+
+      assert outgoing.attachments == attachments
+    end
+  end
+
+  test "an unsplit partial receipt preserves the original assistant identity and canonical body" do
+    outgoing = %{
+      outgoing()
+      | body: "Original **answer**",
+        metadata: %{
+          assistant_message_id: "assistant-id",
+          persisted_assistant_message_id: "assistant-id"
+        }
+    }
+
+    receipt = %{
+      confirmation: :confirmed,
+      message_id: "smtp-id",
+      thread_id: "root",
+      delivered_attachment_indices: []
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.request.outgoing.body == "Original **answer**"
+      assert event.request.outgoing.metadata == outgoing.metadata
+      assert event.request.outgoing.attachments == []
+      refute Map.has_key?(event.request.receipt, :body)
+      %{event | response: {:ok, Map.put(event.request.receipt, :history_capture, :stored)}}
+    end)
+
+    assert {:ok, %{messages: [%{history_capture: :stored}]}} =
+             DeliveryConfirmation.record(
+               {:ok, %{confirmation: :partial, messages: [receipt]}},
+               outgoing,
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+  end
+
+  test "malformed SMTP selection cannot confirm additional source Records" do
+    outgoing = %{
+      outgoing()
+      | attachments: [%Record{id: "failed", kind: :file, content: "private"}]
+    }
+
+    receipt = %{
+      confirmation: :confirmed,
+      message_id: "smtp-id",
+      delivered_attachment_indices: :invalid
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.request.outgoing.attachments == []
+      %{event | response: {:ok, event.request.receipt}}
+    end)
+
+    assert {:ok, _} =
+             DeliveryConfirmation.record({:ok, receipt}, outgoing,
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+  end
+
   test "unconfirmed transport outcomes pass through without dispatching a recording event" do
     for response <- [
           {:error, :preparation_failed},

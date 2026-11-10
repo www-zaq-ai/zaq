@@ -734,6 +734,97 @@ defmodule Zaq.Channels.ApiTest do
     refute_received {:bridge_send_reply, _, _}
   end
 
+  test "attachment delivery resolves the selected connector policy once, preserving false and its default" do
+    for {settings, expected} <- [
+          {%{}, :continue},
+          {%{"send_on_file_failure" => true}, :continue},
+          {%{"send_on_file_failure" => false}, :abort},
+          {%{"send_on_file_failure" => "false"}, :abort}
+        ] do
+      config = insert_config(:mattermost, %{settings: settings})
+
+      outgoing = %Outgoing{
+        provider: :mattermost,
+        channel_id: "room",
+        body: "Answer",
+        routing_context: %{channel_config_id: config.id},
+        attachments: [%Record{id: "file", kind: :file, content: "bytes"}]
+      }
+
+      event =
+        Event.new(outgoing, :channels,
+          opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+        )
+
+      assert {:ok, _} = Api.handle_event(event, :deliver_outgoing, nil).response
+      assert_received {:bridge_send_reply, _, details}
+      assert details.attachment_failure_policy == expected
+      assert details.settings == settings
+      refute_received {:bridge_send_reply, _, _}
+    end
+  end
+
+  test "abort suppresses selection and preparation fallback before a final message can be sent" do
+    config = insert_config(:mattermost, %{settings: %{"send_on_file_failure" => false}})
+
+    for stage <- [:selection, :preparation] do
+      error = DeliveryFiles.delivery_error(:attachment_content_unavailable)
+      Process.put(:chat_delivery_response, {:error, error})
+
+      outgoing = %Outgoing{
+        provider: :mattermost,
+        channel_id: "room",
+        body: "Answer",
+        routing_context: %{channel_config_id: config.id},
+        attachment_error: if(stage == :selection, do: :invalid_attachment_selection),
+        attachments: [%Record{id: "file", kind: :file, content: "bytes"}]
+      }
+
+      event =
+        Event.new(outgoing, :channels,
+          opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+        )
+
+      assert {:error, %DeliveryError{delivery: :not_sent}} =
+               Api.handle_event(event, :deliver_outgoing, nil).response
+
+      if stage == :preparation,
+        do: assert_received({:bridge_send_reply, _, %{attachment_failure_policy: :abort}})
+
+      refute_received {:bridge_send_reply, _, _}
+      refute_received {:bridge_upsert_message, _, _, _}
+    end
+  end
+
+  test "an adapter's completed policy attempt never triggers a replacement send or placeholder notice" do
+    error = %DeliveryError{
+      reason: {:attachment_delivery_failed, %{delivery: :unconfirmed}},
+      message: "Delivery unconfirmed",
+      stage: :transport,
+      delivery: :unconfirmed
+    }
+
+    Process.put(:chat_delivery_response, {:error, error})
+
+    outgoing = %Outgoing{
+      provider: :mattermost,
+      channel_id: "room",
+      body: "Answer",
+      metadata: %{message_id: "placeholder", request_id: "request"},
+      attachments: [%Record{id: "file", kind: :file, content: "bytes"}]
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    assert {:error, ^error} = Api.handle_event(event, :deliver_outgoing, nil).response
+    assert_received {:bridge_send_reply, _, %{attachment_failure_policy: :continue}}
+    refute_received {:bridge_send_reply, _, _}
+    refute_received {:bridge_upsert_message, _, _, _}
+  end
+
   for stage <- [:selection, :preparation] do
     @failure_stage stage
 

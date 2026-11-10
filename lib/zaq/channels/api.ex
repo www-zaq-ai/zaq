@@ -38,6 +38,7 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Channels.DeliveryError
   alias Zaq.Channels.DeliveryFiles
+  alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Channels.MessageFormatter
@@ -222,7 +223,9 @@ defmodule Zaq.Channels.Api do
 
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
-         {:ok, connection_details} <- delivery_connection(bridge_module, outgoing, event.opts) do
+         {:ok, connection_details} <- delivery_connection(bridge_module, outgoing, event.opts),
+         {:ok, connection_details} <-
+           email_attachment_connection(bridge, outgoing, connection_details) do
       formatted_outgoing =
         outgoing
         |> publish_tool_steps()
@@ -1109,6 +1112,26 @@ defmodule Zaq.Channels.Api do
        do: response
 
   defp report_file_failure(
+         response,
+         _outgoing,
+         _bridge,
+         %{attachment_failure_policy: :abort},
+         _resolver,
+         _opts
+       ),
+       do: response
+
+  defp report_file_failure(
+         {:error, %DeliveryError{reason: {:attachment_delivery_failed, _report}}} = response,
+         _outgoing,
+         _bridge,
+         _details,
+         _resolver,
+         _opts
+       ),
+       do: response
+
+  defp report_file_failure(
          {:error, %DeliveryError{} = error} = response,
          %Outgoing{body: body} = outgoing,
          bridge,
@@ -1172,10 +1195,34 @@ defmodule Zaq.Channels.Api do
 
   defp deliver_failure_notice(_error, _outgoing, _bridge, _details, _resolver), do: :ok
 
-  defp delivery_context(details, %Outgoing{attachments: []}, _event), do: details
+  defp delivery_context(details, %Outgoing{attachments: [], attachment_error: nil}, _event),
+    do: details
 
-  defp delivery_context(details, %Outgoing{}, event),
-    do: Map.put(details, :trusted_context, TrustedContext.from_event(event))
+  defp delivery_context(details, %Outgoing{}, event) do
+    details
+    |> Map.put(:trusted_context, TrustedContext.from_event(event))
+    |> Map.put_new_lazy(:attachment_failure_policy, fn ->
+      Settings.attachment_failure_policy(details)
+    end)
+  end
+
+  defp email_attachment_connection(
+         _bridge,
+         %Outgoing{attachments: [], attachment_error: nil},
+         details
+       ),
+       do: {:ok, details}
+
+  defp email_attachment_connection(EmailBridge, outgoing, details) do
+    with {:ok, config} <- EmailBridge.reply_smtp_config(outgoing) do
+      {:ok,
+       details
+       |> Map.put(:smtp_config_id, config && config.id)
+       |> Map.put(:attachment_failure_policy, Settings.attachment_failure_policy(config || %{}))}
+    end
+  end
+
+  defp email_attachment_connection(_bridge, _outgoing, details), do: {:ok, details}
 
   defp validate_destination_files(bridge, resolver, outgoing, opts) do
     with {:ok, details} <- delivery_connection(resolver, outgoing, opts) do

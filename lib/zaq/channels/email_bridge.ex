@@ -226,10 +226,39 @@ defmodule Zaq.Channels.EmailBridge do
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, DeliveryError.t()}
   @impl true
+  def send_reply(%Outgoing{} = outgoing, %{smtp_config_id: id} = connection_details),
+    do: send_reply_with_smtp(outgoing, id, connection_details)
+
   def send_reply(%Outgoing{} = outgoing, connection_details) do
     case reply_smtp_config_id(outgoing) do
       {:ok, smtp_config_id} -> send_reply_with_smtp(outgoing, smtp_config_id, connection_details)
       {:error, reason} -> {:error, smtp_delivery_error(reason)}
+    end
+  end
+
+  @doc "Resolves the outbound SMTP connector without changing the original email routing identity."
+  @spec reply_smtp_config(Outgoing.t()) ::
+          {:ok, struct() | nil} | {:error, DeliveryError.t()}
+  def reply_smtp_config(%Outgoing{} = outgoing) do
+    with {:ok, id} <- reply_smtp_config_id(outgoing),
+         {:ok, config} <- selected_smtp_config(id) do
+      {:ok, config}
+    else
+      {:error, reason} -> {:error, smtp_delivery_error(reason)}
+    end
+  end
+
+  defp selected_smtp_config(nil) do
+    case ChannelConfig.resolve_notification_smtp() do
+      {:error, :not_found} -> {:ok, nil}
+      result -> result
+    end
+  end
+
+  defp selected_smtp_config(id) do
+    case ChannelConfig.resolve_by_provider("email:smtp", id) do
+      {:ok, %ChannelConfig{kind: "retrieval"} = config} -> {:ok, config}
+      _ -> {:error, :connector_mismatch}
     end
   end
 
@@ -264,45 +293,78 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    result =
+    {result, prepared, failures} =
       case DeliveryFiles.prepare(
              outgoing.attachments,
              Map.get(connection_details, :trusted_context, %{}),
-             connection_details |> Map.take([:node_router]) |> Map.to_list()
+             connection_details
+             |> Map.take([:node_router, :attachment_failure_policy])
+             |> Map.to_list()
            ) do
         {:ok, files} ->
-          deliver_email_reply(outgoing, Map.put(payload, "attachments", files), smtp_config_id)
+          {deliver_email_reply(outgoing, Map.put(payload, "attachments", files), smtp_config_id),
+           nil, []}
+
+        {:ok, files, failures} ->
+          Enum.each(failures, fn failure ->
+            Logger.warning(
+              "[EmailBridge] attachment omitted index=#{failure.attachment_index} stage=#{failure.stage} reason=#{failure.reason}"
+            )
+          end)
+
+          {deliver_email_reply(outgoing, Map.put(payload, "attachments", files), smtp_config_id),
+           files, failures}
 
         {:error, reason} ->
-          {:error, DeliveryFiles.delivery_error(reason)}
+          {{:error, DeliveryFiles.delivery_error(reason)}, nil, []}
       end
 
-    case result do
-      :ok ->
-        {:ok, delivery_receipt(threading)}
+    response =
+      case result do
+        :ok ->
+          {:ok, delivery_receipt(threading)}
 
-      {:ok, %{sender_address: sender, recipient_addresses: recipients}}
-      when is_binary(sender) and is_list(recipients) ->
-        receipt =
-          delivery_receipt(threading)
-          |> Map.put(:confirmation, :confirmed)
-          |> Map.put(:source_scope, "smtp:confirmed")
-          |> Map.put(
-            :conversation_id,
-            delivery_conversation_id(outgoing, threading)
-          )
-          |> Map.put(:audience, %Zaq.Engine.Messages.Incoming.Audience{
-            platform: "email",
-            sender: sender,
-            recipients: recipients
-          })
+        {:ok, %{sender_address: sender, recipient_addresses: recipients}}
+        when is_binary(sender) and is_list(recipients) ->
+          receipt =
+            delivery_receipt(threading)
+            |> Map.put(:confirmation, :confirmed)
+            |> Map.put(:source_scope, "smtp:confirmed")
+            |> Map.put(
+              :conversation_id,
+              delivery_conversation_id(outgoing, threading)
+            )
+            |> Map.put(:audience, %Zaq.Engine.Messages.Incoming.Audience{
+              platform: "email",
+              sender: sender,
+              recipients: recipients
+            })
 
-        {:ok, receipt}
+          {:ok, receipt}
 
-      error ->
-        error
-    end
+        error ->
+          error
+      end
+
+    email_attachment_receipt(response, outgoing, prepared, failures)
   end
+
+  defp email_attachment_receipt({:ok, receipt}, _outgoing, prepared, failures)
+       when is_list(prepared) do
+    receipt =
+      Map.put(receipt, :delivered_attachment_indices, Enum.map(prepared, & &1.attachment_index))
+
+    if failures == [],
+      do: {:ok, receipt},
+      else:
+        {:ok,
+         receipt
+         |> Map.put(:confirmation, :partial)
+         |> Map.put(:messages, [receipt])
+         |> Map.put(:failed_files, failures)}
+  end
+
+  defp email_attachment_receipt(response, _outgoing, _prepared, _failures), do: response
 
   defp deliver_email_reply(%Outgoing{} = outgoing, payload, smtp_config_id) do
     sender = smtp_sender_module()

@@ -44,6 +44,28 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert has_element?(view, "button[phx-click='activate']", "Activate")
   end
 
+  test "attachment failure switch defaults on and both values survive save and reopen", %{
+    conn: conn
+  } do
+    config = insert_enabled_smtp_channel()
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    assert has_element?(view, "#smtp-send-on-file-failure[checked]")
+
+    for {value, expected} <- [{"false", false}, {"true", true}] do
+      view
+      |> form("#smtp-config-form", %{"email_config" => %{"send_on_file_failure" => value}})
+      |> render_submit()
+
+      saved = Repo.get!(ChannelConfig, config.id)
+      assert saved.settings["send_on_file_failure"] == expected
+      assert saved.settings["relay"] == "smtp.example.com"
+      assert saved.enabled
+
+      {:ok, reopened, _} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+      assert has_element?(reopened, "#smtp-send-on-file-failure[checked]") == expected
+    end
+  end
+
   test "Add Config creates and selects a distinct named SMTP connector", %{conn: conn} do
     original =
       insert_smtp_channel(%{

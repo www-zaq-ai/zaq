@@ -118,7 +118,7 @@ defmodule Zaq.Channels.DeliveryErrorTest do
     end
   end
 
-  test "email preparation failure sends only the answer and safe detail, retaining the failure",
+  test "email preparation failure sends the original message once and retains safe failure evidence",
        %{
          smtp_config: config
        } do
@@ -132,23 +132,29 @@ defmodule Zaq.Channels.DeliveryErrorTest do
     outgoing = %{
       outgoing(config.id)
       | attachments: [record],
-        metadata: %{html_body: "stale HTML"}
+        metadata: %{html_body: "<p>Keep this answer</p>"}
     }
 
     event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
 
-    assert {:error, %DeliveryError{reason: :invalid_attachment_base64, stage: :preparation}} =
+    assert {:ok,
+            %{
+              confirmation: :partial,
+              messages: [%{confirmation: :confirmed}],
+              failed_files: [failure]
+            }} =
              Api.handle_event(event, :deliver_outgoing, nil).response
+
+    assert failure.stage == :preparation
+    assert failure.reason == "The attachment contains invalid Base64 content."
+    refute inspect(failure) =~ "%%%"
 
     assert_received :smtp_attempt
     assert_received {:smtp_email, email}
     assert email.attachments == []
 
-    assert email.text_body ==
-             "Keep this answer\n\nThe attachment contains invalid Base64 content."
-
-    assert email.html_body =~ "The attachment contains invalid Base64 content."
-    refute email.html_body =~ "stale HTML"
+    assert email.text_body == "Keep this answer"
+    assert email.html_body == "<p>Keep this answer</p>"
     refute_received :smtp_attempt
   end
 

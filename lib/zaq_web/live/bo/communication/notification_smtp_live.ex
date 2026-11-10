@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   require Logger
 
   alias Zaq.Channels.DeliveryError
+  alias Zaq.ConnectorConfig.Settings
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -375,6 +376,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
     %EmailConfig{
       enabled: if(channel, do: channel.enabled, else: false),
+      send_on_file_failure:
+        Settings.attachment_failure_policy(%{settings: settings}) == :continue,
       relay: map_get(settings, "relay"),
       port: parse_int(map_get(settings, "port"), 587),
       transport_mode: map_get(settings, "transport_mode") || "starttls",

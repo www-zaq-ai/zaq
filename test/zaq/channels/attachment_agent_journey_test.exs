@@ -1,6 +1,11 @@
 defmodule Zaq.Channels.AttachmentAgentJourneyTest do
   use Zaq.DataCase, async: false
 
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  @endpoint ZaqWeb.Endpoint
+
   alias Mail.Message, as: MailMessage
   alias Zaq.Accounts.People
   alias Zaq.Agent.{Factory, ServerManager}
@@ -100,43 +105,7 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
       on_exit(fn -> ServerManager.stop_server(agent) end)
 
-      {:ok, workflow} =
-        Workflows.create_workflow(%{
-          name: namespace,
-          status: "active",
-          nodes: [
-            %{
-              name: "select_document",
-              type: "action",
-              module: "Zaq.Agent.Tools.Workflow.RunAgent",
-              params: %{"agent_id" => agent.id, "input" => "Retrieve B and attach it."},
-              index: 0
-            },
-            %{
-              name: "send_file",
-              type: "action",
-              module: "Zaq.Agent.Tools.People.NotifyPerson",
-              params: %{"person" => %{"id" => person.id}, "subject" => namespace},
-              index: 1
-            }
-          ],
-          edges: [
-            %{
-              from: "select_document",
-              to: "send_file",
-              mapping: %{"message" => "output", "attachments" => "attachments"}
-            }
-          ]
-        })
-
-      {:ok, run} =
-        Workflows.create_run(workflow, %{
-          "actor" => %{person_id: person.id},
-          "request" => nil,
-          "assigns" => %{}
-        })
-
-      execution = Task.async(fn -> Workflows.start_run(run) end)
+      {run, execution} = start_file_workflow!(namespace, person, agent)
 
       try do
         capture = await_workflow_delivery(execution, namespace, run.id)
@@ -166,6 +135,231 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
         Task.shutdown(execution, :brutal_kill)
       end
     end
+  end
+
+  for {label, attempts} <- [
+        {"email strict", [{:email, false}]},
+        {"email continue", [{:email, true}]},
+        {"email default", [{:email, :missing}]},
+        {"Mattermost strict", [{:mattermost, false}]},
+        {"Mattermost continue", [{:mattermost, true}]},
+        {"Mattermost default", [{:mattermost, :missing}]},
+        {"strict Mattermost then permissive email", [{:mattermost, false}, {:email, true}]},
+        {"strict email then strict Mattermost", [{:email, false}, {:mattermost, false}]}
+      ] do
+    @tag :workflow_policy
+    test "workflow notification records and renders #{label} attachment delivery" do
+      attempts = unquote(Macro.escape(attempts))
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn
+        %Zaq.Event{name: :workflow} = event -> event
+        %Zaq.Event{request: {:broadcast, "workflow:" <> _, _}} = event -> event
+        %Zaq.Event{request: {:broadcast, "workflow_run:" <> _, _}} = event -> event
+      end)
+
+      namespace = "workflow-policy-#{Ecto.UUID.generate()}"
+      {:ok, person} = People.create_person(%{full_name: namespace})
+      {disk, files, root} = documents!(namespace, person)
+
+      destinations =
+        for {{provider, policy}, weight} <- Enum.with_index(attempts) do
+          destination = workflow_destination!(provider, namespace, self())
+
+          settings =
+            if policy == :missing,
+              do: Map.delete(destination.config.settings, "send_on_file_failure"),
+              else: Map.put(destination.config.settings, "send_on_file_failure", policy)
+
+          {:ok, config} =
+            destination.config |> ChannelConfig.changeset(%{settings: settings}) |> Repo.update()
+
+          {:ok, _} =
+            People.add_channel(%{
+              person_id: person.id,
+              platform: to_string(provider),
+              channel_identifier: destination.identifier,
+              channel_config_id: config.id,
+              weight: weight
+            })
+
+          Map.merge(destination, %{config: config, provider: provider, policy: policy})
+        end
+
+      {child, endpoint} =
+        AttachmentSelectionLLMStub.server(
+          [
+            get_document(disk, files.a.id),
+            &select_documents(&1, "add", [0]),
+            get_document(disk, files.b.id),
+            &select_documents(&1, "add", [2]),
+            {:pause, {:text, "Here is B."}}
+          ],
+          self()
+        )
+
+      start_supervised!(child)
+
+      agent =
+        IntegrationAgent.create!(endpoint, namespace, "Select both requested documents.", [
+          "data_source.get_document",
+          "data_source.attach_document"
+        ])
+
+      on_exit(fn -> ServerManager.stop_server(agent) end)
+      {run, execution} = start_file_workflow!(namespace, person, agent)
+
+      try do
+        assert_receive {:attachment_model_paused, model}, 15_000
+        interrupt_selection(:revoke, nil, nil, files.b, person)
+        send(model, :release)
+        winner = Enum.find(destinations, &(&1.policy != false))
+
+        capture =
+          if winner do
+            capture = await_workflow_delivery(execution, namespace, run.id)
+            assert_workflow_file(winner.provider, capture, namespace, winner, files.a)
+            assert {:ok, completed} = Task.await(execution, 15_000)
+            assert completed.status == "completed"
+            capture
+          else
+            assert {:ok, failed} = Task.await(execution, 15_000)
+            assert failed.status == "failed"
+            assert failed.log_summary.failed_steps == ["send_file"]
+            nil
+          end
+
+        steps = Map.new(Workflows.list_step_runs(run.id), &{&1.step_name, &1})
+        assert steps["select_document"].status == "completed"
+        assert steps["send_file"].status == if(winner, do: "completed", else: "failed")
+
+        if winner do
+          assert steps["send_file"].results["notified"] == true
+        else
+          assert inspect(steps["send_file"].errors) =~ "all_channels_failed"
+          assert Repo.get!(Zaq.Engine.Workflows.WorkflowRun, run.id).status == "failed"
+        end
+
+        selected = steps["select_document"].results["attachments"]
+        assert Enum.map(selected, & &1["id"]) == [files.a.id, files.b.id]
+        refute inspect(selected) =~ files.a.bytes
+        refute inspect(selected) =~ files.b.bytes
+
+        log = Repo.one!(from(log in NotificationLog, where: log.recipient_name == ^namespace))
+        assert log.status == if(winner, do: "sent", else: "failed")
+
+        assert log.payload == %{
+                 "subject" => namespace,
+                 "body" => "Here is B.",
+                 "html_body" => nil
+               }
+
+        assert Enum.map(log.channels_tried, & &1["platform"]) ==
+                 Enum.map(destinations, &to_string(&1.provider))
+
+        for {attempt, destination} <- Enum.zip(log.channels_tried, destinations) do
+          assert attempt["identifier"] == destination.identifier
+
+          if destination.policy == false do
+            assert attempt["status"] == "error"
+            assert attempt["error"] =~ "not_sent"
+            assert attempt["error"] =~ "preparation"
+            refute attempt["error"] =~ files.b.id
+            refute attempt["error"] =~ "materialization"
+          else
+            assert attempt["status"] == "ok"
+            assert attempt["error"] == nil
+          end
+        end
+
+        if winner && winner.provider == :email do
+          assert is_binary(log.threading["message_id"])
+          assert log.threading["message_id"] == steps["send_file"].results["message_id"]
+
+          assert Mail.parse(capture.raw).headers["message-id"] ==
+                   "<#{log.threading["message_id"]}>"
+
+          assert log.thread_key == namespace
+        else
+          assert is_nil(log.threading)
+        end
+
+        refute_received {:delivery_boundary, ^namespace, _, _}
+        refute_received {:delivery_upload, ^namespace, _}
+        assert File.read!(Path.join(root, files.a.name)) == files.a.bytes
+        assert File.read!(Path.join(root, files.b.name)) == files.b.bytes
+        assert_notification_center(log)
+        refute_received {:llm_stub_error, _}
+      after
+        Task.shutdown(execution, :brutal_kill)
+      end
+    end
+  end
+
+  defp assert_notification_center(log) do
+    stub(Zaq.NodeRouterMock, :find_node, fn _ -> :channels@localhost end)
+    user = user_fixture()
+    {:ok, user} = Zaq.Accounts.change_password(user, %{password: "StrongPass1!"})
+    conn = build_conn() |> init_test_session(%{user_id: user.id})
+    {:ok, view, _html} = live(conn, "/bo/channels/notifications/logs")
+    assert has_element?(view, "#log-#{log.id}", log.status)
+
+    html = view |> element("#log-#{log.id} button[phx-click=view_log]") |> render_click()
+    assert html =~ "Notification Details"
+    assert html =~ log.payload["subject"]
+    assert html =~ log.payload["body"]
+
+    for attempt <- log.channels_tried do
+      assert html =~ attempt["platform"]
+
+      if attempt["error"],
+        do:
+          assert(
+            html =~ Phoenix.HTML.html_escape(attempt["error"]) |> Phoenix.HTML.safe_to_string()
+          )
+    end
+
+    assert has_element?(view, "#log-#{log.id}", if(log.status == "sent", do: "✓", else: "✗"))
+    refute html =~ "B selected bytes"
+  end
+
+  defp start_file_workflow!(namespace, person, agent) do
+    {:ok, workflow} =
+      Workflows.create_workflow(%{
+        name: namespace,
+        status: "active",
+        nodes: [
+          %{
+            name: "select_document",
+            type: "action",
+            module: "Zaq.Agent.Tools.Workflow.RunAgent",
+            params: %{"agent_id" => agent.id, "input" => "Retrieve B and attach it."},
+            index: 0
+          },
+          %{
+            name: "send_file",
+            type: "action",
+            module: "Zaq.Agent.Tools.People.NotifyPerson",
+            params: %{"person" => %{"id" => person.id}, "subject" => namespace},
+            index: 1
+          }
+        ],
+        edges: [
+          %{
+            from: "select_document",
+            to: "send_file",
+            mapping: %{"message" => "output", "attachments" => "attachments"}
+          }
+        ]
+      })
+
+    {:ok, run} =
+      Workflows.create_run(workflow, %{
+        "actor" => %{person_id: person.id},
+        "request" => nil,
+        "assigns" => %{}
+      })
+
+    {run, Task.async(fn -> Workflows.start_run(run) end)}
   end
 
   defp await_workflow_delivery(execution, namespace, run_id) do
@@ -233,19 +427,21 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       try do
         assert_receive {:delivery_boundary, ^namespace, transport, capture}, 10_000
         send(transport, :accept_delivery)
-        assert {:error, %{status: :failed, notification_log_id: log_id}} = Task.await(execution)
+        assert {:ok, %{status: :sent, notification_log_id: log_id}} = Task.await(execution)
 
         if provider == :mattermost do
           refute capture.post["file_ids"]
-          assert capture.post["message"] =~ "The attachment content could not be accessed."
+          assert capture.post["message"] == "Here is B."
         else
           mail = Mail.parse(capture.raw)
           assert Mail.get_attachments(mail) == []
-          assert Mail.get_text(mail).body =~ "The attachment content could not be accessed."
+          assert Mail.get_text(mail).body == "Here is B."
         end
 
         refute_received {:delivery_upload, ^namespace, _}
         log = Repo.get!(NotificationLog, log_id)
+        assert log.status == "sent"
+        assert [%{"status" => "ok", "error" => nil}] = log.channels_tried
 
         assert log.payload == %{
                  "subject" => namespace,
@@ -439,13 +635,16 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       outgoing = delivery_event.request
       Task.await(ingress, 10_000)
 
-      if @scenario == :revoke do
-        trace_id = delivery_event.trace_id
-        assert_receive {:delivery_failed, ^trace_id, writer}, 10_000
-        await_writer(writer)
-      end
+      if @scenario in [:revoke, :steer, :privacy],
+        do: await_delivery_writer(destination.config.id)
 
-      if @scenario in [:steer, :privacy], do: await_delivery_writer(destination.config.id)
+      if @scenario == :revoke do
+        message = Repo.get!(Message, outgoing.metadata.assistant_message_id)
+        assert message.content == "Here is B."
+
+        assert message.metadata["delivery_confirmation"]["channel_config_id"] ==
+                 destination.config.id
+      end
 
       if @scenario in [:cancel, :failure] do
         assert outgoing.metadata.error
@@ -543,17 +742,12 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
     assert_receive {:delivery_boundary, ^namespace, provider, capture}, 10_000
     mail = Mail.parse(capture.raw)
     assert Mail.get_attachments(mail) == []
-    assert Mail.get_text(mail).body =~ "Here is B."
-    assert Mail.get_text(mail).body =~ "The attachment content could not be accessed."
+    assert Mail.get_text(mail).body == "Here is B."
     send(provider, :accept_delivery)
   end
 
   defp assert_interrupted_delivery(:revoke, %{provider: :mattermost}, _namespace, _file) do
-    assert_receive {:history_update,
-                    %{
-                      "message" => "Here is B.\n\nThe attachment content could not be accessed."
-                    }},
-                   10_000
+    assert_receive {:history_update, %{"message" => "Here is B."}}, 10_000
   end
 
   defp assert_interrupted_delivery(_scenario, %{provider: :mattermost}, _namespace, _file),
@@ -680,8 +874,6 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
     {disk, files, root}
   end
 
-  defp destination!(provider, namespace, owner, connections \\ 2)
-
   defp attachment_edit_response(%{"file_ids" => _} = payload, _conn, _body, owner, namespace) do
     send(owner, {:delivery_boundary, namespace, self(), %{post: payload}})
 
@@ -695,6 +887,8 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   defp attachment_edit_response(_payload, conn, body, owner, _namespace),
     do: MattermostHistoryFixture.http(conn, body, owner)
+
+  defp destination!(provider, namespace, owner, connections \\ 2)
 
   defp destination!(:mattermost, namespace, owner, _connections) do
     posts = :atomics.new(1, [])

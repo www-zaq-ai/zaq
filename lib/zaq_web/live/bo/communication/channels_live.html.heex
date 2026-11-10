@@ -1332,15 +1332,38 @@
         </p>
       </div>
 
+      <div class="flex items-center gap-3 mb-6">
+        <input type="hidden" name="form[enabled]" value="false" />
+        <input
+          type="checkbox"
+          name="form[enabled]"
+          id="form_enabled"
+          value="true"
+          checked={@form[:enabled].value}
+          class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
+        />
+        <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
+          Enable this configuration
+        </label>
+      </div>
+
       <details
-        :if={get_in(@capabilities_snapshot, [:resolved, :configurable_max_file_size]) == :native}
+        :if={
+          get_in(@capabilities_snapshot, [:resolved, :configurable_max_file_size]) == :native ||
+            get_in(@capabilities_snapshot, [:resolved, :file]) == :native
+        }
         id="channel-advanced-settings"
         phx-mounted={JS.ignore_attributes("open")}
         class="mb-6 rounded-xl border p-4"
         style="background: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default)"
       >
         <summary class="zaq-text-body-sm cursor-pointer">Advanced settings</summary>
-        <div class="mt-4">
+        <div
+          :if={
+            get_in(@capabilities_snapshot, [:resolved, :configurable_max_file_size]) == :native
+          }
+          class="mt-4"
+        >
           <ZaqWeb.Components.DesignSystem.Input.input
             id="channel-max-file-size"
             name="form[settings][max_file_size]"
@@ -1362,22 +1385,23 @@
             For example, 5 MB is 5000000 bytes. Leaving it blank keeps the limit unconfigured.
           </p>
         </div>
-      </details>
-
-      <div class="flex items-center gap-3 mb-6">
-        <input type="hidden" name="form[enabled]" value="false" />
-        <input
-          type="checkbox"
-          name="form[enabled]"
-          id="form_enabled"
-          value="true"
-          checked={@form[:enabled].value}
-          class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
+        <ZaqWeb.Components.DesignSystem.Switch.switch
+          :if={get_in(@capabilities_snapshot, [:resolved, :file]) == :native}
+          id="channel-send-on-file-failure"
+          name="form[settings][send_on_file_failure]"
+          layout={:setting_row}
+          label="Send message if files fail"
+          description="Send the message with the files that succeed and log failures. Turn this off to stop final delivery if a file cannot be prepared or uploaded. Previously streamed text may remain visible."
+          value={
+            Map.get(
+              Ecto.Changeset.get_field(@changeset, :settings) || %{},
+              "send_on_file_failure",
+              true
+            )
+          }
+          class="mt-4"
         />
-        <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
-          Enable this configuration
-        </label>
-      </div>
+      </details>
 
       <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
         <p

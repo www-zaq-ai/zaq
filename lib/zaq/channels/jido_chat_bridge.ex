@@ -67,18 +67,13 @@ defmodule Zaq.Channels.JidoChatBridge do
     with {:ok, adapter} <- adapter_for(outgoing.provider, opts) do
       Code.ensure_loaded(adapter)
 
-      cond do
-        function_exported?(adapter, :validate_files, 2) ->
-          adapter.validate_files(
-            outgoing.attachments,
-            AdapterOptions.build(outgoing.provider, connection)
-          )
-
-        Adapter.capabilities(adapter)[:configurable_max_file_size] == :native ->
-          {:error, :file_validation_unsupported}
-
-        true ->
-          :ok
+      if function_exported?(adapter, :validate_files, 2) do
+        adapter.validate_files(
+          outgoing.attachments,
+          AdapterOptions.build(outgoing.provider, connection)
+        )
+      else
+        :ok
       end
     end
   end
@@ -331,7 +326,10 @@ defmodule Zaq.Channels.JidoChatBridge do
         end)
 
       resolved =
-        Map.merge(resolved, Map.take(adapter_capabilities, [:configurable_max_file_size]))
+        Map.merge(
+          resolved,
+          Map.take(adapter_capabilities, [:configurable_max_file_size, :attachment_failure_policy])
+        )
 
       {:ok, %{resolved: resolved}}
     end
@@ -1881,24 +1879,89 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
   def do_send_reply(%Outgoing{} = outgoing, %{url: _, token: _} = connection_details) do
-    case adapter_for(outgoing.provider) do
-      {:ok, adapter_module} ->
-        case DeliveryFiles.prepare(
-               outgoing.attachments,
-               Map.get(connection_details, :trusted_context, %{})
-             ) do
-          {:ok, prepared} ->
-            send_prepared_reply(outgoing, adapter_module, connection_details, prepared)
-
-          {:error, reason} ->
-            {:error, DeliveryFiles.delivery_error(reason)}
-        end
+    with {:ok, adapter_module} <- adapter_for(outgoing.provider),
+         :ok <- validate_attachment_policy_support(adapter_module, connection_details) do
+      prepare_reply(outgoing, adapter_module, connection_details)
+    else
+      {:error, %DeliveryError{}} = error ->
+        error
 
       {:error, _reason} ->
         {:error,
          chat_delivery_error({:unsupported_provider, outgoing.provider}, :not_sent, outgoing)}
     end
   end
+
+  defp prepare_reply(outgoing, adapter_module, connection_details) do
+    case DeliveryFiles.prepare(
+           outgoing.attachments,
+           Map.get(connection_details, :trusted_context, %{}),
+           connection_details
+           |> Map.take([:node_router, :attachment_failure_policy])
+           |> Map.to_list()
+         ) do
+      {:ok, prepared} ->
+        send_prepared_reply(outgoing, adapter_module, connection_details, prepared)
+
+      {:ok, prepared, failures} ->
+        details =
+          if Adapter.capabilities(adapter_module)[:attachment_failure_policy] == :native,
+            do: connection_details,
+            else: Map.delete(connection_details, :attachment_failure_policy)
+
+        Enum.each(failures, fn failure ->
+          Logger.warning(
+            "[JidoChatBridge] attachment omitted index=#{failure.attachment_index} stage=#{failure.stage} reason=#{failure.reason}"
+          )
+        end)
+
+        outgoing
+        |> send_prepared_reply(adapter_module, details, prepared)
+        |> preparation_delivery_report(outgoing, failures)
+
+      {:error, reason} ->
+        {:error, DeliveryFiles.delivery_error(reason)}
+    end
+  end
+
+  defp validate_attachment_policy_support(adapter, %{attachment_failure_policy: :abort}) do
+    if Adapter.capabilities(adapter)[:attachment_failure_policy] == :native,
+      do: :ok,
+      else:
+        {:error,
+         %DeliveryError{
+           reason: {:unsupported_attachment_failure_policy, :abort},
+           message: "This channel does not support the requested attachment failure policy.",
+           stage: :preparation,
+           delivery: :not_sent
+         }}
+  end
+
+  defp validate_attachment_policy_support(_adapter, _details), do: :ok
+
+  defp preparation_delivery_report({:ok, receipt}, outgoing, [_ | _] = failures) do
+    messages =
+      Map.get(receipt, :messages, [
+        receipt |> Map.put(:body, outgoing.body) |> Map.put(:thread_id, outgoing.thread_id)
+      ])
+
+    {:ok,
+     receipt
+     |> Map.put(:confirmation, :partial)
+     |> Map.put(:messages, messages)
+     |> Map.update(:failed_files, failures, &(failures ++ &1))}
+  end
+
+  defp preparation_delivery_report(
+         {:error, %DeliveryError{reason: {:attachment_delivery_failed, report}} = error},
+         _outgoing,
+         [_ | _] = failures
+       ) do
+    report = Map.update(report, :failed_files, failures, &(failures ++ &1))
+    {:error, %{error | reason: {:attachment_delivery_failed, report}}}
+  end
+
+  defp preparation_delivery_report(result, _outgoing, _failures), do: result
 
   defp send_prepared_reply(outgoing, adapter, details, prepared) do
     files = Enum.map(prepared, &prepared_upload/1)
@@ -1910,6 +1973,22 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp chat_delivery_error(reason, delivery, outgoing) do
+    {reason, delivery} =
+      case reason do
+        {:attachment_delivery_failed, report} ->
+          report =
+            Map.put(
+              report,
+              :failed_files,
+              report_file_failures(Map.get(report, :failed_files, []))
+            )
+
+          {{:attachment_delivery_failed, report}, report.delivery}
+
+        _ ->
+          {reason, delivery}
+      end
+
     subject = if outgoing.attachments == [], do: "Message", else: "Attachment"
 
     %DeliveryError{
@@ -1960,7 +2039,7 @@ defmodule Zaq.Channels.JidoChatBridge do
                outgoing: outgoing
              }
            ) do
-      if files != [], do: dispatch_on_reply(metadata, receipt.message_id)
+      if outgoing.attachments != [], do: dispatch_on_reply(metadata, receipt.message_id)
       {:ok, Map.put_new(receipt, :confirmation, :confirmed)}
     else
       :create -> create_and_dispatch_reply(outgoing, adapter_module, details, opts)
@@ -2026,7 +2105,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     receipt
     |> Map.put(:confirmation, report.confirmation)
     |> Map.put(:messages, receipts)
-    |> Map.put(:failed_files, Map.get(report, :failed_files, []))
+    |> Map.put(:failed_files, report_file_failures(Map.get(report, :failed_files, [])))
+    |> Map.put(:uploaded_files, Map.get(report, :uploaded_files, []))
   end
 
   defp delivery_attachments(receipt, {:ok, %{metadata: metadata}}, %Outgoing{} = outgoing)
@@ -2054,6 +2134,35 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp delivery_attachments(receipt, _result, _outgoing), do: receipt
+
+  defp report_file_failures(failures) do
+    failures
+    |> Enum.with_index()
+    |> Enum.map(fn {failure, index} ->
+      safe = safe_file_failure(failure)
+
+      Logger.warning(
+        "[JidoChatBridge] attachment failed index=#{index} stage=#{safe.stage} reason=#{inspect(safe.reason)}"
+      )
+
+      safe
+    end)
+  end
+
+  defp safe_file_failure(failure) do
+    failure
+    |> Map.take([:filename, :attachment_index, :size, :limit, :delivery, :stage])
+    |> Map.put_new(:stage, :transport)
+    |> Map.put(:reason, reported_file_failure_reason(failure[:reason]))
+  end
+
+  defp reported_file_failure_reason(reason) when is_atom(reason) and not is_nil(reason),
+    do: reason
+
+  defp reported_file_failure_reason({:http_error, status} = reason) when status in 100..599,
+    do: reason
+
+  defp reported_file_failure_reason(_reason), do: :attachment_delivery_failed
 
   defp thread_reply?(%Chat.Incoming{external_thread_id: id}) when is_binary(id) and id != "",
     do: true

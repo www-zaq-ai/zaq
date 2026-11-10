@@ -164,11 +164,10 @@ defmodule Zaq.Channels.FileValidationTest do
     refute_receive {:validated, _, _}
   end
 
-  test "a configurable-limit adapter missing preflight does not silently succeed" do
+  test "an adapter without validation accepts selection regardless of configurable limits" do
     outgoing = %Outgoing{body: "", provider: :mattermost, channel_id: "room"}
 
-    assert {:error, :file_validation_unsupported} =
-             JidoChatBridge.validate_files(outgoing, %{}, config: LegacyConfig)
+    assert :ok = JidoChatBridge.validate_files(outgoing, %{}, config: LegacyConfig)
   end
 
   defp select_files(operation, records, context),

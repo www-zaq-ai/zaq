@@ -15,20 +15,33 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   def record({:ok, %{messages: messages} = report}, outgoing, opts) when is_list(messages) do
     receipts =
       Enum.map(messages, fn receipt ->
-        part = %{outgoing | body: receipt.body, thread_id: receipt[:thread_id], attachments: []}
+        attachments =
+          if Map.has_key?(receipt, :delivered_attachment_indices),
+            do: outgoing.attachments,
+            else: []
+
+        part = %{
+          outgoing
+          | body: Map.get(receipt, :body, outgoing.body),
+            thread_id: receipt[:thread_id],
+            attachments: attachments
+        }
+
         {:ok, recorded} = record({:ok, receipt}, part, opts)
         recorded
       end)
 
-    {:ok, Map.put(report, :messages, receipts)}
+    {:ok, report |> Map.delete(:delivered_attachment_indices) |> Map.put(:messages, receipts)}
   end
 
   def record({:ok, %{confirmation: :confirmed} = receipt}, outgoing, opts) do
     router = Keyword.get(opts, :delivery_node_router, NodeRouter)
+    attachments = confirmed_attachment_records(outgoing.attachments, receipt)
+    receipt = Map.delete(receipt, :delivered_attachment_indices)
 
     outgoing = %{
       outgoing
-      | attachments: Enum.map(outgoing.attachments, &%{&1 | content: nil}),
+      | attachments: Enum.map(attachments, &%{&1 | content: nil}),
         metadata:
           Map.take(outgoing.metadata || %{}, [
             :user_message_id,
@@ -58,4 +71,16 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   end
 
   def record(response, _outgoing, _opts), do: response
+
+  defp confirmed_attachment_records(attachments, %{delivered_attachment_indices: indices})
+       when is_list(indices) do
+    attachments
+    |> Enum.with_index()
+    |> Enum.filter(fn {_record, index} -> index in indices end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp confirmed_attachment_records(_attachments, %{delivered_attachment_indices: _}), do: []
+
+  defp confirmed_attachment_records(attachments, _receipt), do: attachments
 end

@@ -13,6 +13,7 @@ defmodule Zaq.Channels.JidoChatBridge.AdapterOptions do
 
     [url: value(connection, :url), token: value(connection, :token)]
     |> maybe_put(:transport, value(connection, :transport))
+    |> maybe_put(:attachment_failure_policy, value(connection, :attachment_failure_policy))
     |> maybe_put(
       :max_file_size,
       value(connection, :max_file_size) || value(settings, :max_file_size)
