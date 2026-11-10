@@ -95,4 +95,50 @@ defmodule Zaq.System.OperationModelConfigTest do
     refute OperationModelConfig.supports?(%{modalities: %{output: [:decisions]}})
     refute OperationModelConfig.supports?(%{modalities: nil})
   end
+
+  test "decision and reranking reuse pair validation without accepting generation sampling" do
+    for kind <- [:decision, :reranking] do
+      assert OperationModelConfig.changeset(%OperationModelConfig{}, %{}, kind).valid?
+
+      refute OperationModelConfig.changeset(%OperationModelConfig{}, %{credential_id: 1}, kind).valid?
+
+      refute OperationModelConfig.changeset(%OperationModelConfig{}, %{model: "model"}, kind).valid?
+
+      refute OperationModelConfig.changeset(
+               %OperationModelConfig{},
+               %{credential_id: -1, model: "model"},
+               kind
+             ).valid?
+
+      changeset =
+        OperationModelConfig.changeset(
+          %OperationModelConfig{},
+          %{credential_id: 1, model: "model", temperature: "invalid", top_p: -1},
+          kind
+        )
+
+      assert changeset.valid?
+      refute Map.has_key?(changeset.changes, :temperature)
+      refute Map.has_key?(changeset.changes, :top_p)
+    end
+
+    refute OperationModelConfig.changeset(%OperationModelConfig{}, %{temperature: "invalid"}).valid?
+
+    refute OperationModelConfig.changeset(%OperationModelConfig{}, %{top_p: -1}).valid?
+    assert OperationModelConfig.supports?(%{capabilities: %{rerank: true}}, :reranking)
+    assert OperationModelConfig.supports?(%{modalities: %{output: [:decisions]}}, :decision)
+    refute OperationModelConfig.supports?(%{modalities: %{output: [:text]}}, :decision)
+  end
+
+  test "non-generation model selections never persist sampling fields" do
+    credential = ai_credential_fixture(%{provider: "custom"})
+
+    for {kind, namespace} <- [decision: "global.decision_model", reranking: "rag.reranking"] do
+      attrs = %{credential_id: credential.id, model: "custom-model", temperature: 1.8, top_p: 0.1}
+      assert {:ok, %OperationModelConfig{}} = System.save_rag_model_config(kind, attrs)
+      assert System.get_config("#{namespace}.model") == "custom-model"
+      assert System.get_config("#{namespace}.temperature") == nil
+      assert System.get_config("#{namespace}.top_p") == nil
+    end
+  end
 end

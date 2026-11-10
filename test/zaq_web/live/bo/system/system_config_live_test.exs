@@ -7146,6 +7146,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   defp stub_response_for_action(:system_config_get_operation_model_config),
     do: %Zaq.System.OperationModelConfig{}
 
+  defp stub_response_for_action(:system_config_get_decision_model_config),
+    do: %Zaq.System.OperationModelConfig{}
+
   defp stub_response_for_action(:system_config_embedding_ready), do: false
   defp stub_response_for_action(:system_config_get_global_default_agent_id), do: nil
   defp stub_response_for_action(:system_config_get_global_base_url), do: nil
@@ -7574,6 +7577,56 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       assert html =~ "Failed to save timezone"
+    end
+
+    test "save decision model handles dispatch failure and keeps submitted values", %{conn: conn} do
+      credential = ai_credential_fixture(%{provider: "custom"})
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_decision_model_config ->
+            %Zaq.Event{event | response: %Zaq.System.OperationModelConfig{}}
+
+          :system_config_save_decision_model_config ->
+            assert event.next_hop.destination == :engine
+
+            assert event.request[:attrs] == %{
+                     "credential_id" => to_string(credential.id),
+                     "model" => "custom-decision"
+                   }
+
+            %Zaq.Event{event | response: {:error, :unavailable}}
+
+          _ ->
+            Zaq.NodeRouter.dispatch(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      assert has_element?(view, "#decision-model-form")
+      assert Zaq.System.get_decision_model_config().model == nil
+
+      html =
+        render_submit(view, "save_decision_model", %{
+          "decision_model_config" => %{
+            "credential_id" => to_string(credential.id),
+            "model" => "custom-decision"
+          }
+        })
+
+      assert html =~ "Could not save decision model settings. Please retry."
+      refute html =~ "Decision model settings saved."
+      assert has_element?(view, "#decision-model-form")
+
+      assert has_element?(
+               view,
+               "input[name='decision_model_config[model]'][value='custom-decision']"
+             )
+
+      assert Zaq.System.get_decision_model_config().model == nil
     end
   end
 
@@ -8088,6 +8141,27 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html = render_click(view, "delete_http_credential_provider", %{"id" => provider.id})
       assert html =~ "Unable to delete HTTP credential provider."
+    end
+
+    test "Albert is selectable through catalog execution without a native ReqLLM provider", %{
+      conn: conn
+    } do
+      assert {:ok, %{catalog_only: false, runtime: runtime}} = LLMDB.provider(:albert)
+      assert is_map(runtime)
+      assert {:error, _} = ReqLLM.provider(:albert)
+
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      view |> element("button[phx-click='new_ai_credential']") |> render_click()
+
+      assert has_element?(
+               view,
+               "#ai-credential-provider-select [data-select-value='albert'][data-select-disabled='false']"
+             )
+
+      refute has_element?(
+               view,
+               "#ai-credential-provider-select [data-select-value='albert'][data-select-disabled='true']"
+             )
     end
 
     test "controlled catalogs retain custom providers and can expose zaq_router", %{conn: conn} do
@@ -8870,31 +8944,81 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       end
     end
 
+    test "decision selection belongs to Global and saves independently from generation models", %{
+      conn: conn
+    } do
+      credential = ai_credential_fixture(%{provider: "custom"})
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(view, "#decision-model-section")
+
+      assert has_element?(
+               view,
+               "#global-model-row.grid-cols-1.xl\\:grid-cols-2 > #small-model-section"
+             )
+
+      assert has_element?(view, "#global-model-row > #decision-model-section")
+      assert has_element?(view, "#small-model-section .zaq-ai-model-selector--stacked")
+      assert has_element?(view, "#decision-model-section .zaq-ai-model-selector--stacked")
+
+      params = %{
+        "decision_model_config" => %{
+          "credential_id" => to_string(credential.id),
+          "model" => "custom-decision"
+        }
+      }
+
+      assert render_submit(view, "save_decision_model", params) =~ "Decision model settings saved"
+      assert System.get_decision_model_config().model == "custom-decision"
+      assert System.get_operation_model_config(:small).model == nil
+      assert System.get_config("rag.decision.model") == nil
+
+      {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=global")
+
+      assert has_element?(
+               reloaded,
+               "#decision-model-form input[name='decision_model_config[model]'][value='custom-decision']"
+             )
+
+      assert render_submit(reloaded, "save_decision_model", %{
+               "decision_model_config" => %{"credential_id" => "", "model" => ""}
+             }) =~ "Decision model settings saved"
+
+      assert System.get_decision_model_config().model == nil
+
+      {:ok, rag, _} = live(conn, ~p"/bo/system-config?tab=rag")
+      refute has_element?(rag, "#decision-model-section")
+      refute has_element?(rag, "#rag-decision-section")
+      assert has_element?(rag, "#rag-reranking-section")
+    end
+
     test "custom endpoint specialized models use manual fields, save and reload", %{conn: conn} do
       credential = ai_credential_fixture(%{provider: "custom"})
-      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=rag")
 
-      for kind <- ["reranking", "decision"] do
+      for {kind, tab, prefix, form_name, validate, save, message} <- [
+            {"reranking", "rag", "rag-reranking", "rag_model_config", "validate_rag_model",
+             "save_rag_model", "RAG model settings saved"},
+            {"decision", "global", "decision", "decision_model_config", "validate_decision_model",
+             "save_decision_model", "Decision model settings saved"}
+          ] do
+        {:ok, view, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
         params = %{
           "kind" => kind,
-          "rag_model_config" => %{"credential_id" => to_string(credential.id), "model" => ""}
+          form_name => %{"credential_id" => to_string(credential.id), "model" => ""}
         }
 
-        render_change(view, "validate_rag_model", params)
-        assert has_element?(view, "#rag-#{kind}-form input[name='rag_model_config[model]']")
-        refute has_element?(view, "#rag-#{kind}-model-select")
-        assert has_element?(view, "#rag-#{kind}-modalities")
+        render_change(view, validate, params)
+        assert has_element?(view, "input[name='#{form_name}[model]']")
+        refute has_element?(view, "##{prefix}-model-select")
+        assert has_element?(view, "##{prefix}-modalities")
 
-        params = put_in(params, ["rag_model_config", "model"], "custom/#{kind}")
-        assert render_submit(view, "save_rag_model", params) =~ "RAG model settings saved"
-      end
+        params = put_in(params, [form_name, "model"], "custom/#{kind}")
+        assert render_submit(view, save, params) =~ message
+        {:ok, reloaded, _} = live(conn, "/bo/system-config?tab=#{tab}")
 
-      {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=rag")
-
-      for kind <- ["reranking", "decision"] do
         assert has_element?(
                  reloaded,
-                 "#rag-#{kind}-form input[name='rag_model_config[model]'][value='custom/#{kind}']"
+                 "input[name='#{form_name}[model]'][value='custom/#{kind}']"
                )
       end
     end
@@ -8933,39 +9057,46 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       credential = ai_credential_fixture(%{provider: "catalog_test"})
       other = ai_credential_fixture()
-      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=rag")
 
-      for {kind, model, excluded} <- [
-            {"reranking", "rag-reranker", "rag-decider"},
-            {"decision", "rag-decider", "rag-reranker"}
+      for {kind, model, excluded, tab, prefix, form_name, validate, save, message} <- [
+            {"reranking", "rag-reranker", "rag-decider", "rag", "rag-reranking",
+             "rag_model_config", "validate_rag_model", "save_rag_model",
+             "RAG model settings saved"},
+            {"decision", "rag-decider", "rag-reranker", "global", "decision",
+             "decision_model_config", "validate_decision_model", "save_decision_model",
+             "Decision model settings saved"}
           ] do
+        {:ok, view, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
         params = %{
           "kind" => kind,
-          "rag_model_config" => %{"credential_id" => to_string(credential.id), "model" => ""}
+          form_name => %{"credential_id" => to_string(credential.id), "model" => ""}
         }
 
-        render_change(view, "validate_rag_model", params)
-        assert has_element?(view, "#rag-#{kind}-model-select li[data-select-value='#{model}']")
-        refute has_element?(view, "#rag-#{kind}-model-select li[data-select-value='#{excluded}']")
-        refute has_element?(view, "#rag-#{kind}-model-select li[data-select-value='rag-chat']")
-        invalid = put_in(params, ["rag_model_config", "model"], "rag-chat")
-        assert render_submit(view, "save_rag_model", invalid) =~ "is not a compatible model"
+        render_change(view, validate, params)
+        assert has_element?(view, "##{prefix}-model-select li[data-select-value='#{model}']")
+        refute has_element?(view, "##{prefix}-model-select li[data-select-value='#{excluded}']")
+        refute has_element?(view, "##{prefix}-model-select li[data-select-value='rag-chat']")
+        invalid = put_in(params, [form_name, "model"], "rag-chat")
+        assert render_submit(view, save, invalid) =~ "is not a compatible model"
         assert System.get_rag_model_config(String.to_existing_atom(kind)).model == nil
-        valid = put_in(params, ["rag_model_config", "model"], model)
-        assert render_submit(view, "save_rag_model", valid) =~ "RAG model settings saved"
+        valid = put_in(params, [form_name, "model"], model)
+        assert render_submit(view, save, valid) =~ message
         assert System.get_rag_model_config(String.to_existing_atom(kind)).model == model
-        switched = put_in(valid, ["rag_model_config", "credential_id"], to_string(other.id))
-        render_change(view, "validate_rag_model", switched)
+        switched = put_in(valid, [form_name, "credential_id"], to_string(other.id))
+        render_change(view, validate, switched)
 
         assert has_element?(
                  view,
-                 "#rag-#{kind}-form input[name='rag_model_config[model]'][value='']"
+                 "input[name='#{form_name}[model]'][value='']"
                )
       end
 
       {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=rag")
       assert has_element?(reloaded, "#rag-reranking-model-select input[value='rag-reranker']")
-      assert has_element?(reloaded, "#rag-decision-model-select input[value='rag-decider']")
+      refute has_element?(reloaded, "#rag-decision-model-select")
+      {:ok, global, _} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(global, "#decision-model-select input[value='rag-decider']")
     end
 
     test "locked model changes are ignored and retrieval saves preserve chat configuration", %{

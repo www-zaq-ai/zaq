@@ -5,7 +5,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Event
   alias Zaq.Ingestion.Api
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
   alias Zaq.SystemConfigFixtures
 
   defmodule Router do

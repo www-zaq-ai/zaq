@@ -109,31 +109,60 @@
         global_timezone={@global_timezone}
         detected_timezone={@detected_timezone}
       />
-      <ZaqWeb.Components.DesignSystem.CardShell.card_shell
+      <div
         :if={@active_tab == :global}
-        id="small-model-section"
-        class="mt-5"
+        id="global-model-row"
+        class="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5"
       >
-        <div class="space-y-4">
-          <header>
-            <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">
-              Small model
-            </h2>
-            <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
-              Used for conversation titles. Without a selection, titles are derived from the first message.
-            </p>
-          </header>
-          <ZaqWeb.Live.BO.System.SystemConfig.OperationModelFields.selection_form
-            kind={:small}
-            title="Small Model"
-            form={@operation_model_forms[:small]}
-            options={@operation_model_options[:small]}
-            manual_model={@operation_model_manual[:small]}
-            model_catalogs={@model_catalogs}
-            credential_options={@model_credential_options}
-          />
-        </div>
-      </ZaqWeb.Components.DesignSystem.CardShell.card_shell>
+        <ZaqWeb.Components.DesignSystem.CardShell.card_shell id="small-model-section">
+          <div class="space-y-4">
+            <header>
+              <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">
+                Small model
+              </h2>
+              <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
+                Used for conversation titles. Without a selection, titles are derived from the first message.
+              </p>
+            </header>
+            <ZaqWeb.Live.BO.System.SystemConfig.OperationModelFields.selection_form
+              kind={:small}
+              title="Small Model"
+              form={@operation_model_forms[:small]}
+              options={@operation_model_options[:small]}
+              manual_model={@operation_model_manual[:small]}
+              model_catalogs={@model_catalogs}
+              credential_options={@model_credential_options}
+              stacked={true}
+            />
+          </div>
+        </ZaqWeb.Components.DesignSystem.CardShell.card_shell>
+        <ZaqWeb.Components.DesignSystem.CardShell.card_shell id="decision-model-section">
+          <div class="space-y-4">
+            <header>
+              <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">
+                Decision model
+              </h2>
+              <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
+                Used by workflows and enabled agent tools for choices, boolean judgments and scores.
+                Without a selection, decision calls report a configuration error.
+              </p>
+            </header>
+            <ZaqWeb.Live.BO.System.SystemConfig.OperationModelFields.selection_form
+              kind={:decision}
+              title="Decision Model"
+              form={@operation_model_forms[:decision]}
+              options={@operation_model_options[:decision]}
+              manual_model={@operation_model_manual[:decision]}
+              model_catalogs={@model_catalogs}
+              credential_options={@model_credential_options}
+              change_event="validate_decision_model"
+              save_event="save_decision_model"
+              model_kind="decision"
+              stacked={true}
+            />
+          </div>
+        </ZaqWeb.Components.DesignSystem.CardShell.card_shell>
+      </div>
       <SkillsTab.panel
         :if={@active_tab == :skills}
         config={@skill_resource_config}
@@ -170,8 +199,8 @@
         translation_model_options={@operation_model_options[:translation]}
         translation_manual_model={@operation_model_manual[:translation]}
         model_catalogs={@model_catalogs}
-        model_forms={@rag_model_forms}
-        model_options={@rag_model_options}
+        model_forms={@operation_model_forms}
+        model_options={@operation_model_options}
         credential_options={@embedding_credential_options}
         embedding_model_options={@embedding_model_options}
         image_to_text_model_options={@image_to_text_model_options}

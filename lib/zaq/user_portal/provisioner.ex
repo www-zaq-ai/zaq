@@ -278,13 +278,20 @@ defmodule Zaq.UserPortal.Provisioner do
       |> log_config_result(Atom.to_string(kind))
     end
 
-    for {kind, model} <- [
-          reranking: ZAQRouter.default_reranking_model(),
-          decision: ZAQRouter.default_decision_model()
-        ],
-        not System.model_config_initialized?(kind) do
-      System.save_rag_model_config(kind, %{credential_id: cred_id, model: model})
-      |> log_config_result(Atom.to_string(kind))
+    unless System.model_config_initialized?(:reranking) do
+      System.save_rag_model_config(:reranking, %{
+        credential_id: cred_id,
+        model: ZAQRouter.default_reranking_model()
+      })
+      |> log_config_result("reranking")
+    end
+
+    unless System.model_config_initialized?(:decision) do
+      System.save_decision_model_config(%{
+        credential_id: cred_id,
+        model: ZAQRouter.default_decision_model()
+      })
+      |> log_config_result("decision")
     end
 
     :ok

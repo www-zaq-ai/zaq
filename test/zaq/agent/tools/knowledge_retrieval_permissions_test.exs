@@ -10,7 +10,7 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
   alias Zaq.Agent.Tools.{GetKnowledgeBaseChunks, SearchKnowledgeBase}
   alias Zaq.Ingestion.{Chunk, ChunkLanguages, Document, KnowledgeChunks}
   alias Zaq.Permissions
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
   alias Zaq.SystemConfigFixtures
 
   @dimension 1536

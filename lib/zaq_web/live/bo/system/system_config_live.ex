@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   require Logger
 
+  alias ReqLLM.Provider.Adapter
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.Tools.DataSource.CreateDocument
@@ -20,7 +21,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy, as: SystemOutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
-  alias Zaq.System.RAGModelConfig
   alias Zaq.System.RetrievalConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
@@ -150,11 +150,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket) when tab in ~w(rag embedding image_to_text) do
-    {:noreply, socket |> assign(:active_tab, :rag) |> load_rag_forms() |> load_operation_forms()}
+    {:noreply,
+     socket
+     |> assign(:active_tab, :rag)
+     |> load_rag_forms()
+     |> load_operation_forms([:translation, :reranking])}
   end
 
   def handle_params(%{"tab" => "global"}, _uri, socket) do
-    {:noreply, socket |> assign(:active_tab, :global) |> load_operation_forms()}
+    {:noreply,
+     socket |> assign(:active_tab, :global) |> load_operation_forms([:small, :decision])}
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
@@ -875,49 +880,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       when event in ["validate_operation_model", "save_operation_model"] and
              kind in ["translation", "small"] do
     kind = String.to_existing_atom(kind)
-    previous = socket.assigns.operation_model_forms[kind]
+    action = if event == "save_operation_model", do: :save, else: :validate
+    handle_operation_model(socket, kind, params, action)
+  end
 
-    changed? =
-      to_string(previous[:credential_id].value || "") != to_string(params["credential_id"] || "")
-
-    params =
-      if event == "validate_operation_model" and changed?,
-        do: Map.put(params, "model", ""),
-        else: params
-
-    options = operation_model_options(params["credential_id"])
-    config = dispatch_engine(:system_config_get_operation_model_config, %{kind: kind})
-    cs = OperationModelConfig.changeset(config, params)
-    socket = assign_operation_form(socket, kind, cs, options, :validate)
-
-    if event == "save_operation_model" and cs.valid? do
-      save_operation_model(socket, kind, params, options)
-    else
-      {:noreply, socket}
-    end
+  def handle_event(event, %{"decision_model_config" => params}, socket)
+      when event in ["validate_decision_model", "save_decision_model"] do
+    action = if event == "save_decision_model", do: :save, else: :validate
+    handle_operation_model(socket, :decision, params, action)
   end
 
   def handle_event(event, %{"kind" => kind, "rag_model_config" => params}, socket)
-      when event in ["validate_rag_model", "save_rag_model"] and kind in ["reranking", "decision"] do
-    kind = String.to_existing_atom(kind)
-    previous = socket.assigns.rag_model_forms[kind]
-    options = rag_model_options(params["credential_id"], kind)
-    changed? = to_string(previous[:credential_id].value || "") != params["credential_id"]
-
-    params =
-      if event == "validate_rag_model" and changed?,
-        do: Map.put(params, "model", ""),
-        else: params
-
-    config = %RAGModelConfig{}
-    cs = RAGModelConfig.changeset(config, params)
-    socket = assign_rag_model_form(socket, kind, cs, options)
-
-    if event == "save_rag_model" and cs.valid? do
-      save_rag_model(socket, kind, params)
-    else
-      {:noreply, socket}
-    end
+      when event in ["validate_rag_model", "save_rag_model"] and kind == "reranking" do
+    action = if event == "save_rag_model", do: :save, else: :validate
+    handle_operation_model(socket, :reranking, params, action)
   end
 
   def handle_event("unlock_embedding", _params, socket) do
@@ -1366,6 +1342,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     socket
     |> assign(:ai_credentials, credentials)
+    |> assign(:ai_credentials_by_id, Map.new(credentials, &{to_string(&1.id), &1}))
     |> assign(
       :model_catalogs,
       Map.new(credentials, &{to_string(&1.id), ProviderModels.models_for_credential(&1)})
@@ -1478,22 +1455,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp load_rag_forms(socket) do
     retrieval = RetrievalConfig.changeset(engine_get_retrieval_config(), %{})
-
-    socket =
-      assign(socket,
-        retrieval_form: to_form(retrieval, as: :retrieval_config),
-        rag_model_forms: %{},
-        rag_model_options: %{}
-      )
-
-    Enum.reduce([:reranking, :decision], socket, fn kind, acc ->
-      config = dispatch_engine(:system_config_get_rag_model_config, %{kind: kind})
-      cs = RAGModelConfig.changeset(config, %{})
-      assign_rag_model_form(acc, kind, cs, rag_model_options(config.credential_id, kind), nil)
-    end)
+    assign(socket, :retrieval_form, to_form(retrieval, as: :retrieval_config))
   end
 
-  defp load_operation_forms(socket) do
+  defp load_operation_forms(socket, kinds) do
     socket =
       assign(socket,
         operation_model_forms: %{},
@@ -1501,58 +1466,86 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         operation_model_manual: %{}
       )
 
-    Enum.reduce([:translation, :small], socket, fn kind, acc ->
-      config = dispatch_engine(:system_config_get_operation_model_config, %{kind: kind})
-
-      assign_operation_form(
-        acc,
-        kind,
-        OperationModelConfig.changeset(config, %{}),
-        operation_model_options(config.credential_id),
-        nil
-      )
+    Enum.reduce(kinds, socket, fn kind, acc ->
+      settings = operation_model_settings(kind)
+      config = dispatch_engine(settings.get, settings.request)
+      changeset = OperationModelConfig.changeset(config, %{}, settings.purpose)
+      assign_operation_form(acc, kind, changeset, nil)
     end)
   end
 
-  defp operation_model_options(credential_id) do
-    provider = provider_from_credential_id(credential_id)
-    credential = credential_from_id(credential_id)
-    models = credential_models(credential, provider)
+  defp operation_model_options(socket, credential_id, purpose) do
+    id = to_string(credential_id || "")
+    credential = Map.get(socket.assigns.ai_credentials_by_id, id)
+    models = Map.get(socket.assigns.model_catalogs, id, [])
 
     %{
       options:
         models
-        |> Enum.filter(&OperationModelConfig.supports?/1)
+        |> Enum.filter(&OperationModelConfig.supports?(&1, purpose))
         |> Enum.map(&{&1.name || &1.id, &1.id})
         |> Enum.sort_by(&elem(&1, 0)),
       manual?: not is_nil(credential) and models == []
     }
   end
 
-  defp save_operation_model(socket, kind, params, options) do
-    case dispatch_engine(:system_config_save_operation_model_config, %{kind: kind, attrs: params}) do
+  defp handle_operation_model(socket, kind, params, action) do
+    previous = socket.assigns.operation_model_forms[kind]
+    settings = operation_model_settings(kind)
+
+    changed? =
+      to_string(previous[:credential_id].value || "") != to_string(params["credential_id"] || "")
+
+    params =
+      if action == :validate and changed?, do: Map.put(params, "model", ""), else: params
+
+    changeset =
+      previous.source
+      |> Ecto.Changeset.apply_changes()
+      |> OperationModelConfig.changeset(params, settings.purpose)
+
+    socket = assign_operation_form(socket, kind, changeset, :validate)
+
+    if action == :save and changeset.valid?,
+      do: save_operation_model(socket, kind, params),
+      else: {:noreply, socket}
+  end
+
+  defp save_operation_model(socket, kind, params) do
+    settings = operation_model_settings(kind)
+    request = Map.put(settings.request, :attrs, params)
+
+    case dispatch_engine(settings.save, request) do
       {:ok, saved} ->
         {:noreply,
          socket
-         |> assign_operation_form(kind, OperationModelConfig.changeset(saved, %{}), options, nil)
-         |> put_flash(:info, "Model settings saved.")}
+         |> assign_operation_form(
+           kind,
+           OperationModelConfig.changeset(saved, %{}, settings.purpose),
+           nil
+         )
+         |> put_flash(:info, settings.success)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign_operation_form(socket, kind, changeset, options, :validate)}
+        {:noreply, assign_operation_form(socket, kind, changeset, :validate)}
 
       _ ->
-        {:noreply, put_flash(socket, :error, "Could not save model settings. Please retry.")}
+        {:noreply, put_flash(socket, :error, settings.error)}
     end
   end
 
-  defp assign_operation_form(socket, kind, cs, options, action) do
+  defp assign_operation_form(socket, kind, changeset, action) do
+    settings = operation_model_settings(kind)
+    credential_id = Ecto.Changeset.get_field(changeset, :credential_id)
+    options = operation_model_options(socket, credential_id, settings.purpose)
+
     socket
     |> assign(
       :operation_model_forms,
       Map.put(
         socket.assigns.operation_model_forms,
         kind,
-        to_form(cs, as: :operation_model_config, action: action)
+        to_form(changeset, as: settings.form_name, action: action)
       )
     )
     |> assign(
@@ -1565,46 +1558,40 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     )
   end
 
-  defp rag_model_options(credential_id, kind) do
-    provider = provider_from_credential_id(credential_id)
-    model_options_for_credential_id(credential_id, provider, &RAGModelConfig.supports?(&1, kind))
+  defp operation_model_settings(kind) when kind in [:small, :translation] do
+    %{
+      purpose: :generation,
+      form_name: :operation_model_config,
+      get: :system_config_get_operation_model_config,
+      save: :system_config_save_operation_model_config,
+      request: %{kind: kind},
+      success: "Model settings saved.",
+      error: "Could not save model settings. Please retry."
+    }
   end
 
-  defp assign_rag_model_form(socket, kind, cs, options, action \\ :validate) do
-    socket
-    |> assign(
-      :rag_model_forms,
-      Map.put(
-        socket.assigns.rag_model_forms,
-        kind,
-        to_form(cs, as: :rag_model_config, action: action)
-      )
-    )
-    |> assign(:rag_model_options, Map.put(socket.assigns.rag_model_options, kind, options))
+  defp operation_model_settings(:decision) do
+    %{
+      purpose: :decision,
+      form_name: :decision_model_config,
+      get: :system_config_get_decision_model_config,
+      save: :system_config_save_decision_model_config,
+      request: %{},
+      success: "Decision model settings saved.",
+      error: "Could not save decision model settings. Please retry."
+    }
   end
 
-  defp save_rag_model(socket, kind, params) do
-    case dispatch_engine(:system_config_save_rag_model_config, %{kind: kind, attrs: params}) do
-      {:ok, config} ->
-        socket =
-          assign_rag_model_form(
-            socket,
-            kind,
-            RAGModelConfig.changeset(config, %{}),
-            socket.assigns.rag_model_options[kind],
-            nil
-          )
-
-        {:noreply,
-         put_flash(socket, :info, "RAG model settings saved. Not active in the pipeline.")}
-
-      {:error, %Ecto.Changeset{} = cs} ->
-        {:noreply,
-         assign_rag_model_form(socket, kind, cs, socket.assigns.rag_model_options[kind])}
-
-      _ ->
-        {:noreply, put_flash(socket, :error, "Could not save RAG model settings. Please retry.")}
-    end
+  defp operation_model_settings(:reranking) do
+    %{
+      purpose: :reranking,
+      form_name: :rag_model_config,
+      get: :system_config_get_rag_model_config,
+      save: :system_config_save_rag_model_config,
+      request: %{kind: :reranking},
+      success: "RAG model settings saved. Not active in the pipeline.",
+      error: "Could not save RAG model settings. Please retry."
+    }
   end
 
   # ── Shared provider/model helpers ──────────────────────────────────────
@@ -1722,7 +1709,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp provider_supported?(provider_id) do
     reqllm_provider?(provider_id) or zaq_router_provider?(provider_id) or
-      catalog_only_provider?(provider_id)
+      catalog_only_provider?(provider_id) or catalog_executable_provider?(provider_id)
+  end
+
+  defp catalog_executable_provider?(provider_id) do
+    provider_id
+    |> ProviderModels.models()
+    |> Enum.any?(fn model ->
+      Enum.any?([:chat, :object, :rerank, :evaluate], fn operation ->
+        match?({:ok, _}, Adapter.resolve(model, operation))
+      end)
+    end)
   end
 
   defp reqllm_provider?(provider_id),

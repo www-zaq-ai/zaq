@@ -135,6 +135,17 @@ For **event-driven triggers** (e.g., email received, webhook posted):
 
 The triggering event's payload is preserved through the fact flow as `params.event.payload` in the first action node.
 
+`Zaq.Agent.Actions.EvaluateDecisions` is a workflow Action for named boolean,
+choice and rubric-score questions. It uses the global decision model and returns
+`decisions.<question>.value`, with optional choice/score `probabilities` maps.
+Map `department` from `classify.decisions.department.value`, for example, or
+branch on `classify.decisions.refund_requested.value == true`. Qualify paths with
+the step name when later decision steps also emit `decisions`; the cascade keeps
+the earlier result available. Map a whole probabilities map when an option ID is
+awkward to express in a dotted path. Scores may be fractional rubric indices.
+Refusals and incomplete answers fail the step, not a successful partial result.
+See the [Agent decision contract](agent.md#decision-evaluation-zaqagentactionsevaluatedecisions).
+
 ---
 
 ## Nested Action evidence

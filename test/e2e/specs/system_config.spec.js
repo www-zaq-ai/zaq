@@ -190,7 +190,6 @@ test.describe("System Config", () => {
 
       const selections = [
         { kind: "reranking", title: "Re-ranking", model: "cohere/rerank-v3.5", label: "Cohere: Rerank v3.5", excluded: "liquid/d1" },
-        { kind: "decision", title: "Decision", model: "liquid/d1", label: "LiquidAI: d1", excluded: "cohere/rerank-v3.5" },
       ]
       for (const selection of selections) {
         const prefix = `#rag-${selection.kind}`
@@ -207,19 +206,20 @@ test.describe("System Config", () => {
       }
 
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+      await expect(page.locator("#rag-decision-section")).toHaveCount(0)
       for (const selection of selections) {
         await expect(page.locator(`#rag-${selection.kind}-credential-select input[data-select-value]`)).toHaveValue(String(credential.id))
         await expect(page.locator(`#rag-${selection.kind}-model-select input[data-select-value]`)).toHaveValue(selection.model)
       }
 
       // A forged selection must be rejected by the server, not merely hidden by the dropdown.
-      await page.locator('#rag-decision-model-select input[data-select-value]').evaluate(input => {
-        input.value = "cohere/rerank-v3.5"
+      await page.locator('#rag-reranking-model-select input[data-select-value]').evaluate(input => {
+        input.value = "liquid/d1"
       })
-      await page.locator("#rag-decision-form").getByRole("button", { name: "Save Decision Settings" }).click()
-      await expect(page.locator("#rag-decision-section .zaq-field-error")).toContainText("is not a compatible model")
+      await page.locator("#rag-reranking-form").getByRole("button", { name: "Save Re-ranking Settings" }).click()
+      await expect(page.locator("#rag-reranking-section .zaq-field-error")).toContainText("is not a compatible model")
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
-      await expect(page.locator("#rag-decision-model-select input[data-select-value]")).toHaveValue("liquid/d1")
+      await expect(page.locator("#rag-reranking-model-select input[data-select-value]")).toHaveValue("cohere/rerank-v3.5")
 
       await page.locator("#rag-reranking-section").scrollIntoViewIfNeeded()
       await pickSearchableSelect(page, "#rag-reranking-credential-select", seededCredential.name)
@@ -232,7 +232,7 @@ test.describe("System Config", () => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
       await expect(page.locator("#rag-reranking-model-select input[data-select-value]")).toHaveValue("")
       await expect(page.locator("#rag-reranking-credential-select input[data-select-value]")).toHaveValue("")
-      await expect(page.locator("#rag-decision-model-select input[data-select-value]")).toHaveValue("liquid/d1")
+      await expect(page.locator("#rag-decision-section")).toHaveCount(0)
     })
 
     test("advanced retrieval saves complementary weights without unlocking embeddings", async ({ page }) => {
@@ -274,7 +274,7 @@ test.describe("System Config", () => {
             }
             await expect(page.locator("#bo-main")).toHaveCSS("margin-left", "60px")
           }
-          for (const section of ["embedding", "image-to-text", "rag-reranking", "rag-decision"]) {
+          for (const section of ["embedding", "image-to-text", "rag-reranking"]) {
             await expect(page.locator(`#${section}-section h2`)).toBeVisible()
           }
           const layout = await page.locator("#rag-config").evaluate(root => {
@@ -286,7 +286,7 @@ test.describe("System Config", () => {
               width: embedding.getBoundingClientRect().width,
               text: style.color,
               background: style.backgroundColor,
-              cards: ["reranking", "decision"].map(kind => {
+              cards: ["reranking"].map(kind => {
                 const rect = root.querySelector(`#rag-${kind}-section`).getBoundingClientRect()
                 return { x: rect.x, y: rect.y, right: rect.right }
               }),
@@ -298,19 +298,83 @@ test.describe("System Config", () => {
           expect(layout.width).toBeGreaterThan(240)
           expect(layout.text).not.toBe(layout.background)
           expect(layout.text).toBe(theme === "dark" ? "rgb(243, 245, 247)" : "rgb(12, 19, 36)")
-          if (width === 390) {
-            expect(layout.cards[0].x).toBe(layout.cards[1].x)
-            expect(layout.cards[1].y).toBeGreaterThan(layout.cards[0].y)
-          } else {
-            expect(layout.cards[0].y).toBe(layout.cards[1].y)
-          }
+          expect(layout.cards).toHaveLength(1)
+          expect(layout.cards[0].right).toBeLessThanOrEqual(width)
           await page.locator("#rag-config").screenshot({ path: testInfo.outputPath(`rag-${theme}-${width}.png`) })
+          await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+          await expect(page.locator("#decision-model-section")).toBeVisible()
+          const globalLayout = await page.locator("#global-model-row").evaluate(row => ({
+            overflow: document.documentElement.scrollWidth > innerWidth,
+            cards: ["small", "decision"].map(kind => {
+              const rect = row.querySelector(`#${kind}-model-section`).getBoundingClientRect()
+              return { left: rect.left, top: rect.top, bottom: rect.bottom, right: rect.right, width: rect.width }
+            }),
+            stackedSelectors: row.querySelectorAll(".zaq-ai-model-selector--stacked").length,
+            offscreen: [...row.querySelectorAll("input,button")].filter(element => element.getBoundingClientRect().right > innerWidth + 1).length,
+          }))
+          expect(globalLayout.overflow).toBe(false)
+          expect(globalLayout.offscreen).toBe(0)
+          expect(globalLayout.stackedSelectors).toBe(2)
+          const [small, decision] = globalLayout.cards
+          for (const card of globalLayout.cards) expect(card.right).toBeLessThanOrEqual(width)
+          expect(Math.abs(small.width - decision.width)).toBeLessThanOrEqual(1)
+          if (width === 390) {
+            expect(decision.left).toBe(small.left)
+            expect(decision.top).toBeGreaterThan(small.bottom)
+          } else {
+            expect(Math.abs(decision.top - small.top)).toBeLessThanOrEqual(1)
+            expect(decision.left).toBeGreaterThan(small.right)
+          }
+          await page.locator("#global-model-row").screenshot({ path: testInfo.outputPath(`global-models-${theme}-${width}.png`) })
+          await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
         }
       })
     }
   })
 
   // ── People access ──────────────────────────────────────────────────────
+
+  test("Global decision models filter, persist, reject forged models, reset and clear independently", async ({ page }) => {
+    const credential = await createE2EAiCredential(page, {
+      name: `Decision catalog ${Date.now()}`,
+      provider: "openrouter",
+      endpoint: "http://127.0.0.1:4002/e2e/llm",
+      auth_kind: "none",
+    })
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+    const section = page.locator("#decision-model-section")
+    await expect(section).toContainText("Used by workflows and enabled agent tools")
+    await pickSearchableSelect(page, "#decision-credential-select", credential.name)
+    await expect(page.locator('#decision-model-select li[data-select-value="liquid/d1"]')).toHaveCount(1)
+    await expect(page.locator('#decision-model-select li[data-select-value="cohere/rerank-v3.5"]')).toHaveCount(0)
+    await expect(page.locator('#decision-model-select li[data-select-value="openai/gpt-4o"]')).toHaveCount(0)
+    await pickSearchableSelect(page, "#decision-model-select", "LiquidAI: d1")
+    await section.getByRole("button", { name: "Save Decision Model Settings" }).click()
+    await expect(page.getByText("Decision model settings saved.")).toBeVisible()
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+    await expect(page.locator("#decision-credential-select input[data-select-value]")).toHaveValue(String(credential.id))
+    await expect(page.locator("#decision-model-select input[data-select-value]")).toHaveValue("liquid/d1")
+    await page.locator("#decision-model-select input[data-select-value]").evaluate(input => { input.value = "cohere/rerank-v3.5" })
+    await section.getByRole("button", { name: "Save Decision Model Settings" }).click()
+    await expect(section.locator(".zaq-field-error")).toContainText("is not a compatible model")
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+    await expect(page.locator("#decision-model-select input[data-select-value]")).toHaveValue("liquid/d1")
+
+    const smallModel = await page.locator('#small-model-section input[name="operation_model_config[model]"]').inputValue()
+    await pickSearchableSelect(page, "#decision-credential-select", seededCredential.name)
+    await expect(page.locator('input[name="decision_model_config[model]"]')).toHaveValue("")
+    await expect(page.locator("#decision-model-select")).toHaveCount(0)
+    await pickSearchableSelect(page, "#decision-credential-select", "Not configured")
+    await section.getByRole("button", { name: "Save Decision Model Settings" }).click()
+    await expect(page.getByText("Decision model settings saved.")).toBeVisible()
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+    await expect(page.locator("#decision-model-select input[data-select-value]")).toHaveValue("")
+    await expect(page.locator("#decision-credential-select input[data-select-value]")).toHaveValue("")
+    await expect(page.locator('#small-model-section input[name="operation_model_config[model]"]')).toHaveValue(smallModel)
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+    await expect(page.locator("#rag-decision-section,#decision-model-section")).toHaveCount(0)
+    await expect(page.locator("#rag-reranking-section")).toBeVisible()
+  })
 
   test("People access cold defaults, atomic save, reload, validation and keyboard layout", async ({ page }, testInfo) => {
     await switchSystemConfigTab(page, SEL.tabPeopleAccess, /tab=people_access/, page.locator("#people-access-config-form"))

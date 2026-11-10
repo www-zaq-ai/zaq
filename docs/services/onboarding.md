@@ -129,7 +129,7 @@ Persisted on `users.portal_consent`:
   - Knowledge-query translation: `openai/gpt-oss-20b`.
   - Global Small model (conversation titles): `openai/gpt-oss-20b`.
   - Re-ranking: `Qwen/Qwen3-Reranker-0.6B`.
-  - Decision selection: `typesafe/jev-1.14` (does not activate decision inference).
+  - Global decision selection: `typesafe/jev-1.14`, used by the shared decision Action.
   Translation, Small model, re-ranking and decision defaults initialize only
   settings that have never been saved. Retries preserve customized, partial and
   explicitly cleared selections; clearing re-ranking disables that optional step.

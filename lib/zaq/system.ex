@@ -27,7 +27,6 @@ defmodule Zaq.System do
   alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
-  alias Zaq.System.RAGModelConfig
   alias Zaq.System.RetrievalConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
@@ -556,11 +555,14 @@ defmodule Zaq.System do
     end
   end
 
-  @doc "Loads a saved-only specialized RAG model selection."
-  def get_rag_model_config(kind) when kind in [:reranking, :decision] do
-    raw = read_config_fields("rag.#{kind}", ~w(credential_id model))
+  @doc "Loads the RAG reranking selection; legacy decision calls delegate to the global owner."
+  def get_rag_model_config(:decision), do: get_decision_model_config()
+  def get_rag_model_config(:reranking), do: get_specialized_model_config(:reranking)
 
-    %RAGModelConfig{
+  defp get_specialized_model_config(kind) do
+    raw = read_config_fields(specialized_model_prefix(kind), ~w(credential_id model))
+
+    %OperationModelConfig{
       credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
       model: blank_to_nil(raw["model"])
     }
@@ -575,12 +577,17 @@ defmodule Zaq.System do
   end
 
   def model_config_initialized?(kind) when kind in [:reranking, :decision] do
-    map_size(read_config_fields("rag.#{kind}", ~w(credential_id model))) > 0
+    map_size(read_config_fields(specialized_model_prefix(kind), ~w(credential_id model))) > 0
   end
 
-  @doc "Saves a specialized RAG model selection without invoking it."
-  def save_rag_model_config(kind, attrs) when kind in [:reranking, :decision] and is_map(attrs) do
-    changeset = RAGModelConfig.changeset(get_rag_model_config(kind), attrs)
+  @doc "Saves RAG reranking; legacy decision calls delegate to the global owner."
+  def save_rag_model_config(:decision, attrs), do: save_decision_model_config(attrs)
+
+  def save_rag_model_config(:reranking, attrs),
+    do: save_specialized_model_config(:reranking, attrs)
+
+  defp save_specialized_model_config(kind, attrs) when is_map(attrs) do
+    changeset = OperationModelConfig.changeset(get_specialized_model_config(kind), attrs, kind)
 
     # A custom endpoint cannot validate a model inherited from another credential.
     # Require the caller to explicitly select its model when changing credentials.
@@ -589,18 +596,39 @@ defmodule Zaq.System do
         Map.has_key?(attrs, :model) or Map.has_key?(attrs, "model")
 
     changeset =
-      validate_model_selection(changeset, &RAGModelConfig.supports?(&1, kind), allow_custom?)
+      validate_model_selection(
+        changeset,
+        &OperationModelConfig.supports?(&1, kind),
+        allow_custom?
+      )
 
     if changeset.valid? do
       config = Ecto.Changeset.apply_changes(changeset)
 
-      with {:ok, _} <- persist_config_fields(~w(credential_id model), "rag.#{kind}", config) do
-        {:ok, get_rag_model_config(kind)}
+      with {:ok, _} <-
+             persist_config_fields(
+               ~w(credential_id model),
+               specialized_model_prefix(kind),
+               config
+             ) do
+        {:ok, get_specialized_model_config(kind)}
       end
     else
       {:error, changeset}
     end
   end
+
+  @doc "Returns the global decision credential/model pair in one snapshot."
+  @spec get_decision_model_config() :: OperationModelConfig.t()
+  def get_decision_model_config, do: get_specialized_model_config(:decision)
+
+  @doc "Validates and atomically saves the global decision selection."
+  @spec save_decision_model_config(map()) ::
+          {:ok, OperationModelConfig.t()} | {:error, Ecto.Changeset.t()}
+  def save_decision_model_config(attrs), do: save_specialized_model_config(:decision, attrs)
+
+  defp specialized_model_prefix(:decision), do: "global.decision_model"
+  defp specialized_model_prefix(:reranking), do: "rag.reranking"
 
   @doc "Loads an independent translation or small-model selection, without resolving secrets."
   def get_operation_model_config(kind) when kind in [:translation, :small] do
@@ -1102,7 +1130,7 @@ defmodule Zaq.System do
       "rag.reranking.credential_id",
       "rag.translation.credential_id",
       "global.small_model.credential_id",
-      "rag.decision.credential_id"
+      "global.decision_model.credential_id"
     ]
     |> Enum.filter(fn key -> get_config(key) == id_value end)
   end

@@ -5,6 +5,10 @@ const {
   createE2EAnsweringAgent,
   selectE2EChatAgent,
   waitForLiveViewSettled,
+  gotoBackOfficeLive,
+  createE2EAiCredential,
+  createE2EAgent,
+  pickSearchableSelect,
 } = require("../support/bo");
 
 async function startNewChat(page, agent) {
@@ -85,6 +89,50 @@ test.describe("Shared WebBridge BO chat", () => {
     await expect(page.locator("#chat-messages")).not.toContainText(otherQuestion);
     await expect(page.locator('[data-testid="chat-assistant-bubble"]')).toHaveCount(2);
     await other.close();
+  });
+
+  test("configured decision tool returns typed answers and alternative probabilities through real BO chat", async ({ page }) => {
+    const decisionCredential = await createE2EAiCredential(page, {
+      name: `E2E Decision ${Date.now()}`,
+      provider: "zaq_router",
+      endpoint: "http://127.0.0.1:4002/e2e/llm/v1",
+      api_key: "decision-e2e-key",
+    });
+    await gotoBackOfficeLive(page, "/bo/system-config?tab=global");
+    await pickSearchableSelect(page, "#decision-credential-select", decisionCredential.name);
+    await pickSearchableSelect(page, "#decision-model-select", "typesafe/jev-1.14");
+    await page.locator("#decision-model-form").getByRole("button", { name: "Save Decision Model Settings" }).click();
+    await expect(page.getByText("Decision model settings saved.")).toBeVisible();
+    const chatCredential = await createE2EAiCredential(page, {
+      name: `E2E Decision Chat ${Date.now()}`,
+      provider: "custom",
+      endpoint: "http://127.0.0.1:4002/e2e/llm/v1",
+      api_key: "e2e-fake-key",
+    });
+    const classifier = await createE2EAgent(page.request, {
+      name: `E2E Classifier ${Date.now()}`,
+      job: "E2E_DECISION_FLOW: use the decision tool and report its actual result.",
+      credential_id: chatCredential.id,
+      model: "e2e-fake",
+      model_max_context_tokens: 128000,
+      enabled_tool_keys: ["general.evaluate_decisions"],
+      conversation_enabled: true,
+      active: true,
+      advanced_options: { stream: true },
+    });
+    await gotoBackOfficeLive(page, "/bo/chat");
+    await startNewChat(page, classifier);
+    await page.locator("#chat-input").fill("Please classify a duplicate invoice");
+    await page.locator("#chat-form button[type=submit]").click();
+    const answer = page.locator('[data-testid="chat-assistant-bubble"]').last();
+    await expect(answer).toContainText("Decision result:");
+    const result = JSON.parse(await answer.locator("pre code").innerText());
+    expect(result).toEqual({
+      team: { type: "choice", value: "billing", confidence: null, probabilities: { billing: 0.9, support: 0.1 } },
+      refund: { type: "boolean", value: true, probability: 0.8, threshold: 0.5 },
+      urgency: { type: "score", value: 0.25, confidence: null, probabilities: { "0": 0.75, "1": 0.25 } },
+    });
+    await expect(page.getByRole("list", { name: "Tool activity" })).toContainText(/evaluate[_ ]decisions/i);
   });
 
   test("new chat ignores a late result while the previous conversation still completes", async ({ page, context }) => {

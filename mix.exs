@@ -126,7 +126,8 @@ defmodule Zaq.MixProject do
 
       # Jido Ecosystem
       # {:llm_db, "~> 2026.5", runtime: false, override: true},
-      {:llm_db, github: "agentjido/llmdb", branch: "main", runtime: false, override: true},
+      # https://github.com/agentjido/llmdb/pull/389
+      {:llm_db, github: "agentjido/llmdb", runtime: false, override: true},
       {:jido, "~> 2.4"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:lua, "~> 1.0.2"},
@@ -154,7 +155,8 @@ defmodule Zaq.MixProject do
       {:gen_stage, "~> 1.2"},
       {:flow, "~> 1.2"},
       # {:req_llm, "~> 1.16"},
-      {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
+      # https://github.com/agentjido/req_llm/pull/1257
+      {:req_llm, github: "agentjido/req_llm", override: true},
       # {:jido_connect,
       #  path:
       #    "/Users/julien/Documents/Repos/Github/OSS/jido/connect/jido_connect/apps/jido_connect",

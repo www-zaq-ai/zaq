@@ -10,6 +10,7 @@ defmodule Zaq.Agent.ProviderSpec do
   consumers use the narrower public option/configuration functions directly.
   """
 
+  alias ReqLLM.Provider.Adapter
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.ProviderSpec.Registry
   alias Zaq.Engine.Connect.ResolvedCredential
@@ -77,9 +78,10 @@ defmodule Zaq.Agent.ProviderSpec do
   uses the selected model's chat capability and configured-agent compatibility
   rules, not a provider-wide executable flag.
   """
-  @spec operation_runtime(map(), :generation | :reranking) ::
+  @spec operation_runtime(map(), :generation | :reranking | :evaluation) ::
           {:ok, map(), keyword()} | {:error, term()}
-  def operation_runtime(config, operation) when operation in [:generation, :reranking] do
+  def operation_runtime(config, operation)
+      when operation in [:generation, :reranking, :evaluation] do
     with id when is_integer(id) <- config.credential_id,
          model when is_binary(model) and model != "" <- config.model,
          credential when not is_nil(credential) <- System.get_ai_provider_credential(id),
@@ -104,6 +106,13 @@ defmodule Zaq.Agent.ProviderSpec do
 
   defp operation_spec(:generation, agent), do: build(agent)
 
+  defp operation_spec(:evaluation, %ConfiguredAgent{credential: credential, model: id}) do
+    with {:ok, provider} <- LLMDB.Spec.parse_provider(credential.provider),
+         {:ok, model} <- LLMDB.model(provider, id) do
+      {:ok, put_base_url(Map.from_struct(model), model.provider, credential)}
+    end
+  end
+
   defp operation_spec(:reranking, %ConfiguredAgent{credential: credential, model: id} = agent) do
     with {:ok, provider} <- LLMDB.Spec.parse_provider(credential.provider),
          {:ok, model} <- LLMDB.model(provider, id) do
@@ -115,6 +124,13 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   defp operation_options(:generation, spec, opts), do: {:ok, spec, opts}
+
+  defp operation_options(:evaluation, spec, opts) do
+    with {:ok, model} <- ReqLLM.model(spec),
+         {:ok, _adapter} <- Adapter.resolve(model, :evaluate) do
+      {:ok, model, Keyword.drop(opts, [:temperature, :top_p])}
+    end
+  end
 
   defp operation_options(:reranking, spec, opts) do
     with {:ok, model} <- ReqLLM.Rerank.validate_model(spec) do

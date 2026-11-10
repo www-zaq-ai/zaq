@@ -912,6 +912,20 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :system_config_get_decision_model_config, _context) do
+    %{event | response: System.get_decision_model_config()}
+  end
+
+  def handle_event(%Event{} = event, :system_config_save_decision_model_config, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.save_decision_model_config(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_get_rag_model_config, _context) do
     case event.request do
       %{kind: kind} when kind in [:reranking, :decision] ->

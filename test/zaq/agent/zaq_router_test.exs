@@ -5,7 +5,7 @@ defmodule Zaq.Agent.ZAQRouterTest do
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
   alias Zaq.System.OperationModelConfig
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
   alias Zaq.TestSupport.ModelCatalogFixture
 
   @catalog_metadata %{

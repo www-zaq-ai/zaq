@@ -2,12 +2,55 @@ defmodule Zaq.Agent.Providers.ZAQRouterTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Agent.Providers.ZAQRouter
+  alias Zaq.TestSupport.OpenAIStub
 
   @model LLMDB.Model.new!(%{
            provider: :zaq_router,
            id: "Qwen/Qwen3-Reranker-0.6B",
-           capabilities: %{chat: false, rerank: true}
+           capabilities: %{chat: false, rerank: true},
+           execution: %{
+             rerank: %{
+               supported: true,
+               family: "cohere_rerank_compatible",
+               wire_protocol: "cohere_rerank",
+               transport: "http",
+               path: "/rerank",
+               provider_model_id: "Qwen/Qwen3-Reranker-0.6B"
+             }
+           }
          })
+
+  test "public evaluation uses declared System One metadata with gateway identity" do
+    {:ok, model} = LLMDB.model(:zaq_router, "typesafe/jev-1.14")
+    questions = %{refund: %{type: :boolean, instructions: "Is a refund requested?"}}
+
+    for base <- ["https://router.example", "https://router.example/v1"] do
+      adapter = fn request ->
+        assert URI.to_string(request.url) == "https://router.example/v1/systemone"
+        assert Req.Request.get_header(request, "authorization") == ["Bearer gateway-test-key"]
+        body = Jason.decode!(request.body)
+        assert body["model"] == "typesafe/jev-1.14"
+        assert body["questions"]["refund"]["type"] == "noul"
+
+        response =
+          OpenAIStub.decision_response(%{
+            "refund" => %{"type" => "noul", "noul" => 0.9}
+          })
+
+        {request, Req.Response.new(status: 200, body: response)}
+      end
+
+      assert {:ok, response} =
+               ReqLLM.evaluate(model, "Refund me", questions,
+                 api_key: "gateway-test-key",
+                 base_url: base,
+                 req_http_options: [adapter: adapter]
+               )
+
+      assert response.provider_meta.provider == :zaq_router
+      assert response.object["refund"]["probability"] == 0.9
+    end
+  end
 
   test "reuses Cohere encoding and normalization with gateway authentication and path" do
     adapter = fn request ->
