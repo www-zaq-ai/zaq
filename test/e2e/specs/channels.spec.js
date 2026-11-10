@@ -108,6 +108,7 @@ test.describe("Microsoft Teams connector", () => {
     await waitForLiveViewSettled(page)
 
     const form = page.locator("#config-form")
+    const saveButton = page.locator('#channel-config-modal button[type="submit"][form="config-form"]')
     await expect(form.locator("#teams-app-id")).toBeVisible()
     await expect(form.locator("#teams-tenant-id")).toBeVisible()
     await expect(form.getByText("Client Secret", { exact: true })).toBeVisible()
@@ -118,14 +119,14 @@ test.describe("Microsoft Teams connector", () => {
     await form.locator('input[name="form[name]"]').fill("E2E Teams")
     await form.locator("#teams-app-id").fill("  11111111-2222-3333-4444-555555555555  ")
     await form.locator('input[name="form[token]"]').fill("e2e-client-secret")
-    await form.locator('button[type="submit"]').click()
+    await saveButton.click()
     await waitForLiveViewSettled(page)
 
     await expect(form.getByText("Tenant ID is required")).toBeVisible()
     await expect(page.locator('[id^="config-card-"]')).toHaveCount(0)
 
     await form.locator("#teams-tenant-id").fill("contoso.onmicrosoft.com")
-    await form.locator('button[type="submit"]').click()
+    await saveButton.click()
     await waitForLiveViewSettled(page)
     await expect(page.locator("#channel-config-modal")).toBeHidden()
 
