@@ -61,23 +61,6 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          # Temporary: collect runner DNS evidence for zaq-rgo.24; remove after diagnosis.
-          diagnose_apt_failure() {
-            local status=$?
-            trap - ERR
-            printf 'APT bootstrap failed with exit %s; collecting resolver diagnostics\n' "$status"
-            namei -l /etc/resolv.conf || true
-            resolvectl dns || true
-            apt-config dump | grep -E '^(APT::Sandbox::User|Acquire::ForceIPv[46])' || true
-            for host in mirrors.edge.kernel.org archive.ubuntu.com security.ubuntu.com packages.microsoft.com; do
-              printf 'DNS lookup as root: %s\n' "$host"
-              sudo timeout 10s getent ahostsv4 "$host" || printf 'Root lookup failed with exit %s\n' "$?"
-              printf 'DNS lookup as _apt: %s\n' "$host"
-              sudo -u _apt timeout 10s getent ahostsv4 "$host" || printf '_apt lookup failed with exit %s\n' "$?"
-            done
-            exit "$status"
-          }
-          trap diagnose_apt_failure ERR
           # Keep Ubuntu signature verification without depending on the failing ubuntu.com DNS zone.
           printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
           printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
