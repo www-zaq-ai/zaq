@@ -69,7 +69,7 @@ jobs:
             namei -l /etc/resolv.conf || true
             resolvectl dns || true
             apt-config dump | grep -E '^(APT::Sandbox::User|Acquire::ForceIPv[46])' || true
-            for host in archive.ubuntu.com security.ubuntu.com packages.microsoft.com; do
+            for host in mirrors.edge.kernel.org archive.ubuntu.com security.ubuntu.com packages.microsoft.com; do
               printf 'DNS lookup as root: %s\n' "$host"
               sudo timeout 10s getent ahostsv4 "$host" || printf 'Root lookup failed with exit %s\n' "$?"
               printf 'DNS lookup as _apt: %s\n' "$host"
@@ -78,9 +78,9 @@ jobs:
             exit "$status"
           }
           trap diagnose_apt_failure ERR
-          # Avoid the hosted runner's unreliable Azure mirror before refreshing indexes.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-          printf '%s\n' 'https://security.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
+          # Keep Ubuntu signature verification without depending on the failing ubuntu.com DNS zone.
+          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
           sudo apt-get update -o APT::Update::Error-Mode=any
           sudo apt-get install -y --no-install-recommends inotify-tools
 
