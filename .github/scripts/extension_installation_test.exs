@@ -46,6 +46,7 @@ defmodule Zaq.ExtensionInstallationTest do
         Postgrex.query!(cleanup, "DROP DATABASE IF EXISTS #{name} WITH (FORCE)", [])
         Postgrex.query!(cleanup, "DROP ROLE IF EXISTS #{name}", [])
         Postgrex.query!(cleanup, "DROP ROLE IF EXISTS #{reader}", [])
+        Postgrex.query!(cleanup, "DROP ROLE IF EXISTS #{name}_scoped", [])
       after
         GenServer.stop(cleanup)
       end
@@ -119,6 +120,11 @@ defmodule Zaq.ExtensionInstallationTest do
 
     provision_twice(context)
     assert :ok = ExtensionChecks.require!(Repo, :vector)
+
+    assert %{rows: [[false, false, true, false, false]]} =
+             Repo.query!(
+               "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+             )
 
     extension_owners =
       Repo.query!("SELECT extname, extowner FROM pg_extension ORDER BY extname").rows
@@ -226,6 +232,157 @@ defmodule Zaq.ExtensionInstallationTest do
       Repo.query!("CREATE TABLE reporting.items (id integer)")
       Repo.query!("INSERT INTO reporting.items VALUES (1)")
       assert_reader(rotated, "reporting.items")
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  test "owner creates a login with access limited to a chosen schema", context do
+    provision_twice(context)
+    start_supervised!(Repo)
+    login = context.owner <> "_scoped"
+    Repo.query!("CREATE ROLE #{login} LOGIN PASSWORD '#{context.password}'")
+    Repo.query!("CREATE SCHEMA reporting")
+    Repo.query!("CREATE SCHEMA private_data")
+    Repo.query!("CREATE TABLE reporting.items (id bigserial PRIMARY KEY)")
+    Repo.query!("CREATE TABLE private_data.items (id integer)")
+    Repo.query!("INSERT INTO reporting.items DEFAULT VALUES")
+    Repo.query!("GRANT CONNECT ON DATABASE #{context.owner} TO #{login}")
+    Repo.query!("GRANT USAGE ON SCHEMA reporting TO #{login}")
+    Repo.query!("GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO #{login}")
+    Repo.query!("GRANT SELECT ON ALL SEQUENCES IN SCHEMA reporting TO #{login}")
+    Repo.query!("ALTER DEFAULT PRIVILEGES IN SCHEMA reporting GRANT SELECT ON TABLES TO #{login}")
+
+    Repo.query!(
+      "ALTER DEFAULT PRIVILEGES IN SCHEMA reporting GRANT SELECT ON SEQUENCES TO #{login}"
+    )
+
+    Repo.query!("CREATE TABLE reporting.future_items (id bigserial PRIMARY KEY)")
+    Repo.query!("INSERT INTO reporting.future_items DEFAULT VALUES")
+    Repo.query!("CREATE TABLE public.unshared_items (id integer)")
+    config = Keyword.merge(context.admin_config, username: login, password: context.password)
+    {:ok, scoped} = Postgrex.start_link(config)
+
+    try do
+      for table <- ["reporting.items", "reporting.future_items"] do
+        assert %{rows: [[1]]} = Postgrex.query!(scoped, "SELECT id FROM #{table}", [])
+
+        assert %{rows: [[1]]} =
+                 Postgrex.query!(scoped, "SELECT last_value FROM #{table}_id_seq", [])
+      end
+
+      for sql <- [
+            "SELECT * FROM private_data.items",
+            "SELECT * FROM public.unshared_items",
+            "INSERT INTO reporting.items DEFAULT VALUES",
+            "SELECT nextval('reporting.items_id_seq')",
+            "CREATE TABLE reporting.denied (id integer)",
+            "CREATE SCHEMA denied",
+            "CREATE ROLE denied"
+          ] do
+        error = assert_raise Postgrex.Error, fn -> Postgrex.query!(scoped, sql, []) end
+        assert error.postgres.code == :insufficient_privilege
+      end
+    after
+      GenServer.stop(scoped)
+    end
+
+    reader_config =
+      Keyword.merge(context.admin_config,
+        username: context.reader,
+        password: context.reader_password
+      )
+
+    {:ok, reader} = Postgrex.start_link(reader_config)
+
+    try do
+      error =
+        assert_raise Postgrex.Error, fn -> Postgrex.query!(reader, "CREATE ROLE denied", []) end
+
+      assert error.postgres.code == :insufficient_privilege
+    after
+      GenServer.stop(reader)
+    end
+  end
+
+  test "owner-created role memberships survive reruns, adoption and restart", context do
+    provision_twice(context)
+    start_supervised!(Repo)
+    login = context.owner <> "_scoped"
+    Repo.query!("CREATE ROLE #{login} LOGIN")
+    provision_twice(context)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+    assert status == 0, output
+    {output, status} = docker_provision(context)
+    assert status == 0, output
+  end
+
+  test "restart rejects unsafe role flags and memberships without repairing them", context do
+    {output, status} = docker_provision(context)
+    assert status == 0, output
+    start_supervised!(Repo)
+    login = context.owner <> "_scoped"
+    Repo.query!("CREATE ROLE #{login} LOGIN")
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      for {change, restore} <- [
+            {"ALTER ROLE #{context.owner} NOCREATEROLE",
+             "ALTER ROLE #{context.owner} CREATEROLE"},
+            {"ALTER ROLE #{context.reader} CREATEROLE",
+             "ALTER ROLE #{context.reader} NOCREATEROLE"},
+            {"ALTER ROLE #{login} CREATEDB", "ALTER ROLE #{login} NOCREATEDB"},
+            {"GRANT #{login} TO #{context.owner} WITH INHERIT TRUE",
+             "GRANT #{login} TO #{context.owner} WITH INHERIT FALSE"},
+            {"GRANT #{login} TO #{context.owner} WITH SET TRUE",
+             "GRANT #{login} TO #{context.owner} WITH SET FALSE"},
+            {"GRANT #{login} TO #{context.owner} WITH ADMIN FALSE",
+             "GRANT #{login} TO #{context.owner} WITH ADMIN TRUE"},
+            {"GRANT #{context.owner} TO #{context.reader}",
+             "REVOKE #{context.owner} FROM #{context.reader}"},
+            {"GRANT #{login} TO #{context.reader}", "REVOKE #{login} FROM #{context.reader}"},
+            {"GRANT #{context.reader} TO #{context.owner}",
+             "REVOKE #{context.reader} FROM #{context.owner}"}
+          ] do
+        Postgrex.query!(admin, change, [])
+        {output, status} = docker_provision(context)
+        assert status != 0, change
+        assert output =~ "owner/roles changed"
+        Postgrex.query!(admin, restore, [])
+        {output, status} = docker_provision(context)
+        assert status == 0, output
+      end
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  test "bootstrap refuses unsafe memberships without rotating credentials", context do
+    provision_twice(context)
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      before = password_hash(admin, context.owner)
+
+      for {change, restore} <- [
+            {"ALTER ROLE #{context.reader} CREATEROLE",
+             "ALTER ROLE #{context.reader} NOCREATEROLE"},
+            {"GRANT #{context.owner} TO #{context.reader}",
+             "REVOKE #{context.owner} FROM #{context.reader}"},
+            {"GRANT #{context.reader} TO #{context.owner}",
+             "REVOKE #{context.reader} FROM #{context.owner}"}
+          ] do
+        Postgrex.query!(admin, change, [])
+        {output, status} = provision(%{context | password: "must-not-be-applied"})
+        assert status != 0, change
+        assert output =~ "unsafe or shared"
+        assert password_hash(admin, context.owner) == before
+        Postgrex.query!(admin, restore, [])
+      end
+
+      provision_twice(context)
     after
       GenServer.stop(admin)
     end

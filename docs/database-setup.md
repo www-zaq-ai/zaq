@@ -68,10 +68,13 @@ host authentication, backups, or secret storage.
   an empty ledger left by a failed first migration. Nothing in an existing rejected
   database, including role passwords, is changed. Do not delete a real ledger to
   bypass this protection; request a DBA-managed repair instead.
-- Existing roles must have no administrative flags, role memberships (in either
-  direction), or dependencies in another database. The reader must own no objects.
-  Unsafe/shared roles are rejected rather than silently repurposed. Roles are
-  cluster-wide: use separate role names for separate ZAQ databases.
+- Existing roles must have no administrative flags except optional owner
+  `CREATEROLE`, and no dependencies in another database. The owner may have
+  ADMIN-only membership in other non-administrative roles, with neither INHERIT
+  nor SET enabled; PostgreSQL creates this membership when the owner creates a
+  role. Other memberships involving the owner or reader are rejected. The reader
+  must own no objects. Unsafe/shared roles are rejected rather than silently
+  repurposed. Roles are cluster-wide: use separate names for separate ZAQ databases.
 - Role/password changes, extensions, target ownership and ACLs share one transaction.
   `CREATE DATABASE` cannot run inside it: failure can leave a new **DBA-owned empty
   database**, which can be retried. No automatic destructive cleanup is performed.
@@ -87,6 +90,40 @@ runtime chunk creation/reset. `public` follows the database owner using
 `pg_database_owner`; existing application-object ownership is not transferred.
 An existing database containing objects owned by another role needs explicit DBA
 reconciliation. Never transfer DBA-owned extension objects to ZAQ.
+
+## Owner-managed logins and schema access
+
+The owner receives `CREATEROLE` and can create logins, create schemas, and grant
+access to schemas and objects it owns. It remains `NOSUPERUSER`, `NOCREATEDB`,
+`NOREPLICATION`, `NOBYPASSRLS` and `NOINHERIT`; the reader remains `NOCREATEROLE`.
+`CREATEROLE` is cluster-wide, not limited to the ZAQ database. Treat owner
+credentials as role-administration credentials, not a schema-isolated account.
+Restart/adoption checks allow the owner's ADMIN-only memberships in
+non-administrative roles, but reject inherited or SET ROLE access and memberships
+involving the reader. These checks detect drift; they do not sandbox owner SQL.
+
+For a separate read-only login, first create it as the owner and set its password
+through your protected credential-management process. Then grant only the intended
+schema and its objects. For example, for an existing `reporting_reader` login and
+an owner-created `reporting` schema in `zaq_prod`, run as the owner:
+
+```sql
+GRANT CONNECT ON DATABASE zaq_prod TO reporting_reader;
+GRANT USAGE ON SCHEMA reporting TO reporting_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO reporting_reader;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA reporting TO reporting_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA reporting
+  GRANT SELECT ON TABLES TO reporting_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA reporting
+  GRANT SELECT ON SEQUENCES TO reporting_reader;
+```
+
+Schema USAGE alone does not grant table access. Default privileges apply only to
+future objects created by the role configuring them; other creators need their
+own defaults. Grant schema CREATE, table writes, or sequence USAGE separately only
+when intended. New logins still receive any PUBLIC privileges: audit those grants
+and do not grant the broad bootstrap reader role to a schema-scoped login. The
+bootstrap reader retains its database-wide read access described below.
 
 ## Read-only access
 
@@ -113,6 +150,24 @@ against future privileged schema changes. It does not revoke PUBLIC CONNECT on
 other databases in the cluster.
 
 ## Existing deployments and development/CI
+
+### Enable role creation on an existing owner
+
+For an already migrated deployment whose owner has `NOCREATEROLE`, stop ZAQ and
+migrators and have the DBA review the owner identity and run the following SQL,
+substituting the actual owner login:
+
+```sql
+ALTER ROLE zaq_owner CREATEROLE;
+```
+
+Automatic restart and adoption require this permission but never grant it.
+Unmigrated databases can use the normal provisioning rerun. Do not rerun bootstrap
+against a migrated database or delete its migration ledger. This DBA operation
+does not rotate passwords or change data/schema grants. Afterward, validate with
+normal automatic startup, or use adoption below if no receipt exists. The legacy
+ownership repair does not change role flags and also needs this step before
+adoption when its owner has `NOCREATEROLE`.
 
 ### Docker image and automatic Compose bootstrap
 

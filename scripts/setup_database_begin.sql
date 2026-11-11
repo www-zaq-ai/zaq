@@ -111,9 +111,19 @@ BEGIN
 
   FOR candidate IN SELECT * FROM pg_roles WHERE rolname IN (inputs.owner_name, inputs.reader_name)
   LOOP
-    IF candidate.rolsuper OR candidate.rolcreatedb OR candidate.rolcreaterole
+    IF candidate.rolsuper OR candidate.rolcreatedb
+       OR (candidate.rolcreaterole AND candidate.rolname <> inputs.owner_name)
        OR candidate.rolreplication OR candidate.rolbypassrls
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = candidate.oid OR roleid = candidate.oid)
+       OR EXISTS (
+         SELECT 1 FROM pg_auth_members m JOIN pg_roles granted_role ON granted_role.oid = m.roleid
+         WHERE (m.member = candidate.oid OR m.roleid = candidate.oid)
+           -- Match PostgreSQL's ADMIN-only membership for creator-managed logins.
+           AND NOT (candidate.rolname = inputs.owner_name AND m.member = candidate.oid
+             AND granted_role.rolname NOT IN (inputs.owner_name, inputs.reader_name)
+             AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option
+             AND NOT granted_role.rolsuper AND NOT granted_role.rolcreatedb
+             AND NOT granted_role.rolcreaterole AND NOT granted_role.rolreplication
+             AND NOT granted_role.rolbypassrls))
        OR EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass
          AND refobjid = candidate.oid AND dbid <> 0
          AND dbid <> (SELECT oid FROM pg_database WHERE datname = current_database()))
@@ -132,7 +142,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = inputs.reader_name) THEN
     EXECUTE format('CREATE ROLE %I', inputs.reader_name);
   END IF;
-  EXECUTE format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L VALID UNTIL %L', inputs.owner_name, inputs.owner_password, 'infinity');
+  EXECUTE format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L VALID UNTIL %L', inputs.owner_name, inputs.owner_password, 'infinity');
   EXECUTE format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L VALID UNTIL %L', inputs.reader_name, inputs.reader_password, 'infinity');
 END;
 $$;

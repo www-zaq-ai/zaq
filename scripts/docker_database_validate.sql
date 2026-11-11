@@ -14,10 +14,21 @@ DECLARE
 BEGIN
   IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> owner_name
     OR (SELECT count(*) FROM pg_roles WHERE rolname IN (owner_name, reader_name)
-      AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+      AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+      AND rolcreaterole = (rolname = owner_name)
       AND NOT rolreplication AND NOT rolbypassrls) <> 2
-    OR EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid IN (m.roleid, m.member)
-      WHERE r.rolname IN (owner_name, reader_name)) THEN
+    OR EXISTS (
+      SELECT 1 FROM pg_auth_members m
+      JOIN pg_roles r ON r.oid IN (m.roleid, m.member)
+      JOIN pg_roles granted_role ON granted_role.oid = m.roleid
+      WHERE r.rolname IN (owner_name, reader_name)
+        -- PostgreSQL grants creators ADMIN without inheritance or SET ROLE access.
+        AND NOT (r.rolname = owner_name AND m.member = r.oid
+          AND granted_role.rolname NOT IN (owner_name, reader_name)
+          AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option
+          AND NOT granted_role.rolsuper AND NOT granted_role.rolcreatedb
+          AND NOT granted_role.rolcreaterole AND NOT granted_role.rolreplication
+          AND NOT granted_role.rolbypassrls)) THEN
     RAISE EXCEPTION 'Provisioned database owner/roles changed; explicit DBA maintenance required';
   END IF;
   IF NOT EXISTS (
