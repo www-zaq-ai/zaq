@@ -6,10 +6,12 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
+  alias Zaq.Agent.{Factory, OpaqueAliases}
   alias Zaq.Agent.Tools.People.EnsurePerson
   alias Zaq.Agent.Tools.People.NotifyPerson
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Engine.Notifications.Notification
 
   defmodule OkRouter do
     def dispatch(event) do
@@ -48,7 +50,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
 
   describe "schema/0" do
     test "does not expose channel or sheet-specific fields" do
-      keys = Keyword.keys(NotifyPerson.schema())
+      keys = Keyword.keys(NotifyPerson.schema().fields)
 
       assert :person in keys
       assert :subject in keys
@@ -62,6 +64,51 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   end
 
   describe "Jido execution" do
+    test "expands model-facing attachment aliases before notification validation" do
+      scope = make_ref()
+      on_exit(fn -> OpaqueAliases.clear_scope(scope) end)
+
+      {:ok, record} =
+        Provenance.seal(%Record{
+          id: "file",
+          kind: :file,
+          materialization_handle: "signed-materialization-handle"
+        })
+
+      {:ok, metadata} = OpaqueAliases.alias_record_metadata(record, scope)
+      assert "prov_" <> _ = metadata["provenance_ref"]
+      assert "mat_" <> _ = metadata["materialization_handle"]
+
+      call = %{
+        action_module: NotifyPerson,
+        arguments: %{
+          person: %{id: 123},
+          subject: "File",
+          message: "Attached",
+          attachments: [metadata]
+        }
+      }
+
+      context = %{node_router: OkRouter, actor: %{person_id: 123}, opaque_alias_scope: scope}
+      serialized = call.arguments |> Jason.encode!() |> Jason.decode!()
+
+      for arguments <- [call.arguments, serialized] do
+        assert {:ok, expanded} = Factory.before_tool_call(%{call | arguments: arguments}, context)
+        assert {:ok, _} = Jido.Exec.run(NotifyPerson, expanded.arguments, context, timeout: 0)
+        assert_received {:dispatched, event}
+
+        assert {:ok, notification} =
+                 Notification.build(%{
+                   subject: event.request.subject,
+                   body: event.request.message,
+                   recipient_channels: [],
+                   attachments: event.request.attachments
+                 })
+
+        assert notification.attachments == [record]
+      end
+    end
+
     test "forwards attachment maps and trusted identity without trusting payload permission flags" do
       actor = %{person_id: 123}
 

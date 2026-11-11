@@ -1,8 +1,9 @@
 defmodule Zaq.Channels.OutboundConnectionTest do
   use Zaq.DataCase, async: true
 
+  import Zaq.TestSupport.ChannelFileFixtures, only: [connector!: 2]
+
   alias Zaq.Channels.{Bridge, DeliveryError, EmailBridge, JidoChatBridge}
-  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
 
   test "SMTP binding reuses the selected inbox while still validating the sender" do
@@ -77,19 +78,5 @@ defmodule Zaq.Channels.OutboundConnectionTest do
     assert details == Map.put(expected, :attachment_failure_policy, :abort)
     refute function_exported?(JidoChatBridge, :delivery_connection, 2)
     refute function_exported?(EmailBridge, :delivery_connection, 2)
-  end
-
-  defp connector!(provider, settings) do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(%{
-      name: Ecto.UUID.generate(),
-      provider: provider,
-      kind: "retrieval",
-      enabled: true,
-      url: "https://fixture.invalid",
-      token: "synthetic-unused",
-      settings: settings
-    })
-    |> Repo.insert!()
   end
 end

@@ -3,6 +3,8 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  import Zaq.TestSupport.ChannelFileFixtures, only: [config!: 3]
+  import Zaq.TestSupport.MattermostHistoryFixture, only: [assert_uploaded_file: 4]
 
   @endpoint ZaqWeb.Endpoint
 
@@ -23,11 +25,10 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   alias Zaq.TestSupport.{
     AttachmentSelectionLLMStub,
-    FileDeliverySmtpStub,
+    ChannelFileFixtures,
     IntegrationAgent,
     MattermostHistoryFixture,
-    MultiAgentOpenAIStub,
-    OpenAIStub
+    MultiAgentOpenAIStub
   }
 
   @moduletag timeout: 120_000
@@ -459,9 +460,7 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
     assert capture.post["channel_id"] == destination.identifier
     assert capture.post["file_ids"] == ["file-#{namespace}"]
     assert_received {:delivery_upload, ^namespace, upload}
-    assert upload.filename == file.name
-    assert upload.bytes == file.bytes
-    assert upload.mime_type == "text/plain"
+    assert_uploaded_file(upload, file.name, "text/plain", file.bytes)
     assert upload.channel_id == destination.identifier
   end
 
@@ -475,12 +474,9 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   defp workflow_destination!(:mattermost, namespace, owner) do
     handler = &MattermostHistoryFixture.delivery_http(&1, &2, owner, namespace)
-    {child, endpoint} = OpenAIStub.server(handler, owner)
-    start_supervised!(Supervisor.child_spec(child, id: make_ref()))
 
     config =
-      config!("mattermost", namespace, %{
-        url: String.trim_trailing(endpoint, "/v1"),
+      ChannelFileFixtures.mattermost!(owner, namespace, handler, %{
         token: "test-token",
         settings: %{"max_file_size" => 307_200}
       })
@@ -513,23 +509,9 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
           &select_documents(&1, "add", [2])
         ] ++ selection_steps(@operation) ++ [{:pause, {:text, final_text(@operation)}}]
 
-      {child, endpoint} =
-        AttachmentSelectionLLMStub.server(
-          script ++ [{:pause, {:text, "No files selected."}}],
-          owner
-        )
-
-      start_supervised!(child)
-
       agent =
-        IntegrationAgent.create!(endpoint, namespace, "Select the requested files.", [
-          "data_source.get_document",
-          "data_source.attach_document"
-        ])
+        start_conversation_agent!(script ++ [{:pause, {:text, "No files selected."}}], namespace)
 
-      {:ok, agent} = Zaq.Agent.update_agent(agent, %{conversation_enabled: true})
-
-      on_exit(fn -> ServerManager.stop_server(agent) end)
       bind!(destination, person, agent)
       ingress = Task.async(fn -> ingest(destination, "Select A and B, then remove A") end)
 
@@ -588,17 +570,7 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
         [get_document(disk, files.b.id), &select_documents(&1, "add", [0])] ++
           interrupted_steps(@scenario) ++ [{:pause, {:text, "No files selected."}}]
 
-      {child, endpoint} = AttachmentSelectionLLMStub.server(script, self())
-      start_supervised!(child)
-
-      agent =
-        IntegrationAgent.create!(endpoint, namespace, "Select the requested files.", [
-          "data_source.get_document",
-          "data_source.attach_document"
-        ])
-
-      {:ok, agent} = Zaq.Agent.update_agent(agent, %{conversation_enabled: true})
-      on_exit(fn -> ServerManager.stop_server(agent) end)
+      agent = start_conversation_agent!(script, namespace)
       bind!(destination, person, agent)
       ingress = Task.async(fn -> ingest(destination, "Retrieve and attach B") end)
       assert_receive {:attachment_model_paused, model}, 15_000
@@ -701,6 +673,21 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       refute_received {:delivery_upload, _, _}
       refute_received {:delivery_boundary, _, _, _}
     end
+  end
+
+  defp start_conversation_agent!(script, namespace) do
+    {child, endpoint} = AttachmentSelectionLLMStub.server(script, self())
+    start_supervised!(child)
+
+    agent =
+      IntegrationAgent.create!(endpoint, namespace, "Select the requested files.", [
+        "data_source.get_document",
+        "data_source.attach_document"
+      ])
+
+    {:ok, agent} = Zaq.Agent.update_agent(agent, %{conversation_enabled: true})
+    on_exit(fn -> ServerManager.stop_server(agent) end)
+    agent
   end
 
   defp interrupted_steps(:failure),
@@ -851,24 +838,20 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
   end
 
   defp documents!(namespace, person) do
-    root = Path.join(VolumeConfig.base_path(), namespace)
-    File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    files = [
+      %{name: "A.txt", bytes: "A private bytes"},
+      %{name: "B.txt", bytes: "B selected bytes"}
+    ]
 
-    disk =
-      config!("disk", namespace, %{
-        kind: "data_source",
-        settings: %{"volumes" => [%{"name" => "documents", "path" => namespace}]}
-      })
+    {disk, root} = ChannelFileFixtures.disk_files!(namespace, "documents", files)
 
     {:ok, storage_opts} = VolumeConfig.opts_for_channel_config(disk)
 
     files =
-      Map.new([{:a, "A", "A private bytes"}, {:b, "B", "B selected bytes"}], fn {key, name, bytes} ->
-        File.write!(Path.join(root, "#{name}.txt"), bytes)
-        {:ok, entry} = Storage.file_info("documents", "#{name}.txt", storage_opts)
+      Map.new(Enum.zip([:a, :b], files), fn {key, file} ->
+        {:ok, entry} = Storage.file_info("documents", file.name, storage_opts)
         {:ok, _} = Permissions.grant(%StorageEntry{id: entry.id}, %{person_id: person.id})
-        {key, %{id: entry.id, name: "#{name}.txt", bytes: bytes}}
+        {key, Map.put(file, :id, entry.id)}
       end)
 
     {disk, files, root}
@@ -911,12 +894,8 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       end
     end
 
-    {child, endpoint} = OpenAIStub.server(handler, owner)
-    start_supervised!(Supervisor.child_spec(child, id: make_ref()))
-
     config =
-      config!("mattermost", namespace, %{
-        url: String.trim_trailing(endpoint, "/v1"),
+      ChannelFileFixtures.mattermost!(owner, namespace, handler, %{
         token: "test-token",
         settings: %{
           "max_file_size" => 307_200,
@@ -932,19 +911,10 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
   end
 
   defp destination!(:email, namespace, owner, connections) do
-    port = FileDeliverySmtpStub.start!(owner, namespace, connections: connections)
-
     smtp =
-      config!("email:smtp", namespace, %{
-        url: "smtp://127.0.0.1",
-        token: "synthetic-unused",
-        settings: %{
-          "relay" => "127.0.0.1",
-          "port" => to_string(port),
-          "tls" => "never",
-          "from_email" => "bot@example.test"
-        }
-      })
+      ChannelFileFixtures.smtp!(owner, namespace, %{"from_email" => "bot@example.test"},
+        connections: connections
+      )
 
     imap =
       config!("email:imap", namespace, %{
@@ -1014,9 +984,7 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   defp assert_delivery(%{provider: :mattermost}, namespace, file) do
     assert_receive {:delivery_upload, ^namespace, upload}, 10_000
-    assert upload.filename == file.name
-    assert upload.bytes == file.bytes
-    assert upload.mime_type == "text/plain"
+    assert_uploaded_file(upload, file.name, "text/plain", file.bytes)
     assert upload.channel_id == "shared-room"
     assert_receive {:delivery_boundary, ^namespace, provider, %{post: post}}, 5_000
     assert post["message"] == "Here is B."
@@ -1047,16 +1015,5 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
     assert Mail.get_text(mail).body == if(file, do: "Here is B.", else: "No files selected.")
     send(provider, :accept_delivery)
-  end
-
-  defp config!(provider, namespace, attrs) do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(
-      Map.merge(
-        %{name: "#{provider}-#{namespace}", provider: provider, kind: "retrieval", enabled: true},
-        attrs
-      )
-    )
-    |> Repo.insert!()
   end
 end

@@ -1,9 +1,18 @@
 defmodule Zaq.TestSupport.MattermostHistoryFixture do
   @moduledoc "Mattermost adapter frames, history responses and outgoing HTTP delivery captures."
 
+  import ExUnit.Assertions
+
   alias Jido.Chat.Mattermost.WebSocket.Client
   alias Plug.Conn.Utils
   alias Zaq.Channels.JidoChatBridge
+
+  @doc "Checks the exact file representation captured from a multipart upload."
+  def assert_uploaded_file(upload, filename, mime_type, bytes) do
+    assert upload.filename == filename
+    assert upload.mime_type == mime_type
+    assert upload.bytes == bytes
+  end
 
   def scenarios do
     [

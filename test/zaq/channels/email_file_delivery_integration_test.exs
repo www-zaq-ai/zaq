@@ -10,6 +10,7 @@ defmodule Zaq.Channels.EmailFileDeliveryIntegrationTest do
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.TestSupport.ChannelFileDelivery
+  alias Zaq.TestSupport.ChannelFileFixtures
   alias Zaq.TestSupport.FileDeliverySmtpStub
 
   @moduletag timeout: 180_000
@@ -192,16 +193,11 @@ defmodule Zaq.Channels.EmailFileDeliveryIntegrationTest do
   end
 
   defp smtp_connector!(name, settings) do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(%{
+    ChannelFileFixtures.config!("email:smtp", name, %{
       name: name,
-      provider: "email:smtp",
-      kind: "retrieval",
-      enabled: true,
       url: "smtp://127.0.0.1",
       token: "synthetic-unused",
       settings: settings
     })
-    |> Repo.insert!()
   end
 end

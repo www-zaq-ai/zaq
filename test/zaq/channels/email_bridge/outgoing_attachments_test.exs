@@ -5,9 +5,9 @@ defmodule Zaq.Channels.EmailBridge.OutgoingAttachmentsTest do
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.SmtpSender
   alias Zaq.Contracts.Record
-  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Storage.Materializers.DiskDocument
+  alias Zaq.TestSupport.ChannelFileFixtures
 
   setup :verify_on_exit!
 
@@ -226,17 +226,12 @@ defmodule Zaq.Channels.EmailBridge.OutgoingAttachmentsTest do
   end
 
   defp smtp_config(address, overrides \\ %{}) do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(%{
+    ChannelFileFixtures.config!("email:smtp", address, %{
       name: address,
-      provider: "email:smtp",
-      kind: "retrieval",
       url: "smtp.example.test",
       token: "fixture-token",
-      enabled: true,
       settings:
         Map.merge(%{"relay" => "", "from_email" => address, "from_name" => "Selected"}, overrides)
     })
-    |> Repo.insert!()
   end
 end

@@ -31,4 +31,18 @@ defmodule Zaq.ConnectorConfig.SettingsTest do
              settings: %{"imap" => %{"selected_mailboxes" => [nil, " INBOX ", ""]}}
            }) == ["INBOX"]
   end
+
+  test "connector policy defaults on and preserves explicit boolean and form false" do
+    assert Settings.attachment_failure_policy(%{}) == :continue
+
+    for value <- [false, "false"] do
+      assert Settings.attachment_failure_policy(%{settings: %{"send_on_file_failure" => value}}) ==
+               :abort
+    end
+
+    for value <- [true, "true", nil] do
+      assert Settings.attachment_failure_policy(%{settings: %{"send_on_file_failure" => value}}) ==
+               :continue
+    end
+  end
 end

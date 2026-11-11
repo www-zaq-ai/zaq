@@ -131,18 +131,9 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
 
       report = if partial?, do: %{confirmation: :partial, messages: [receipt]}, else: receipt
 
-      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-        send(self(), {:confirmed_request, event.request})
-        %{event | response: {:ok, event.request.receipt}}
-      end)
-
-      assert {:ok, _} =
-               DeliveryConfirmation.record({:ok, report}, outgoing,
-                 delivery_node_router: Zaq.NodeRouterMock
-               )
+      request = capture_confirmation(report, outgoing)
 
       assert outgoing.attachments == attachments
-      assert_received {:confirmed_request, request}
 
       assert [%Record{id: "sent", content: nil, materialization_handle: "original-handle"}] =
                request.outgoing.attachments
@@ -194,17 +185,8 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
 
       report = if partial?, do: %{confirmation: :partial, messages: [receipt]}, else: receipt
 
-      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-        send(self(), {:confirmed_request, event.request})
-        %{event | response: {:ok, event.request.receipt}}
-      end)
+      request = capture_confirmation(report, outgoing)
 
-      assert {:ok, _} =
-               DeliveryConfirmation.record({:ok, report}, outgoing,
-                 delivery_node_router: Zaq.NodeRouterMock
-               )
-
-      assert_received {:confirmed_request, request}
       assert request.receipt.attachments == selected
 
       assert Enum.map(request.outgoing.attachments, & &1.id) ==
@@ -234,17 +216,8 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
         attachments: evidence
       }
 
-      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-        send(self(), {:confirmed_request, event.request})
-        %{event | response: {:ok, event.request.receipt}}
-      end)
+      request = capture_confirmation(receipt, outgoing)
 
-      assert {:ok, _} =
-               DeliveryConfirmation.record({:ok, receipt}, outgoing,
-                 delivery_node_router: Zaq.NodeRouterMock
-               )
-
-      assert_received {:confirmed_request, request}
       assert request.receipt.attachments == evidence
     end
   end
@@ -320,41 +293,36 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
   end
 
   test "rescues a dispatch exception while preserving a confirmed receipt" do
-    receipt = %{confirmation: :confirmed, message_id: "external-1"}
-    outgoing = outgoing()
-    owner = self()
-
-    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
-      send(owner, {:dispatch_event, event})
-      raise "engine unavailable"
-    end)
-
-    assert DeliveryConfirmation.record({:ok, receipt}, outgoing,
-             delivery_node_router: Zaq.NodeRouterMock
-           ) ==
-             {:ok, Map.put(receipt, :confirmation_recording, :unavailable)}
-
-    assert receipt == %{confirmation: :confirmed, message_id: "external-1"}
-
-    assert_received {:dispatch_event,
-                     %Event{
-                       request: %{receipt: ^receipt, outgoing: routed},
-                       next_hop: %EventHop{destination: :engine},
-                       opts: [action: :record_delivery_confirmation]
-                     }}
-
-    assert routed.body == outgoing.body
-    assert routed.metadata == %{user_message_id: "u-1", assistant_message_id: "a-1"}
+    assert_recording_failure(fn -> raise "engine unavailable" end)
   end
 
   test "catches a dispatch exit while preserving a confirmed receipt" do
+    assert_recording_failure(fn -> exit(:engine_unavailable) end)
+  end
+
+  defp capture_confirmation(report, outgoing) do
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      send(self(), {:confirmed_request, event.request})
+      %{event | response: {:ok, event.request.receipt}}
+    end)
+
+    assert {:ok, _} =
+             DeliveryConfirmation.record({:ok, report}, outgoing,
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+
+    assert_received {:confirmed_request, request}
+    request
+  end
+
+  defp assert_recording_failure(fail) do
     receipt = %{confirmation: :confirmed, message_id: "external-1"}
     outgoing = outgoing()
     owner = self()
 
     expect(Zaq.NodeRouterMock, :dispatch, fn event ->
       send(owner, {:dispatch_event, event})
-      exit(:engine_unavailable)
+      fail.()
     end)
 
     assert DeliveryConfirmation.record({:ok, receipt}, outgoing,

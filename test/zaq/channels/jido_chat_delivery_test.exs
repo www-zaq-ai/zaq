@@ -768,57 +768,21 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   end
 
   test "upload failure continues once while final attachment update failure stays unconfirmed" do
-    for failure <- ["upload_failed", "post_failed"] do
-      outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
-      result = deliver_outgoing(outgoing, file_connection(failure))
-      assert_received {:file_upload, _, _, _}
-
-      if failure == "upload_failed" do
-        assert {:ok, %{confirmation: :partial, failed_files: [%{reason: :upload_failed}]}} =
-                 result
-
-        assert_received {:file_status, _, "status-id", "File caption", []}
-      else
-        assert {:error,
-                %DeliveryError{
-                  delivery: :unconfirmed,
-                  reason: {:attachment_delivery_failed, %{messages: []}}
-                }} = result
-
-        assert_received {:file_edit, _, "status-id", "File caption", [file_ids: ["upload-id"]]}
-      end
-
+    for {failure, expected} <- [
+          {"upload_failed", {:partial, :upload_failed}},
+          {"post_failed", :unconfirmed}
+        ] do
+      result = assert_attachment_failure(failure, expected)
       refute inspect(result) =~ "private-provider-detail"
-      refute_received {:file_upload, _, _, _}
-      refute_received {:file_post, _, _, _}
-      refute_received {:file_edit, _, _, _, _}
-      refute_received {:file_status, _, _, _, _}
     end
   end
 
   test "upload timeout continues once while final attachment update timeout never sends again" do
-    for failure <- ["upload_timeout", "post_timeout"] do
-      outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
-      result = deliver_outgoing(outgoing, file_connection(failure))
-      assert_received {:file_upload, _, _, _}
-
-      if failure == "upload_timeout" do
-        assert {:ok, %{confirmation: :partial, failed_files: [%{reason: :timeout}]}} = result
-        assert_received {:file_status, _, "status-id", "File caption", []}
-      else
-        assert {:error,
-                %DeliveryError{
-                  delivery: :unconfirmed,
-                  reason: {:attachment_delivery_failed, %{messages: []}}
-                }} = result
-
-        assert_received {:file_edit, _, "status-id", "File caption", [file_ids: ["upload-id"]]}
-      end
-
-      refute_received {:file_upload, _, _, _}
-      refute_received {:file_post, _, _, _}
-      refute_received {:file_edit, _, _, _, _}
-      refute_received {:file_status, _, _, _, _}
+    for {failure, expected} <- [
+          {"upload_timeout", {:partial, :timeout}},
+          {"post_timeout", :unconfirmed}
+        ] do
+      assert_attachment_failure(failure, expected)
     end
   end
 
@@ -1129,6 +1093,33 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       {:ok,
        %{"id" => id, "channel_id" => channel, "user_id" => "bot", "file_ids" => opts[:file_ids]}}
     end
+  end
+
+  defp assert_attachment_failure(scenario, expected) do
+    outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
+    result = deliver_outgoing(outgoing, file_connection(scenario))
+    assert_received {:file_upload, _, _, _}
+
+    case expected do
+      {:partial, reason} ->
+        assert {:ok, %{confirmation: :partial, failed_files: [%{reason: ^reason}]}} = result
+        assert_received {:file_status, _, "status-id", "File caption", []}
+
+      :unconfirmed ->
+        assert {:error,
+                %DeliveryError{
+                  delivery: :unconfirmed,
+                  reason: {:attachment_delivery_failed, %{messages: []}}
+                }} = result
+
+        assert_received {:file_edit, _, "status-id", "File caption", [file_ids: ["upload-id"]]}
+    end
+
+    refute_received {:file_upload, _, _, _}
+    refute_received {:file_post, _, _, _}
+    refute_received {:file_edit, _, _, _, _}
+    refute_received {:file_status, _, _, _, _}
+    result
   end
 
   defp batch_outgoing(count) do

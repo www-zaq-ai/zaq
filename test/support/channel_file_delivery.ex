@@ -9,12 +9,11 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
   """
 
   import ExUnit.Assertions
-  import ExUnit.Callbacks, only: [on_exit: 1]
+  import Zaq.TestSupport.MattermostHistoryFixture, only: [assert_uploaded_file: 4]
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
-  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -24,9 +23,8 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
   alias Zaq.Storage.StorageEntry
   alias Zaq.Storage.VolumeConfig
 
-  alias Zaq.TestSupport.FileDeliverySmtpStub
+  alias Zaq.TestSupport.ChannelFileFixtures
   alias Zaq.TestSupport.MattermostHistoryFixture
-  alias Zaq.TestSupport.OpenAIStub
 
   @doc "Delivers through real internal paths with private tasks and external transport stubs."
   def run!(providers, opts \\ []) do
@@ -126,21 +124,12 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
   defp scope!(provider, coordinator, opts) do
     namespace = "channel-files-#{Ecto.UUID.generate()}"
     volume = String.replace(namespace, "-", "")
-    root = Path.join(VolumeConfig.base_path(), namespace)
-    File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
     selected = %{name: "selected-#{namespace}.bin", bytes: <<0, 255, 128, 10>> <> namespace}
     other = %{name: "unselected-#{namespace}.txt", bytes: "Leave this file private: #{namespace}"}
 
-    for file <- [selected, other], do: File.write!(Path.join(root, file.name), file.bytes)
+    {disk, root} = ChannelFileFixtures.disk_files!(namespace, volume, [selected, other])
     {:ok, person} = People.create_person(%{full_name: namespace})
     actor = %{person_id: person.id}
-
-    disk =
-      config!("disk", namespace, %{
-        kind: "data_source",
-        settings: %{"volumes" => [%{"name" => volume, "path" => namespace}]}
-      })
 
     {:ok, storage_opts} = VolumeConfig.opts_for_channel_config(disk)
 
@@ -178,12 +167,9 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
 
   defp destination!(:mattermost, scope) do
     handler = &MattermostHistoryFixture.delivery_http(&1, &2, scope.coordinator, scope.namespace)
-    {server, endpoint} = OpenAIStub.server(handler, scope.coordinator)
-    ExUnit.Callbacks.start_supervised!(Supervisor.child_spec(server, id: scope.namespace))
 
     config =
-      config!("mattermost", scope.namespace, %{
-        url: String.trim_trailing(endpoint, "/v1"),
+      ChannelFileFixtures.mattermost!(scope.coordinator, scope.namespace, handler, %{
         token: "token-#{scope.namespace}",
         settings: %{"max_file_size" => 307_200}
       })
@@ -201,19 +187,10 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     recipient = "recipient-#{scope.namespace}@example.test"
     copied = "copied-#{scope.namespace}@example.test"
 
-    port = FileDeliverySmtpStub.start!(scope.coordinator, scope.namespace)
-
     config =
-      config!("email:smtp", scope.namespace, %{
-        url: "smtp://127.0.0.1",
-        token: "synthetic-unused",
-        settings: %{
-          "relay" => "127.0.0.1",
-          "port" => to_string(port),
-          "tls" => "never",
-          "from_email" => sender,
-          "from_name" => scope.namespace
-        }
+      ChannelFileFixtures.smtp!(scope.coordinator, scope.namespace, %{
+        "from_email" => sender,
+        "from_name" => scope.namespace
       })
 
     %{
@@ -225,17 +202,6 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
       sender: sender,
       thread_id: "parent-#{scope.namespace}@example.test"
     }
-  end
-
-  defp config!(provider, namespace, attrs) do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(
-      Map.merge(
-        %{name: "#{provider}-#{namespace}", provider: provider, kind: "retrieval", enabled: true},
-        attrs
-      )
-    )
-    |> Repo.insert!()
   end
 
   defp journey!(scope, coordinator) do
@@ -305,9 +271,14 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
         {:delivery_upload, namespace, upload} when namespace == scope.namespace ->
           assert upload.channel_id == scope.channel_id
           assert upload.authorization == ["Bearer token-#{scope.namespace}"]
-          assert upload.filename == scope.selected.name
-          assert upload.mime_type == scope.record.mime_type
-          assert upload.bytes == scope.selected.bytes
+
+          assert_uploaded_file(
+            upload,
+            scope.selected.name,
+            scope.record.mime_type,
+            scope.selected.bytes
+          )
+
           refute upload.bytes == scope.other.bytes
       after
         5_000 -> flunk("missing captured multipart upload")

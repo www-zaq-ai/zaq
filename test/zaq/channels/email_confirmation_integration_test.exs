@@ -1,11 +1,13 @@
 defmodule Zaq.Channels.EmailConfirmationIntegrationTest do
   use Zaq.DataCase, async: false
 
+  import Zaq.TestSupport.ChannelFileFixtures, only: [connector!: 2]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.People
   alias Zaq.Channels.{Api, DeliveryError}
   alias Zaq.Contracts.Record
-  alias Zaq.Engine.{ChannelConfig, Conversations, HistoryIngress}
+  alias Zaq.Engine.{Conversations, HistoryIngress}
   alias Zaq.Engine.Conversations.{Message, TranscriptMessage}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
@@ -199,18 +201,4 @@ defmodule Zaq.Channels.EmailConfirmationIntegrationTest do
     ]
 
   defp attachments(_), do: []
-
-  defp connector!(provider, settings) do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(%{
-      name: Ecto.UUID.generate(),
-      provider: provider,
-      kind: "retrieval",
-      enabled: true,
-      url: "https://fixture.invalid",
-      token: "synthetic-unused",
-      settings: settings
-    })
-    |> Repo.insert!()
-  end
 end

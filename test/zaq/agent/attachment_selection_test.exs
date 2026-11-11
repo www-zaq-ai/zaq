@@ -78,11 +78,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
       observed = Enum.to_list(events)
 
       assert {:ok, result} =
-               StreamEvents.consume(observed, incoming(),
-                 request: request,
-                 runtime_pid: server,
-                 opaque_alias_scope: server
-               )
+               consume(observed, request, server)
 
       assert result.attachments == []
       assert {:ok, status} = Jido.AgentServer.status(server)
@@ -107,11 +103,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     observed = Enum.to_list(events)
 
     assert {:ok, result} =
-             StreamEvents.consume(observed, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(observed, request, server)
 
     assert [%Record{id: "private-b"}] = result.attachments
     assert result.answer == "Here is B."
@@ -148,11 +140,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Revise selection")
 
     assert {:ok, result} =
-             StreamEvents.consume(events, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(events, request, server)
 
     assert result.attachments == []
     assert {:ok, status} = Jido.AgentServer.status(server)
@@ -185,11 +173,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     send(model_pid, :release)
 
     assert {:ok, result} =
-             StreamEvents.consume(events, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(events, request, server)
 
     assert [%Record{id: "b"}, %Record{id: "a", parent_id: "root"}] = result.attachments
   end
@@ -212,11 +196,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {busy_request, busy_events} = ask(server, configured, "Another request")
 
     assert {:error, _, %{attachments: []}} =
-             StreamEvents.consume(busy_events, incoming(),
-               request: busy_request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(busy_events, busy_request, server)
 
     assert {:ok, status} = Jido.AgentServer.status(server)
     assert status.raw_state.__strategy__.active_request_id == request.id
@@ -240,11 +220,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     assert Enum.all?(observed, &(&1.request_id == request.id))
 
     assert {:ok, %{attachments: []}} =
-             StreamEvents.consume(observed, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(observed, request, server)
   end
 
   test "cancellation discards selected files and the next request starts empty" do
@@ -260,11 +236,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     assert :ok = Factory.cancel(server, request_id: request.id, reason: :user_cancelled)
 
     assert {:error, _, %{attachments: []}} =
-             StreamEvents.consume(events, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(events, request, server)
 
     send(model_pid, :release)
     assert_receive {:DOWN, ^pending_ref, :process, _, _}, 5_000
@@ -273,11 +245,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "New request")
 
     assert {:ok, %{attachments: [], answer: "Fresh."}} =
-             StreamEvents.consume(events, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(events, request, server)
   end
 
   test "replayed native completions and post-terminal events cannot resurrect selection" do
@@ -306,11 +274,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     assert Enum.count(observed, &(&1.kind == :tool_completed)) == 3
 
     assert {:ok, %{attachments: []} = result} =
-             StreamEvents.consume(observed ++ [completion], incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(observed ++ [completion], request, server)
 
     assert length(result.tool_calls) == 2
   end
@@ -324,11 +288,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Select then fail")
 
     assert {:error, _, %{attachments: []}} =
-             StreamEvents.consume(events, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(events, request, server)
 
     assert {:ok, status} = Jido.AgentServer.status(server)
     assert status.raw_state.requests[request.id].status == :failed
@@ -336,11 +296,15 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Fresh after failure")
 
     assert {:ok, %{attachments: [], answer: "Recovered."}} =
-             StreamEvents.consume(events, incoming(),
-               request: request,
-               runtime_pid: server,
-               opaque_alias_scope: server
-             )
+             consume(events, request, server)
+  end
+
+  defp consume(events, request, server) do
+    StreamEvents.consume(events, incoming(),
+      request: request,
+      runtime_pid: server,
+      opaque_alias_scope: server
+    )
   end
 
   defp runtime(script, tools \\ ["data_source.attach_document"]) do
@@ -389,20 +353,21 @@ end
 defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
   use Zaq.DataCase, async: false
 
+  import Zaq.TestSupport.MattermostHistoryFixture, only: [assert_uploaded_file: 4]
+
   alias Zaq.Accounts.People
   alias Zaq.Agent.Executor
   alias Zaq.Agent.Tools.DataSource.GetDocument
   alias Zaq.Channels.{DeliveryFiles, EmailBridge, JidoChatBridge}
   alias Zaq.Contracts.Record
-  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.Permissions
   alias Zaq.Storage.StorageEntry
-  alias Zaq.Storage.VolumeConfig
 
   alias Zaq.TestSupport.{
     AttachmentSelectionLLMStub,
+    ChannelFileFixtures,
     IntegrationAgent,
     MattermostHistoryFixture,
     OpenAIStub
@@ -529,9 +494,7 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
       end)
 
     assert_receive {:delivery_upload, "selection", file}, 5_000
-    assert file.filename == "B.txt"
-    assert file.mime_type == "text/plain"
-    assert file.bytes == "B bytes"
+    assert_uploaded_file(file, "B.txt", "text/plain", "B bytes")
     assert file.channel_id == "shared-room"
     assert_receive {:delivery_boundary, "selection", provider_pid, %{post: post}}, 5_000
     assert post["message"] == "Here is B."
@@ -627,25 +590,14 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
 
   defp documents do
     relative = "selection-#{Ecto.UUID.generate()}"
-    root = Path.join(VolumeConfig.base_path(), relative)
-    File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    files = for name <- ["A", "B"], do: %{name: "#{name}.txt", bytes: "#{name} bytes"}
 
-    config =
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        name: relative,
-        provider: "disk",
-        kind: "data_source",
-        enabled: true,
-        settings: %{"volumes" => [%{"name" => "selected", "path" => relative}]}
-      })
-      |> Repo.insert!()
+    {config, _root} =
+      ChannelFileFixtures.disk_files!(relative, "selected", files, %{name: relative})
 
     records =
-      for name <- ["A", "B"] do
-        File.write!(Path.join(root, "#{name}.txt"), "#{name} bytes")
-        id = "selected/#{name}.txt"
+      for file <- files do
+        id = "selected/#{file.name}"
 
         {:ok, %{record: record}} =
           Jido.Exec.run(
@@ -668,20 +620,15 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
   end
 
   defp smtp_config do
-    %ChannelConfig{}
-    |> ChannelConfig.changeset(%{
+    ChannelFileFixtures.config!("email:smtp", "selection", %{
       name: "selection-smtp",
-      provider: "email:smtp",
       url: "smtp.example.test",
       token: "fixture-token",
-      kind: "retrieval",
-      enabled: true,
       settings: %{
         "relay" => "",
         "from_email" => "sender@example.test",
         "from_name" => "Selection"
       }
     })
-    |> Repo.insert!()
   end
 end

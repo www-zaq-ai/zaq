@@ -40,6 +40,21 @@ defmodule Zaq.Engine.HistoryIngressTest do
     end
   end
 
+  defp finalize_answer(incoming, person, answer) do
+    assert {:ok, _} = HistoryIngress.capture(incoming)
+    assert {:ok, binding} = Conversations.admit_incoming(incoming)
+
+    assert {:ok, %{assistant_message_id: assistant_id}} =
+             Conversations.finalize_incoming(
+               binding.user_message_id,
+               binding.finalization_token,
+               %{answer: answer, error: false},
+               actor: %{person: %{id: person.id}}
+             )
+
+    {binding, assistant_id}
+  end
+
   defp capture_delivered(delivery) do
     with {:ok, id} <-
            HistoryIngress.record_confirmation(Map.put(delivery, :confirmation, :confirmed)),
@@ -129,16 +144,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
         routing_context: %{channel_config_id: config.id, conversation_type: :room}
       })
 
-    assert {:ok, _} = HistoryIngress.capture(incoming)
-    assert {:ok, binding} = Conversations.admit_incoming(incoming)
-
-    assert {:ok, %{assistant_message_id: assistant_id}} =
-             Conversations.finalize_incoming(
-               binding.user_message_id,
-               binding.finalization_token,
-               %{answer: "Files", error: false},
-               actor: %{person: %{id: person.id}}
-             )
+    {binding, assistant_id} = finalize_answer(incoming, person, "Files")
 
     first = %{
       confirmation: :confirmed,
@@ -204,16 +210,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
           routing_context: %{channel_config_id: config.id, conversation_type: :room}
         })
 
-      assert {:ok, _} = HistoryIngress.capture(incoming)
-      assert {:ok, binding} = Conversations.admit_incoming(incoming)
-
-      assert {:ok, %{assistant_message_id: assistant_id}} =
-               Conversations.finalize_incoming(
-                 binding.user_message_id,
-                 binding.finalization_token,
-                 %{answer: "Files", error: false},
-                 actor: %{person: %{id: person.id}}
-               )
+      {binding, assistant_id} = finalize_answer(incoming, person, "Files")
 
       outgoing = %Outgoing{
         provider: :mattermost,
@@ -287,16 +284,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
         routing_context: %{channel_config_id: config.id, conversation_type: :room}
       })
 
-    assert {:ok, _} = HistoryIngress.capture(incoming)
-    assert {:ok, binding} = Conversations.admit_incoming(incoming)
-
-    assert {:ok, %{assistant_message_id: assistant_id}} =
-             Conversations.finalize_incoming(
-               binding.user_message_id,
-               binding.finalization_token,
-               %{answer: "answer", error: false},
-               actor: %{person: %{id: person.id}}
-             )
+    {binding, assistant_id} = finalize_answer(incoming, person, "answer")
 
     attachment = %Record{
       id: "channel-file",
