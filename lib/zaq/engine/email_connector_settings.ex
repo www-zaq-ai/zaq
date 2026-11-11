@@ -185,8 +185,7 @@ defmodule Zaq.Engine.EmailConnectorSettings do
 
     %EmailConfig{
       enabled: channel.enabled,
-      send_on_file_failure:
-        Settings.attachment_failure_policy(%{settings: settings}) == :continue,
+      send_on_file_failure: Settings.send_on_file_failure?(%{settings: settings}),
       relay: map_get(settings, "relay"),
       port: parse_int(map_get(settings, "port"), 587),
       transport_mode: map_get(settings, "transport_mode") || "starttls",

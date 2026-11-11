@@ -22,12 +22,18 @@ defmodule Zaq.ConnectorConfig.Settings do
 
   @doc "Projects the selected connector's default-on file failure setting into a delivery policy."
   def attachment_failure_policy(config) do
+    if send_on_file_failure?(config), do: :continue, else: :abort
+  end
+
+  @doc "Defaults to true unless the connector setting is false or the form value \"false\"."
+  @spec send_on_file_failure?(map()) :: boolean()
+  def send_on_file_failure?(config) do
     settings = Map.get(config, :settings, Map.get(config, "settings", %{})) || %{}
 
     value =
       Map.get(settings, "send_on_file_failure", Map.get(settings, :send_on_file_failure, true))
 
-    if value in [false, "false"], do: :abort, else: :continue
+    value not in [false, "false"]
   end
 
   def imap_selected_mailboxes(config) do

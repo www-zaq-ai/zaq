@@ -45,4 +45,35 @@ defmodule Zaq.ConnectorConfig.SettingsTest do
                :continue
     end
   end
+
+  test "file failure boolean defaults on and preserves settings key precedence" do
+    assert Settings.send_on_file_failure?(%{})
+    assert Settings.send_on_file_failure?(%{settings: nil})
+
+    refute Settings.send_on_file_failure?(%{
+             settings: %{"send_on_file_failure" => false, send_on_file_failure: true}
+           })
+
+    refute Settings.send_on_file_failure?(%{
+             :settings => %{send_on_file_failure: false},
+             "settings" => %{"send_on_file_failure" => true}
+           })
+  end
+
+  property "file failure boolean accepts atom and string keys with the same defaults" do
+    check all(
+            {value, expected} <-
+              member_of([
+                {false, false},
+                {"false", false},
+                {true, true},
+                {"true", true},
+                {nil, true}
+              ]),
+            settings_key <- member_of([:settings, "settings"]),
+            flag_key <- member_of([:send_on_file_failure, "send_on_file_failure"])
+          ) do
+      assert Settings.send_on_file_failure?(%{settings_key => %{flag_key => value}}) === expected
+    end
+  end
 end

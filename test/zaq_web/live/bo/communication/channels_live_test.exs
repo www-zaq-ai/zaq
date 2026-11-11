@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Channels.AgentRouting
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
@@ -846,6 +847,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       assert has_element?(view, "#channel-send-on-file-failure") == (capability == :native)
       refute has_element?(view, "#channel-max-file-size")
     end
+  end
+
+  test "Mattermost adapter exposes upload size control in channel settings", %{conn: conn} do
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{
+        bridge: JidoChatBridge,
+        adapter: Jido.Chat.Mattermost.Adapter,
+        ingress_mode: :websocket
+      }
+    })
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#new-config-button") |> render_click()
+
+    assert has_element?(view, "#channel-max-file-size")
+    assert has_element?(view, "#channel-send-on-file-failure")
   end
 
   test "upload limit settings follow capability rather than provider identity", %{conn: conn} do

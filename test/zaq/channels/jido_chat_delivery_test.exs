@@ -62,7 +62,13 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
              JidoChatBridge.send_reply(outgoing, connection)
 
     assert_received {:openai_request, "PUT", "/api/v4/posts/status-post", "", body}
-    assert Jason.decode!(body) == %{"id" => "status-post", "message" => "Updated answer"}
+
+    assert Jason.decode!(body) == %{
+             "id" => "status-post",
+             "channel_id" => "private-room",
+             "message" => "Updated answer"
+           }
+
     refute_received {:openai_request, "POST", _, _, _}
   end
 

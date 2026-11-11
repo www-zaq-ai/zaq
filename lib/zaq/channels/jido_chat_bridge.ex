@@ -300,6 +300,12 @@ defmodule Zaq.Channels.JidoChatBridge do
           )
         end)
 
+      resolved =
+        Map.merge(
+          resolved,
+          Map.take(adapter_capabilities, [:configurable_max_file_size, :attachment_failure_policy])
+        )
+
       {:ok, %{resolved: resolved}}
     end
   end
@@ -2028,7 +2034,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp supports_message_updates?(adapter_module) do
-    function_exported?(adapter_module, :edit_message, 4)
+    Code.ensure_loaded?(adapter_module) and function_exported?(adapter_module, :edit_message, 4)
   end
 
   defp metadata_message_id(metadata) when is_map(metadata) do
