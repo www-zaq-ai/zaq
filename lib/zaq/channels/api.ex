@@ -210,9 +210,13 @@ defmodule Zaq.Channels.Api do
         formatted_outgoing
         |> bridge.send_reply(connection_details)
         |> normalize_delivery_response()
-        |> DeliveryConfirmation.record(outgoing, event.opts)
 
-      %{event | response: response}
+      observation = CommunicationBridge.delivery_observation(bridge, outgoing, response)
+
+      %{
+        event
+        | response: DeliveryConfirmation.record(response, outgoing, observation, event.opts)
+      }
     else
       {:error, reason} ->
         response = report_outgoing_failure(event, {:error, reason})
@@ -1040,10 +1044,34 @@ defmodule Zaq.Channels.Api do
 
   defp report_outgoing_failure(event, response) do
     case outgoing_from_event(event) do
-      {:ok, outgoing} -> DeliveryConfirmation.record(response, outgoing, event.opts)
-      _ -> response
+      {:ok, outgoing} ->
+        DeliveryConfirmation.record(
+          response,
+          outgoing,
+          pre_send_observation(response),
+          event.opts
+        )
+
+      _ ->
+        response
     end
   end
+
+  defp pre_send_observation({:error, {:no_bridge, _}}),
+    do: %{outcome: :failed, reason: :unsupported_provider}
+
+  defp pre_send_observation({:error, reason})
+       when reason in [
+              :missing_connection_details,
+              :invalid_connector_id,
+              :connector_mismatch,
+              :channel_disabled,
+              :channel_archived,
+              :channel_config_not_found
+            ],
+       do: %{outcome: :failed, reason: :missing_configuration}
+
+  defp pre_send_observation(_response), do: %{outcome: :unconfirmed, reason: :unknown}
 
   defp upsert_outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
 

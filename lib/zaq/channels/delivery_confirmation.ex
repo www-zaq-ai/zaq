@@ -4,13 +4,20 @@ defmodule Zaq.Channels.DeliveryConfirmation do
 
   Transport success is preserved even if the downstream consumer is unavailable;
   reporting a receipt must never cause the accepted message to be resent.
+  Bridges and Channels preflight operations supply bounded unsuccessful evidence;
+  this reporter never interprets provider errors or selects a transport policy.
   """
 
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.NodeRouter
 
-  @doc "Forwards a confirmed receipt and its original outgoing message to Engine."
+  @reasons [:rejected, :missing_configuration, :unsupported_provider, :timeout, :unknown]
+
+  @doc """
+  Forwards a confirmed receipt and its original outgoing message to Engine.
+  Errors without normalized evidence remain unconfirmed; use `record/4` to supply it.
+  """
   def record({:ok, %{confirmation: :confirmed} = receipt}, outgoing, opts) do
     router = Keyword.get(opts, :delivery_node_router, NodeRouter)
 
@@ -45,35 +52,41 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   end
 
   def record({:error, _} = response, %Outgoing{} = outgoing, opts) do
-    report_observation(response, outgoing, opts)
-    response
+    record(response, outgoing, nil, opts)
   end
 
   def record({:error, _, _} = response, %Outgoing{} = outgoing, opts) do
-    report_observation(response, outgoing, opts)
-    response
+    record(response, outgoing, nil, opts)
   end
 
   def record(response, _outgoing, _opts), do: response
 
-  defp report_observation(response, outgoing, opts) do
+  @doc "Reports supplied safe evidence separately from the unchanged delivery result."
+  def record({:error, _} = response, %Outgoing{} = outgoing, observation, opts) do
+    report_observation(observation, outgoing, opts)
+    response
+  end
+
+  def record({:error, _, _} = response, %Outgoing{} = outgoing, observation, opts) do
+    report_observation(observation, outgoing, opts)
+    response
+  end
+
+  def record(response, outgoing, _observation, opts), do: record(response, outgoing, opts)
+
+  defp report_observation(observation, outgoing, opts) do
     metadata = outgoing.metadata || %{}
 
     answer_id =
       Map.get(metadata, :persisted_assistant_message_id, metadata[:assistant_message_id])
 
     if is_binary(answer_id) and is_binary(metadata[:user_message_id]) do
-      {outcome, reason} = classify(response, outgoing.provider)
-
-      observation = %{
-        assistant_message_id: answer_id,
-        user_message_id: metadata[:user_message_id],
-        channel_config_id: Map.get(outgoing.routing_context || %{}, :channel_config_id),
-        outcome: outcome,
-        reason: reason
-      }
-
-      observation = put_provider_code(observation, response, outgoing.provider)
+      observation =
+        Map.merge(safe_observation(observation), %{
+          assistant_message_id: answer_id,
+          user_message_id: metadata[:user_message_id],
+          channel_config_id: Map.get(outgoing.routing_context || %{}, :channel_config_id)
+        })
 
       router = Keyword.get(opts, :delivery_node_router, NodeRouter)
 
@@ -90,34 +103,17 @@ defmodule Zaq.Channels.DeliveryConfirmation do
     _kind, _ -> :ok
   end
 
-  defp classify({:error, :timeout}, _provider), do: {:unconfirmed, :timeout}
+  defp safe_observation(%{outcome: outcome, reason: reason} = observation)
+       when outcome in [:failed, :unconfirmed] and reason in @reasons and
+              (outcome != :failed or
+                 reason in [:rejected, :missing_configuration, :unsupported_provider]) do
+    facts = Map.take(observation, [:outcome, :reason])
 
-  defp classify({:error, {status, _body}}, provider)
-       when provider in [:mattermost, "mattermost"] and
-              status in [400, 401, 403, 404, 405, 413, 415, 422, 429],
-       do: {:failed, :rejected}
+    case observation[:provider_code] do
+      code when is_integer(code) and code in 0..999 -> Map.put(facts, :provider_code, code)
+      _ -> facts
+    end
+  end
 
-  defp classify({:error, {:no_bridge, _}}, _provider), do: {:failed, :unsupported_provider}
-
-  defp classify({:error, {:unsupported_provider, _}}, _provider),
-    do: {:failed, :unsupported_provider}
-
-  defp classify({:error, reason}, _provider)
-       when reason in [
-              :missing_connection_details,
-              :invalid_connector_id,
-              :connector_mismatch,
-              :channel_disabled,
-              :channel_archived,
-              :channel_config_not_found
-            ],
-       do: {:failed, :missing_configuration}
-
-  defp classify(_response, _provider), do: {:unconfirmed, :unknown}
-
-  defp put_provider_code(observation, {:error, {status, _body}}, provider)
-       when provider in [:mattermost, "mattermost"] and status in 100..599,
-       do: Map.put(observation, :provider_code, status)
-
-  defp put_provider_code(observation, _response, _provider), do: observation
+  defp safe_observation(_observation), do: %{outcome: :unconfirmed, reason: :unknown}
 end
