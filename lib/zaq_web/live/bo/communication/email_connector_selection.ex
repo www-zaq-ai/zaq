@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.EmailConnectorSelection do
     socket
     |> assign(:configs, snapshot.configs)
     |> assign(:selected_config_id, snapshot.selected_config_id)
+    |> assign(:connector_form_config, Map.get(snapshot, :form_config))
   end
 
   def name(configs, selected_id, default) do

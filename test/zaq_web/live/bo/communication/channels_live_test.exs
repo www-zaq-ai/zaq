@@ -47,7 +47,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     def sync_provider_runtime(config), do: record_call(:sync_provider_runtime, config)
 
     def capability_snapshot(_config) do
-      fetch_state(:capability_snapshot, {:ok, %{resolved: %{}}})
+      fetch_state(
+        :capability_snapshot,
+        {:ok, %{resolved: %{configurable_max_file_size: :native}}}
+      )
     end
 
     def channel_ingress_status(config) do
@@ -140,7 +143,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     previous_channels = Application.get_env(:zaq, :channels, %{})
 
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: BridgeFake, ingress_mode: :websocket},
+      mattermost: %{
+        bridge: BridgeFake,
+        ingress_mode: :websocket
+      },
       web: %{bridge: Zaq.Channels.WebBridge},
       email: %{bridge: Zaq.Channels.EmailBridge}
     })
@@ -800,6 +806,170 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     state = :sys.get_state(view.pid)
     assert state.socket.assigns.posts_status == :error
     assert state.socket.assigns.posts == []
+  end
+
+  test "file failure toggle defaults on and persists both choices", %{conn: conn} do
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok, %{resolved: %{file: :native, configurable_max_file_size: :native}}}
+    )
+
+    config = insert_channel_config(%{settings: %{"max_file_size" => 2048}})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#edit-config-#{config.id}") |> render_click()
+    assert has_element?(view, "#channel-send-on-file-failure[checked]")
+
+    for value <- ["false", "true"] do
+      view
+      |> form("#config-form", %{
+        "form" => %{"settings" => %{"send_on_file_failure" => value}}
+      })
+      |> render_submit()
+
+      saved = Repo.get!(ChannelConfig, config.id)
+      assert saved.settings["send_on_file_failure"] in [value, value == "true"]
+      assert saved.settings["max_file_size"] == 2048
+
+      view |> element("#edit-config-#{config.id}") |> render_click()
+      assert has_element?(view, "#channel-send-on-file-failure[checked]") == (value == "true")
+    end
+  end
+
+  test "file failure toggle follows send file capability independently of upload size", %{
+    conn: conn
+  } do
+    for capability <- [:native, :unsupported, nil, false] do
+      BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{file: capability}}})
+      {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      view |> element("#new-config-button") |> render_click()
+
+      assert has_element?(view, "#channel-send-on-file-failure") == (capability == :native)
+      refute has_element?(view, "#channel-max-file-size")
+    end
+  end
+
+  test "upload limit settings follow capability rather than provider identity", %{conn: conn} do
+    channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(channels, :discord, %{bridge: BridgeFake})
+    )
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/discord")
+    view |> element("#new-config-button") |> render_click()
+    assert has_element?(view, "#channel-advanced-settings")
+    refute view |> element("#channel-advanced-settings") |> render() =~ "Mattermost"
+
+    view
+    |> form("#config-form", %{
+      "form" => %{
+        "name" => "Configurable upload provider",
+        "url" => "https://example.test",
+        "token" => "test-token",
+        "settings" => %{"max_file_size" => "2048"}
+      }
+    })
+    |> render_submit()
+
+    config = Repo.get_by!(ChannelConfig, name: "Configurable upload provider")
+    assert config.provider == "discord"
+    assert config.settings["max_file_size"] == 2048
+
+    Application.put_env(:zaq, :channels, Map.put(channels, :mattermost, %{bridge: BridgeFake}))
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{file: :native}}})
+    {:ok, unsupported, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    unsupported |> element("#new-config-button") |> render_click()
+    assert has_element?(unsupported, "#channel-advanced-settings")
+
+    assert has_element?(
+             unsupported,
+             "input[name='form[settings][send_on_file_failure]'][type=checkbox]"
+           )
+
+    refute has_element?(unsupported, "input[name='form[settings][max_file_size]']")
+  end
+
+  test "upload size capability is available with multiple connector configurations", %{conn: conn} do
+    insert_channel_config(%{name: "First instance"})
+    insert_channel_config(%{name: "Second instance"})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#new-config-button") |> render_click()
+    assert has_element?(view, "#channel-advanced-settings")
+  end
+
+  test "upload size setting stays hidden unless the adapter declares native support", %{
+    conn: conn
+  } do
+    for status <- [:unsupported, :fallback, nil, false] do
+      BridgeFake.put(
+        :capability_snapshot,
+        {:ok, %{resolved: %{file: :native, configurable_max_file_size: status}}}
+      )
+
+      {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      view |> element("#new-config-button") |> render_click()
+      assert has_element?(view, "#channel-advanced-settings")
+
+      assert has_element?(
+               view,
+               "input[name='form[settings][send_on_file_failure]'][type=checkbox]"
+             )
+
+      refute has_element?(view, "input[name='form[settings][max_file_size]']")
+    end
+  end
+
+  test "Mattermost advanced file limit saves as bytes and can be edited or cleared", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#new-config-button") |> render_click()
+    assert has_element?(view, "#channel-advanced-settings", "Advanced settings")
+
+    view
+    |> form("#config-form", %{
+      "form" => %{
+        "provider" => "mattermost",
+        "kind" => "retrieval",
+        "name" => "File limit config",
+        "url" => "https://mm.local",
+        "token" => "test-token",
+        "settings" => %{"max_file_size" => "307200"}
+      }
+    })
+    |> render_submit()
+
+    config = Repo.get_by!(ChannelConfig, name: "File limit config")
+    assert config.settings["max_file_size"] == 307_200
+
+    for limit <- ["614400", ""] do
+      view |> element("#edit-config-#{config.id}") |> render_click()
+      stored_limit = Repo.get!(ChannelConfig, config.id).settings["max_file_size"]
+      assert has_element?(view, "#channel-max-file-size[value='#{stored_limit}']")
+
+      view
+      |> form("#config-form", %{"form" => %{"settings" => %{"max_file_size" => limit}}})
+      |> render_submit()
+
+      expected = if limit == "", do: nil, else: String.to_integer(limit)
+      assert Repo.get!(ChannelConfig, config.id).settings["max_file_size"] == expected
+    end
+  end
+
+  test "Mattermost advanced file limit rejects invalid sizes without saving", %{conn: conn} do
+    config = insert_channel_config(%{settings: %{"max_file_size" => 307_200}})
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#edit-config-#{config.id}") |> render_click()
+
+    for invalid <- ["0", "-1", "1.5", "300KB"] do
+      html =
+        view
+        |> element("#config-form")
+        |> render_submit(%{"form" => %{"settings" => %{"max_file_size" => invalid}}})
+
+      assert html =~ "max_file_size must be a positive integer in bytes"
+      assert Repo.get!(ChannelConfig, config.id).settings["max_file_size"] == 307_200
+    end
   end
 
   test "save supports happy paths for new and edit", %{conn: conn} do
@@ -2290,7 +2460,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     existing_channels = Application.get_env(:zaq, :channels, %{})
 
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: BridgeFake, ingress_mode: :websocket},
+      mattermost: %{
+        bridge: BridgeFake,
+        ingress_mode: :websocket
+      },
       web: %{bridge: Zaq.Channels.WebBridge},
       email: %{bridge: Zaq.Channels.EmailBridge},
       google_drive: %{bridge: BridgeFake, ingress_mode: :webhook}

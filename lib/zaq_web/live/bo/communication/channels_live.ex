@@ -1597,7 +1597,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp capability_snapshot(provider) do
     event =
-      Event.new(%{provider: provider}, :channels, opts: [action: :channel_capability_snapshot])
+      Event.new(%{provider: provider, scope: :provider}, :channels,
+        opts: [action: :channel_capability_snapshot]
+      )
 
     case NodeRouter.dispatch(event).response do
       {:ok, map} when is_map(map) -> map

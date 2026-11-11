@@ -13,6 +13,7 @@ defmodule Zaq.Engine.EmailConnectorSettings do
   import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.ConnectorConfig.ImapSettings, as: ImapConfigHelpers
+  alias Zaq.ConnectorConfig.Settings
   alias Zaq.ConnectorConfig.SmtpSettings, as: SmtpHelpers
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
@@ -94,6 +95,7 @@ defmodule Zaq.Engine.EmailConnectorSettings do
           token: "__smtp_unused__",
           enabled: value.enabled,
           settings: %{
+            "send_on_file_failure" => value.send_on_file_failure,
             "relay" => value.relay,
             "port" => to_string(value.port || 587),
             "transport_mode" => value.transport_mode,
@@ -183,6 +185,8 @@ defmodule Zaq.Engine.EmailConnectorSettings do
 
     %EmailConfig{
       enabled: channel.enabled,
+      send_on_file_failure:
+        Settings.attachment_failure_policy(%{settings: settings}) == :continue,
       relay: map_get(settings, "relay"),
       port: parse_int(map_get(settings, "port"), 587),
       transport_mode: map_get(settings, "transport_mode") || "starttls",

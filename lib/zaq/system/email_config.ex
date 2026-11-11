@@ -11,6 +11,7 @@ defmodule Zaq.System.EmailConfig do
 
   embedded_schema do
     field :enabled, :boolean, default: false
+    field :send_on_file_failure, :boolean, default: true
     field :relay, :string
     field :port, :integer, default: 587
     field :transport_mode, :string, default: "starttls"
@@ -27,6 +28,7 @@ defmodule Zaq.System.EmailConfig do
     config
     |> cast(attrs, [
       :enabled,
+      :send_on_file_failure,
       :relay,
       :port,
       :transport_mode,

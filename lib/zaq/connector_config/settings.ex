@@ -20,6 +20,16 @@ defmodule Zaq.ConnectorConfig.Settings do
   def jido_chat_bot_user_id(config), do: jido_chat_setting(config, "bot_user_id")
   def imap_settings(config), do: nested(config, "imap")
 
+  @doc "Projects the selected connector's default-on file failure setting into a delivery policy."
+  def attachment_failure_policy(config) do
+    settings = Map.get(config, :settings, Map.get(config, "settings", %{})) || %{}
+
+    value =
+      Map.get(settings, "send_on_file_failure", Map.get(settings, :send_on_file_failure, true))
+
+    if value in [false, "false"], do: :abort, else: :continue
+  end
+
   def imap_selected_mailboxes(config) do
     config
     |> imap_settings()

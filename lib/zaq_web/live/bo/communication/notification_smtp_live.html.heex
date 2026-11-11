@@ -210,6 +210,15 @@
               Advanced SMTP
             </p>
 
+            <ZaqWeb.Components.DesignSystem.Switch.switch
+              id="smtp-send-on-file-failure"
+              name="email_config[send_on_file_failure]"
+              layout={:setting_row}
+              label="Send message if files fail"
+              description="Send the email with files that can be prepared and log failures. Turn this off to stop the email if any file cannot be prepared."
+              value={@form[:send_on_file_failure].value}
+            />
+
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
