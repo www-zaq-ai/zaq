@@ -216,7 +216,10 @@ defmodule ZaqWeb.Components.DesignSystem.ConversationDetail do
         class="w-full min-w-0 max-w-3xl mx-auto px-6 py-6 space-y-5"
         data-testid="history-message-timeline"
       >
-        <%= for item <- inject_date_separators(@messages, :inserted_at) do %>
+        <div
+          :for={{item, index} <- Enum.with_index(inject_date_separators(@messages, :inserted_at))}
+          :key={timeline_key(item, index)}
+        >
           <%= if Map.get(item, :type) == :date_separator do %>
             <div class="flex items-center gap-3 my-1" data-testid="history-date-separator">
               <div class="flex-1 h-px" style="background: var(--zaq-border-color-default);"></div>
@@ -229,10 +232,15 @@ defmodule ZaqWeb.Components.DesignSystem.ConversationDetail do
           <% else %>
             {render_slot(@inner_block, item)}
           <% end %>
-        <% end %>
+        </div>
         <p :if={@messages == []} class="zaq-text-body-sm py-16 text-center">No messages yet.</p>
       </div>
     </div>
     """
   end
+
+  defp timeline_key(%{type: :date_separator, date: date}, index), do: {:date, date, index}
+  defp timeline_key(%{message_id: id}, _index) when not is_nil(id), do: {:message, id}
+  defp timeline_key(%{id: id}, _index) when not is_nil(id), do: {:message, id}
+  defp timeline_key(_item, index), do: {:item, index}
 end

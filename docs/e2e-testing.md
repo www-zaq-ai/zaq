@@ -223,6 +223,32 @@ Screenshots are written under `test/e2e/test-results/history-*.png`.
 No E2E bootstrap, port-4002 demo restart, database reset or real provider credentials
 are needed. Install the same Playwright dependencies/engines as other browser tests.
 
+### Channel delivery visibility (isolated, no reset)
+
+After the completed-UX approval recorded in `zaq-rgo.6`, run:
+
+```sh
+mix assets.build
+mix test test/zaq_web/channel_delivery_visibility_browser_test.exs --include real_browser --timeout 180000
+```
+
+Chromium, Firefox and WebKit exercise the real BO login, Endpoint, committed
+answer/evidence persistence, Channels-to-Engine reporting, scoped asynchronous
+PubSub invalidation and authorized incremental reads. Answers use deterministic
+capture/admission/finalization fixtures, not a model run. Definite rejection and
+later acceptance use the real Mattermost adapter against local HTTP; timeout is
+injected only at the transport callback. No BO read or persistence is mocked.
+
+The journey checks inline ordering, safe errors, retained DOM/focus/scroll,
+desktop/mobile stored information and traces, independent pending pagination,
+deferred association, duplicate hints, unrelated transcript isolation, staff
+denial and live role revocation. A deliberately dropped UI dispatch leaves the
+committed outcome intact; reload displays it without replay or data repair.
+Screenshots are written to `test/e2e/test-results/channel-delivery-*.png`.
+The existing domain tests separately verify outer-owner commit/rollback timing,
+fixed-target scoping and notification-failure isolation. No public test endpoint,
+database reset, provider account or retry/cancel transport operation is added.
+
 ### Real embedded widget lifecycle (isolated, no reset)
 
 ```sh

@@ -14,6 +14,7 @@ defmodule Zaq.Engine.HistoryIngress do
   alias Zaq.Accounts.People
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryMembership
+  alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Message, TranscriptHistory}
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
@@ -211,11 +212,18 @@ defmodule Zaq.Engine.HistoryIngress do
       )
       when is_binary(provider) and is_integer(id) and id > 0 and
              kind in [:direct, :channel, :replicated],
-      do: record_confirmation_transaction(delivery)
+      do: record_confirmation_transaction(delivery) |> publish_confirmation()
 
   def record_confirmation(%{confirmation: :confirmed}), do: {:error, :invalid_delivery_scope}
 
   def record_confirmation(_), do: {:error, :unconfirmed_delivery}
+
+  defp publish_confirmation({:ok, %Message{} = message}) do
+    ChannelHistoryUpdates.publish_messages([message])
+    {:ok, message.id}
+  end
+
+  defp publish_confirmation(result), do: result
 
   defp record_confirmation_transaction(delivery) do
     Repo.transaction(fn ->
@@ -239,10 +247,10 @@ defmodule Zaq.Engine.HistoryIngress do
       fingerprint = confirmation_fingerprint(delivery)
       message = confirmed_message(delivery)
 
-      id =
+      confirmed =
         case message do
           %Message{metadata: %{"history_association" => %{"fingerprint" => ^fingerprint}}} ->
-            message.id
+            message
 
           %Message{metadata: %{"history_association" => _}} ->
             Repo.rollback(:conflicting_delivery_confirmation)
@@ -251,8 +259,8 @@ defmodule Zaq.Engine.HistoryIngress do
             prepare_confirmation(delivery, fingerprint, message)
         end
 
-      case HistoryDeliveryWorker.enqueue(id) do
-        {:ok, _} -> id
+      case HistoryDeliveryWorker.enqueue(confirmed.id) do
+        {:ok, _} -> confirmed
         _ -> Repo.rollback(:history_capture_unavailable)
       end
     end)
@@ -347,7 +355,6 @@ defmodule Zaq.Engine.HistoryIngress do
         })
 
       message |> Message.confirmation_changeset(metadata) |> Repo.update!()
-      message.id
     else
       {:error, reason} -> Repo.rollback(reason)
       _ -> Repo.rollback(:invalid_delivery_scope)

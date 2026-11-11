@@ -59,7 +59,13 @@ jobs:
 
       - name: Install inotify-tools
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends inotify-tools
+        run: |
+          set -euo pipefail
+          # Keep Ubuntu signature verification without depending on the failing ubuntu.com DNS zone.
+          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
+          sudo apt-get update -o APT::Update::Error-Mode=any
+          sudo apt-get install -y --no-install-recommends inotify-tools
 
       - name: Set up PostgreSQL 18 and pgvector on macOS
         if: runner.os == 'macOS'
