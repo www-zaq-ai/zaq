@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelDeliveryVisibilityLiveTest do
   alias Zaq.Accounts.People
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryUpdates
+  alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Conversations.MessageDelivery
   alias Zaq.Engine.HistoryIngress
   alias Zaq.Repo
@@ -185,6 +186,165 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelDeliveryVisibilityLiveTest do
            |> Enum.count() == 1
   end
 
+  test "confirmed association replaces failed evidence while delivery details remain open", ctx do
+    {:ok, view, _} = live(ctx.conn, path(ctx))
+
+    view
+    |> element("#history-message-#{ctx.answer.id} [data-testid='delivery-status']")
+    |> render_click()
+
+    assert {:ok, :recorded} = MessageDelivery.record(observation(ctx))
+    flush_committed_update(view, ctx)
+    assert has_element?(view, "#channel-delivery-details")
+    assert render(view) =~ "The provider rejected the delivery."
+
+    confirm_answer(ctx)
+    html = flush_committed_update(view, ctx)
+
+    assert has_element?(view, "#channel-delivery-details")
+    assert html =~ "Delivery confirmed"
+    assert has_element?(view, "#channel-delivery-details", "The provider confirmed delivery.")
+    refute has_element?(view, "#history-message-#{ctx.answer.id} [data-delivery-state]")
+
+    assert Enum.count(
+             LazyHTML.query(LazyHTML.from_fragment(html), "#history-message-#{ctx.answer.id}")
+           ) ==
+             1
+
+    view
+    |> element("#channel-delivery-details button[phx-click='close_delivery_info']", "Close")
+    |> render_click()
+
+    refute has_element?(view, "#channel-delivery-details")
+
+    {:ok, reopened, html} = live(ctx.conn, path(ctx))
+    refute html =~ "data-delivery-state"
+
+    assert Enum.count(
+             LazyHTML.query(LazyHTML.from_fragment(html), "#history-message-#{ctx.answer.id}")
+           ) ==
+             1
+
+    reopened
+    |> element("#history-message-#{ctx.answer.id} [phx-click='open_message_info']")
+    |> render_click()
+
+    assert has_element?(reopened, "[data-testid='message-info-popin']")
+
+    ids =
+      render(reopened)
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#history-message-#{ctx.answer.id}")
+
+    assert Enum.count(ids) == 1
+  end
+
+  test "opening delivery details after role revocation clears private history", ctx do
+    private =
+      stored_channel_answer(
+        config: ctx.config,
+        room: "room",
+        private_execution: true,
+        trace: [%{"type" => "tool_call", "name" => "lookup", "response" => "PRIVATE_OPEN_TRACE"}]
+      )
+
+    {:ok, view, _} = live(ctx.conn, path(private))
+
+    view
+    |> element("#history-message-#{private.answer.id} [phx-click='open_message_info']")
+    |> render_click()
+
+    view |> element("[data-testid^='trace-row-']") |> render_click()
+
+    view
+    |> element("#history-message-#{private.answer.id} [data-testid='delivery-status']")
+    |> render_click()
+
+    assert render(view) =~ "PRIVATE_OPEN_TRACE"
+    assert has_element?(view, "#channel-delivery-details")
+
+    staff = user_fixture()
+    ctx.admin |> Ecto.Changeset.change(role_id: staff.role_id) |> Repo.update!()
+    render_hook(view, "open_delivery_info", %{"id" => private.answer.id})
+
+    assert render(view) =~ "Not authorized"
+    refute has_element?(view, "#channel-delivery-details")
+    refute has_element?(view, "[data-testid='message-info-popin']")
+    refute has_element?(view, "[id^='history-message-']")
+    refute has_element?(view, "[data-testid='message-info-popin']")
+    refute render(view) =~ "PRIVATE_OPEN_TRACE"
+
+    send(
+      view.pid,
+      {:channel_history_updated, private.captured.transcript_id, [private.answer.id]}
+    )
+
+    html = flush_updates(view)
+    assert html =~ "Not authorized"
+    refute has_element?(view, "[id^='history-message-']")
+    refute has_element?(view, "#channel-delivery-details")
+    refute has_element?(view, "[data-testid='message-info-popin']")
+    refute html =~ "PRIVATE_OPEN_TRACE"
+  end
+
+  test "loading another pending page after role revocation clears private history", ctx do
+    private =
+      stored_channel_answer(
+        config: ctx.config,
+        room: "private-paging-room",
+        private_execution: true,
+        trace: [%{"type" => "tool_call", "name" => "lookup", "response" => "PRIVATE_PAGE_TRACE"}]
+      )
+
+    for _ <- 1..50 do
+      stored_channel_answer(
+        config: ctx.config,
+        room: "private-paging-room",
+        person: private.person,
+        private_execution: true
+      )
+    end
+
+    {:ok, view, _} = live(ctx.conn, path(private))
+
+    view
+    |> element("#history-message-#{private.answer.id} [phx-click='open_message_info']")
+    |> render_click()
+
+    view |> element("[data-testid^='trace-row-']") |> render_click()
+
+    view
+    |> element("#history-message-#{private.answer.id} [data-testid='delivery-status']")
+    |> render_click()
+
+    assert render(view) =~ "PRIVATE_PAGE_TRACE"
+    assert has_element?(view, "#channel-delivery-details")
+    assert has_element?(view, "button", "Load more outstanding messages")
+
+    staff = user_fixture()
+    ctx.admin |> Ecto.Changeset.change(role_id: staff.role_id) |> Repo.update!()
+    render_hook(view, "load_pending", %{})
+
+    assert render(view) =~ "Not authorized"
+    refute has_element?(view, "#channel-delivery-details")
+    refute has_element?(view, "[data-testid='message-info-popin']")
+    refute has_element?(view, "[id^='history-message-']")
+    refute has_element?(view, "[data-testid='message-info-popin']")
+    refute render(view) =~ "PRIVATE_PAGE_TRACE"
+
+    send(
+      view.pid,
+      {:channel_history_updated, private.captured.transcript_id, [private.answer.id]}
+    )
+
+    html = flush_updates(view)
+    assert html =~ "Not authorized"
+    refute has_element?(view, "[id^='history-message-']")
+    refute has_element?(view, "#channel-delivery-details")
+    refute has_element?(view, "[data-testid='message-info-popin']")
+    refute html =~ "PRIVATE_PAGE_TRACE"
+  end
+
   test "a lost UI notification affects freshness only and reopening reads the committed evidence",
        ctx do
     {:ok, view, _} = live(ctx.conn, path(ctx))
@@ -238,6 +398,124 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelDeliveryVisibilityLiveTest do
     view |> element("button", "Load more outstanding messages") |> render_click()
     assert pending_count(render(view)) == 51
     assert has_element?(view, "#history-message-#{last.answer.id} [data-delivery-state='failed']")
+    refute has_element?(view, "button", "Load more outstanding messages")
+  end
+
+  test "one bounded invalidation updates all 51 persisted answers across pending pages", ctx do
+    additional = for _ <- 1..50, do: stored_channel_answer(config: ctx.config, room: "room")
+    fixtures = [ctx | additional]
+    {:ok, view, _} = live(ctx.conn, path(ctx))
+    assert pending_count(render(view)) == 50
+
+    expect(Zaq.NodeRouterMock, :dispatch, 51, fn event ->
+      send(self(), {:intercepted_history_publication, event})
+      event
+    end)
+
+    for fixture <- fixtures do
+      assert {:ok, :recorded} =
+               MessageDelivery.record(observation(fixture),
+                 history_updates_node_router: Zaq.NodeRouterMock
+               )
+    end
+
+    answer_ids = Enum.map(fixtures, & &1.answer.id)
+    assert Enum.uniq(answer_ids) == answer_ids
+
+    for id <- answer_ids do
+      assert %Message{metadata: %{"delivery_observation" => %{"outcome" => "failed"}}} =
+               Repo.get!(Message, id)
+    end
+
+    publications =
+      for _ <- answer_ids do
+        assert_receive {:intercepted_history_publication, event}
+        event
+      end
+
+    published_ids =
+      Enum.flat_map(publications, fn event ->
+        assert %Zaq.Event{
+                 request:
+                   {:broadcast, topic, {:channel_history_updated, transcript_id, message_ids}},
+                 opts: [action: :broadcast, confidential: true]
+               } = event
+
+        assert topic == ChannelHistoryUpdates.topic(ctx.captured.transcript_id)
+        assert transcript_id == ctx.captured.transcript_id
+        message_ids
+      end)
+
+    assert Enum.sort(published_ids) == Enum.sort(answer_ids)
+
+    hint =
+      {:channel_history_updated, ctx.captured.transcript_id,
+       answer_ids ++ [hd(answer_ids), nil, 123]}
+
+    send(view.pid, hint)
+    html = flush_updates(view)
+
+    assert pending_count(html) == 50
+
+    assert Enum.all?(Enum.take(answer_ids, 50), fn id ->
+             has_element?(view, "#history-message-#{id} [data-delivery-state='failed']")
+           end)
+
+    refute has_element?(view, "#history-message-#{List.last(answer_ids)}")
+
+    view |> element("button", "Load more outstanding messages") |> render_click()
+    html = render(view)
+    assert pending_count(html) == 51
+
+    assert Enum.all?(answer_ids, fn id ->
+             has_element?(view, "#history-message-#{id} [data-delivery-state='failed']")
+           end)
+
+    rendered_ids =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[id^='history-message-']")
+      |> LazyHTML.attribute("id")
+
+    for id <- answer_ids do
+      assert Enum.count(rendered_ids, &(&1 == "history-message-#{id}")) == 1
+    end
+
+    refute has_element?(view, "button", "Load more outstanding messages")
+    send(view.pid, hint)
+    replayed = flush_updates(view)
+    assert pending_count(replayed) == 51
+
+    assert Enum.all?(answer_ids, fn id ->
+             has_element?(view, "#history-message-#{id} [data-delivery-state='failed']")
+           end)
+
+    replayed_ids =
+      replayed
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[id^='history-message-']")
+      |> LazyHTML.attribute("id")
+
+    for id <- answer_ids,
+        do: assert(Enum.count(replayed_ids, &(&1 == "history-message-#{id}")) == 1)
+
+    render_hook(view, "load_pending", %{})
+    exhausted = render(view)
+    assert pending_count(exhausted) == 51
+
+    assert Enum.all?(answer_ids, fn id ->
+             has_element?(view, "#history-message-#{id} [data-delivery-state='failed']")
+           end)
+
+    exhausted_ids =
+      exhausted
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[id^='history-message-']")
+      |> LazyHTML.attribute("id")
+
+    for id <- answer_ids,
+        do: assert(Enum.count(exhausted_ids, &(&1 == "history-message-#{id}")) == 1)
+
     refute has_element?(view, "button", "Load more outstanding messages")
   end
 

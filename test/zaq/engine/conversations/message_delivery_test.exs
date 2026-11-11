@@ -6,6 +6,7 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
   import Zaq.ChannelDeliveryFixtures
 
   alias Zaq.Channels.Api, as: ChannelsApi
+  alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.Conversations
@@ -54,6 +55,173 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
 
     assert {:ok, :unchanged} = MessageDelivery.record(ctx.request)
     assert Repo.get!(Message, answer.id).metadata == answer.metadata
+  end
+
+  test "reporter table preserves errors and stores only bounded evidence", _ctx do
+    cases = [
+      %{
+        name: :two_tuple,
+        response: {:error, :transport},
+        expected: %{"outcome" => "unconfirmed", "reason_code" => "unknown"}
+      },
+      %{
+        name: :three_tuple,
+        response: {:error, :transport, :details},
+        expected: %{"outcome" => "unconfirmed", "reason_code" => "unknown"}
+      },
+      %{
+        name: :normalized_rejection,
+        response: {:error, :rejected, :details},
+        observation: %{outcome: :failed, reason: :rejected, provider_code: 403},
+        expected: %{"outcome" => "failed", "reason_code" => "rejected", "provider_code" => 403}
+      },
+      %{
+        name: :malformed_facts,
+        response: {:error, :malformed},
+        observation: %{outcome: :failed, reason: "private response", provider_code: -1},
+        expected: %{"outcome" => "unconfirmed", "reason_code" => "unknown"}
+      },
+      %{
+        name: :missing_persisted_answer,
+        response: {:error, :nil_answer},
+        observation: %{outcome: :failed, reason: :rejected},
+        missing_answer: true
+      }
+    ]
+
+    for %{response: response} = scenario <- cases do
+      ctx = stored_channel_answer()
+      persisted_id = if scenario[:missing_answer], do: nil, else: ctx.answer.id
+      outgoing = reporter_outgoing(ctx, persisted_id)
+
+      if scenario[:missing_answer] do
+        outgoing = %{
+          outgoing
+          | metadata: Map.put(outgoing.metadata, :assistant_message_id, ctx.answer.id)
+        }
+
+        result = reporter_record(scenario, outgoing)
+        assert result == response
+        unchanged = Repo.get!(Message, ctx.answer.id)
+        assert unchanged.content == ctx.answer.content
+        assert unchanged.metadata == ctx.answer.metadata
+        refute Repo.get_by(TranscriptMessage, message_id: ctx.answer.id)
+      else
+        assert reporter_record(scenario, outgoing) == response, inspect(scenario.name)
+
+        stored = Repo.get!(Message, ctx.answer.id)
+        assert stored.content == ctx.answer.content
+        evidence = stored.metadata["delivery_observation"]
+        observed_at = evidence["observed_at"]
+        assert {:ok, _, _} = DateTime.from_iso8601(observed_at)
+
+        assert Map.drop(evidence, ["observed_at"]) ==
+                 Map.merge(%{"version" => 1, "provider_code" => nil}, scenario.expected)
+
+        refute Repo.get_by(TranscriptMessage, message_id: ctx.answer.id)
+      end
+    end
+  end
+
+  defp reporter_record(scenario, outgoing) do
+    case scenario do
+      %{observation: observation} ->
+        DeliveryConfirmation.record(scenario.response, outgoing, observation, [])
+
+      _ ->
+        DeliveryConfirmation.record(scenario.response, outgoing, [])
+    end
+  end
+
+  test "real HTTP delivery stays single-send when Engine recording raises or throws" do
+    rows = [
+      %{
+        name: :accepted,
+        status: 201,
+        body: %{"id" => "post-accepted"},
+        action: :record_delivery_confirmation,
+        failure: :raise
+      },
+      %{
+        name: :rejected_raise,
+        status: 403,
+        body: %{"message" => "private provider response"},
+        action: :record_delivery_observation,
+        failure: :raise
+      },
+      %{
+        name: :rejected_throw,
+        status: 403,
+        body: %{"message" => "private provider response"},
+        action: :record_delivery_observation,
+        failure: :throw
+      }
+    ]
+
+    for %{name: name, status: status, body: response_body, action: action, failure: failure} <-
+          rows do
+      ctx = stored_channel_answer()
+
+      {child, endpoint} =
+        OpenAIStub.server(fn _conn, _body -> {status, response_body} end, self())
+
+      start_supervised!(Supervisor.child_spec(child, id: {:delivery_recording_http, name}))
+
+      ctx.config
+      |> ChannelConfig.changeset(%{url: String.trim_trailing(endpoint, "/v1")})
+      |> Repo.update!()
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(self(), {:recording_attempt, name, event})
+
+        case failure do
+          :raise -> raise "Engine recording unavailable"
+          :throw -> throw(:engine_recording_unavailable)
+        end
+      end)
+
+      outgoing = reporter_outgoing(ctx, ctx.answer.id)
+
+      event =
+        Event.new(outgoing, :channels,
+          opts: [action: :deliver_outgoing, delivery_node_router: Zaq.NodeRouterMock]
+        )
+
+      result = ChannelsApi.handle_event(event, :deliver_outgoing, nil).response
+
+      assert_receive {:openai_request, "POST", "/api/v4/posts", "", request_body}
+
+      assert Jason.decode!(request_body) == %{
+               "channel_id" => "room",
+               "message" => ctx.answer.content
+             }
+
+      refute_received {:openai_request, _, _, _, _}
+      assert_receive {:recording_attempt, ^name, %Event{opts: opts} = recording_event}
+      assert opts[:action] == action
+      if action == :record_delivery_observation, do: assert(opts[:confidential])
+
+      stored = Repo.get!(Message, ctx.answer.id)
+      assert stored.content == ctx.answer.content
+      refute Repo.get_by(TranscriptMessage, message_id: ctx.answer.id)
+
+      case name do
+        :accepted ->
+          assert {:ok,
+                  %{
+                    confirmation: :confirmed,
+                    message_id: "post-accepted",
+                    confirmation_recording: :unavailable
+                  }} = result
+
+          assert recording_event.request.receipt.message_id == "post-accepted"
+
+        _ ->
+          assert result == {:error, {403, response_body}}
+          refute stored.metadata["delivery_observation"]
+          refute inspect(stored.metadata) =~ "private provider response"
+      end
+    end
   end
 
   test "the delivery fixture retains its provider input identity and stored agent", ctx do
@@ -273,5 +441,19 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
       refute Repo.get_by(TranscriptMessage, message_id: stored.id)
       refute_received {:openai_request, _, _, _, _}
     end
+  end
+
+  defp reporter_outgoing(ctx, persisted_id) do
+    %Outgoing{
+      provider: :mattermost,
+      channel_id: "room",
+      body: ctx.answer.content,
+      routing_context: %{channel_config_id: ctx.config.id, conversation_type: :room},
+      metadata: %{
+        user_message_id: ctx.input.id,
+        assistant_message_id: ctx.answer.id,
+        persisted_assistant_message_id: persisted_id
+      }
+    }
   end
 end
