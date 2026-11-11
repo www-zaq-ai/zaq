@@ -113,8 +113,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
          |> assign(:message_info, MessageHelpers.message_info_from_message(message))
          |> assign(:expanded_trace_ids, MapSet.new())}
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Message information unavailable")}
+      error ->
+        {:noreply, history_error(socket, error, "Message information unavailable")}
     end
   end
 
@@ -128,18 +128,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
         message = Enum.find(changes.pending_messages, &(&1.message_id == id))
         {:noreply, assign(socket, :delivery_info, message)}
 
-      {:error, :unauthorized} ->
-        {:noreply, assign_detail(socket, {:error, :unauthorized})}
-
-      _ ->
-        {:noreply, put_flash(socket, :error, "Delivery information unavailable")}
+      error ->
+        {:noreply, history_error(socket, error, "Delivery information unavailable")}
     end
   end
 
   def handle_event("close_delivery_info", _params, socket),
     do: {:noreply, assign(socket, :delivery_info, nil)}
 
-  def handle_event("load_pending", _params, %{assigns: %{detail: {:ok, detail}}} = socket) do
+  def handle_event(
+        "load_pending",
+        _params,
+        %{assigns: %{detail: {:ok, %{pending_has_more: true} = detail}}} = socket
+      ) do
     request = %{
       op: :detail,
       cursor: socket.assigns.detail_cursor,
@@ -151,11 +152,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
         {:noreply,
          assign_detail(socket, {:ok, ChannelTimeline.append_pending_page(detail, page)})}
 
-      {:error, :unauthorized} ->
-        {:noreply, assign_detail(socket, {:error, :unauthorized})}
-
-      _ ->
-        {:noreply, put_flash(socket, :error, "Outstanding messages unavailable")}
+      error ->
+        {:noreply, history_error(socket, error, "Outstanding messages unavailable")}
     end
   end
 
@@ -174,13 +172,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
       when type in ["positive", "negative"] do
     rating = if type == "positive", do: 5, else: 1
 
-    case message_request(socket, %{op: :rate, message_id: id, rating: rating}) do
-      {:ok, _} ->
-        response = message_request(socket, %{op: :detail, cursor: socket.assigns.detail_cursor})
-        {:noreply, socket |> assign(:result, response) |> assign(:detail, response)}
-
-      _ ->
-        {:noreply, put_flash(socket, :error, "Could not save feedback")}
+    with {:ok, _} <- message_request(socket, %{op: :rate, message_id: id, rating: rating}),
+         {:ok, changes} <- message_request(socket, %{op: :message_changes, message_ids: [id]}) do
+      {:noreply, apply_history_changes(socket, changes)}
+    else
+      error -> {:noreply, history_error(socket, error, "Could not save feedback")}
     end
   end
 
@@ -201,16 +197,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
       case dispatch(socket.assigns.current_user, %{op: :refresh, id: transcript.id}) do
         {:ok, %{members: count}} ->
           {:noreply,
-           socket
-           |> assign(
-             :detail,
-             dispatch(socket.assigns.current_user, %{op: :detail, id: transcript.id})
-           )
-           |> put_flash(:info, "Provider access refreshed (#{count} linked People)")}
+           refresh_history_context(socket, "Provider access refreshed (#{count} linked People)")}
 
-        {:error, _} ->
+        error ->
           {:noreply,
-           put_flash(socket, :error, "Provider access unchanged: refresh failed or incomplete")}
+           history_error(socket, error, "Provider access unchanged: refresh failed or incomplete")}
       end
     else
       {:noreply, put_flash(socket, :error, "Provider refresh is unsupported for this transcript")}
@@ -315,6 +306,25 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
     |> assign(:detail, response)
     |> assign(:result, response)
     |> assign(:message_info_id, nil)
+    |> assign(:message_info, MessageHelpers.empty_message_info())
+    |> assign(:expanded_trace_ids, MapSet.new())
+    |> assign(:show_access, false)
+  end
+
+  defp history_error(socket, {:error, :unauthorized} = error, _message),
+    do: assign_detail(socket, error)
+
+  defp history_error(socket, _error, message), do: put_flash(socket, :error, message)
+
+  defp refresh_history_context(%{assigns: %{detail: {:ok, detail}}} = socket, message) do
+    case message_request(socket, %{op: :detail, cursor: socket.assigns.detail_cursor}) do
+      {:ok, refreshed} ->
+        updated = Map.merge(detail, Map.take(refreshed, [:transcript, :grants, :root_message]))
+        socket |> assign_detail({:ok, updated}) |> put_flash(:info, message)
+
+      error ->
+        history_error(socket, error, "History information unavailable")
+    end
   end
 
   defp apply_history_changes(%{assigns: %{detail: {:ok, detail}}} = socket, changes) do
@@ -366,16 +376,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
 
     case result do
       {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(
-           :detail,
-           dispatch(socket.assigns.current_user, %{op: :detail, id: transcript.id})
-         )
-         |> put_flash(:info, "Manual access updated")}
+        {:noreply, refresh_history_context(socket, "Manual access updated")}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not update manual access")}
+      error ->
+        {:noreply, history_error(socket, error, "Could not update manual access")}
     end
   end
 

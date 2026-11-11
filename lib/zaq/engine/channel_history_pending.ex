@@ -89,6 +89,7 @@ defmodule Zaq.Engine.ChannelHistoryPending do
       content: message.content,
       inserted_at: message.inserted_at,
       attachments: Enum.map(message.attachments || [], &Record.attachment_metadata/1),
+      pending_cursor: encode_cursor(message),
       delivery: MessageDelivery.presentation(message)
     }
   end

@@ -29,6 +29,9 @@ result. Fresh authorized reads reconstruct the display independently of PubSub.
 
 The confidential super-admin `:channel_history_admin` read adds outstanding
 answers separately from canonical `messages`, with independent keyset pagination.
+Each pending row carries an opaque continuation token so a bounded BO merge can
+retain access to rows displaced by an older newly eligible answer. UI hints do not
+advance fetched-page cursors or implicitly load outstanding pages.
 `ChannelHistoryPending` requires exact input placement and answer ownership;
 historical missing outcomes are unconfirmed, not inferred failures. Durable
 confirmation permits a history-updating row only in its recorded target

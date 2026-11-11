@@ -106,6 +106,34 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
              result
   end
 
+  for reason <- [:channel_disabled, :channel_archived, :channel_config_not_found] do
+    test "pre-send #{reason} is a definite configuration failure" do
+      outgoing = %{outgoing() | routing_context: %{channel_config_id: 12}}
+      response = {:error, unquote(reason)}
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(self(), {:configuration_observation, event})
+        %{event | response: {:ok, :recorded}}
+      end)
+
+      assert DeliveryConfirmation.record(response, outgoing,
+               delivery_node_router: Zaq.NodeRouterMock
+             ) == response
+
+      assert_received {:configuration_observation, event}
+      assert event.opts[:action] == :record_delivery_observation
+      assert event.opts[:confidential]
+
+      assert event.request == %{
+               user_message_id: "u-1",
+               assistant_message_id: "a-1",
+               channel_config_id: 12,
+               outcome: :failed,
+               reason: :missing_configuration
+             }
+    end
+  end
+
   test "unsuccessful reporting preserves errors and never creates evidence for a reserved-only UUID" do
     expect(Zaq.NodeRouterMock, :dispatch, fn _ -> exit(:engine_unavailable) end)
 

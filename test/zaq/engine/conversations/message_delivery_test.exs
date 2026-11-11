@@ -3,16 +3,13 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
   use ExUnitProperties
 
   import Mox
+  import Zaq.ChannelDeliveryFixtures
 
-  alias Zaq.Accounts.People
   alias Zaq.Channels.Api, as: ChannelsApi
-  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Message, MessageDelivery, TranscriptMessage}
-  alias Zaq.Engine.History.Facts
-  alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
@@ -29,81 +26,22 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
       })
     end)
 
-    {:ok, person} = People.create_person(%{"full_name" => "Delivery reader"})
-
-    config =
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        name: "Delivery evidence",
-        provider: "mattermost",
-        kind: "retrieval",
-        url: "https://example.invalid",
-        token: "fixture-token"
-      })
-      |> Repo.insert!()
-
-    {:ok, captured} =
-      Conversations.capture_canonical_message(
-        %Facts{
-          provider: config.provider,
-          channel_config_id: config.id,
-          channel_id: "room",
-          kind: :channel,
-          actor_person_id: person.id
-        },
-        %{
-          role: "external",
-          content: "Question",
-          author_id: "sender",
-          external_message_id: "input"
-        },
-        %{
-          provider: config.provider,
-          channel_config_id: config.id,
-          provenance: "channel_adapter"
-        }
-      )
-
-    incoming =
-      Incoming.new(%{
-        content: "Question",
-        channel_id: "room",
-        provider: :mattermost,
-        author_id: "sender",
+    fixture =
+      stored_channel_answer(
         message_id: "input",
-        routing_context: %{channel_config_id: config.id, conversation_type: :room}
-      })
-      |> CommunicationBridge.put_conversation_identity()
-
-    {:ok, binding} = Conversations.admit_incoming(incoming)
-
-    {:ok, %{assistant_message_id: answer_id}} =
-      Conversations.finalize_incoming(
-        binding.user_message_id,
-        binding.finalization_token,
-        %{answer: "Stored answer", agent: "Support", error: false},
+        result: %{agent: "Support"},
         history_updates_node_router: Zaq.NodeRouterMock
       )
 
-    input = Repo.get!(Message, binding.user_message_id)
-    answer = Repo.get!(Message, answer_id)
-
     request = %{
-      user_message_id: input.id,
-      assistant_message_id: answer.id,
-      channel_config_id: config.id,
+      user_message_id: fixture.input.id,
+      assistant_message_id: fixture.answer.id,
+      channel_config_id: fixture.config.id,
       outcome: :failed,
       reason: :rejected
     }
 
-    %{
-      input: input,
-      answer: answer,
-      request: request,
-      captured: captured,
-      binding: binding,
-      config: config
-    }
+    Map.put(fixture, :request, request)
   end
 
   test "records bounded private evidence without transcript placement", ctx do
@@ -116,6 +54,15 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
 
     assert {:ok, :unchanged} = MessageDelivery.record(ctx.request)
     assert Repo.get!(Message, answer.id).metadata == answer.metadata
+  end
+
+  test "the delivery fixture retains its provider input identity and stored agent", ctx do
+    assert ctx.input.external_message_id == "input"
+    assert ctx.answer.metadata["agent"] == "Support"
+    assert ctx.answer.metadata["in_reply_to_message_id"] == ctx.input.id
+    assert ctx.input.role == "user"
+    assert ctx.answer.role == "assistant"
+    refute Repo.get_by(TranscriptMessage, message_id: ctx.answer.id)
   end
 
   test "rejects wrong input, connector, missing answer and unbounded evidence", ctx do
@@ -282,6 +229,49 @@ defmodule Zaq.Engine.Conversations.MessageDeliveryTest do
 
       assert MessageDelivery.presentation(message).state == :history_updating
       assert MessageDelivery.presentation(message).provider_code == nil
+    end
+  end
+
+  for reason <- [:channel_disabled, :channel_archived] do
+    test "Channels records #{reason} without calling the provider", ctx do
+      {child, endpoint} =
+        OpenAIStub.server(fn _conn, _body -> {500, %{}} end, self())
+
+      start_supervised!(child)
+
+      ctx.config
+      |> ChannelConfig.changeset(%{url: String.trim_trailing(endpoint, "/v1")})
+      |> Repo.update!()
+
+      if unquote(reason) == :channel_archived do
+        assert {:ok, _} = ChannelConfig.archive(Repo.get!(ChannelConfig, ctx.config.id))
+      else
+        ctx.config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+      end
+
+      outgoing = %Outgoing{
+        provider: :mattermost,
+        channel_id: "room",
+        body: ctx.answer.content,
+        routing_context: %{channel_config_id: ctx.config.id, conversation_type: :room},
+        metadata: %{
+          user_message_id: ctx.input.id,
+          assistant_message_id: ctx.answer.id,
+          persisted_assistant_message_id: ctx.answer.id
+        }
+      }
+
+      event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+
+      assert %{response: {:error, unquote(reason)}} =
+               ChannelsApi.handle_event(event, :deliver_outgoing, nil)
+
+      stored = Repo.get!(Message, ctx.answer.id)
+      assert stored.metadata["delivery_observation"]["outcome"] == "failed"
+      assert stored.metadata["delivery_observation"]["reason_code"] == "missing_configuration"
+      assert stored.content == ctx.answer.content
+      refute Repo.get_by(TranscriptMessage, message_id: stored.id)
+      refute_received {:openai_request, _, _, _, _}
     end
   end
 end

@@ -18,7 +18,7 @@ defmodule Zaq.ChannelDeliveryFixtures do
       end)
 
     config = Keyword.get_lazy(opts, :config, &connector/0)
-    message_id = Ecto.UUID.generate()
+    message_id = Keyword.get_lazy(opts, :message_id, &Ecto.UUID.generate/0)
     room = Keyword.get(opts, :room, "room")
 
     {:ok, captured} =

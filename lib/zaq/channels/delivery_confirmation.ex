@@ -103,7 +103,14 @@ defmodule Zaq.Channels.DeliveryConfirmation do
     do: {:failed, :unsupported_provider}
 
   defp classify({:error, reason}, _provider)
-       when reason in [:missing_connection_details, :invalid_connector_id, :connector_mismatch],
+       when reason in [
+              :missing_connection_details,
+              :invalid_connector_id,
+              :connector_mismatch,
+              :channel_disabled,
+              :channel_archived,
+              :channel_config_not_found
+            ],
        do: {:failed, :missing_configuration}
 
   defp classify(_response, _provider), do: {:unconfirmed, :unknown}

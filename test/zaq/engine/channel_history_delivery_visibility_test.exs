@@ -275,6 +275,25 @@ defmodule Zaq.Engine.ChannelHistoryDeliveryVisibilityTest do
     refute second.pending_has_more
   end
 
+  test "each pending row supplies a continuation usable after a loaded-window trim", ctx do
+    later = stored_channel_answer(config: ctx.config)
+    assert {:ok, detail} = request(ctx.admin, %{op: :detail, id: ctx.captured.transcript_id})
+    [first, last] = detail.pending_messages
+    assert first.message_id == ctx.answer.id
+    assert last.message_id == later.answer.id
+    assert last.pending_cursor == detail.pending_next_cursor
+
+    assert {:ok, page} =
+             request(ctx.admin, %{
+               op: :detail,
+               id: ctx.captured.transcript_id,
+               pending_cursor: first.pending_cursor
+             })
+
+    assert Enum.map(page.pending_messages, & &1.message_id) == [later.answer.id]
+    assert page.messages == detail.messages
+  end
+
   defp observation(ctx, outcome, reason) do
     %{
       user_message_id: ctx.input.id,
