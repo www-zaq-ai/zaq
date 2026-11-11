@@ -217,7 +217,7 @@ defmodule Zaq.Engine.Workflows.Step.Node do
   Inline body nodes carry no `index` (it is assigned at build), so a placeholder is
   supplied to satisfy requiredness.
   """
-  @spec validate_node_map(map()) :: :ok | {:error, String.t()}
+  @spec validate_node_map(term()) :: :ok | {:error, String.t()}
   def validate_node_map(attrs) when is_map(attrs) do
     changeset = changeset(%__MODULE__{}, Map.put_new(attrs, "index", 0))
 
@@ -227,6 +227,8 @@ defmodule Zaq.Engine.Workflows.Step.Node do
       {:error, errors_to_message(changeset)}
     end
   end
+
+  def validate_node_map(_attrs), do: {:error, "must be a node object"}
 
   defp validate_inline_mapping(attrs) do
     edge =

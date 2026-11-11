@@ -123,6 +123,48 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   end
 
   describe "create_workflow/2 — save-time module contract (Task 13)" do
+    for translator <- ["Iterate", "Batch"],
+        {kind, entry} <- [{"null", nil}, {"number", 123}, {"string", "invalid"}] do
+      test "rejects #{kind} entries in #{translator} post-process without inserting a workflow" do
+        before = Repo.aggregate(Workflow, :count)
+
+        process = %{
+          "name" => "capture",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.CaptureValue",
+          "params" => %{}
+        }
+
+        attrs =
+          %{
+            "name" => "Invalid post-process #{System.unique_integer([:positive])}",
+            "status" => "active",
+            "nodes" => [
+              %{
+                "name" => "loop",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.Workflow." <> unquote(translator),
+                "index" => 0,
+                "params" => %{
+                  "process" => [process],
+                  "post_process" => [Map.put(process, "name", "tail"), unquote(entry)]
+                }
+              }
+            ],
+            "edges" => []
+          }
+          |> Jason.encode!()
+          |> Jason.decode!()
+
+        assert {:error, changeset} = Workflows.create_workflow(attrs)
+        refute changeset.valid?
+        [node_changeset] = changeset.changes.nodes
+        assert {message, _opts} = Keyword.fetch!(node_changeset.errors, :params)
+        assert message =~ "post_process node 1"
+        assert Repo.aggregate(Workflow, :count) == before
+      end
+    end
+
     for translator <- ["Iterate", "Batch"] do
       test "rejects malformed #{translator} post-process mappings without inserting a workflow" do
         before = Repo.aggregate(Workflow, :count)
@@ -288,6 +330,45 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     # string-keyed maps handed straight to import_workflow/1 (see the BO import
     # flow in ZaqWeb ...WorkflowsLive). An invalid workflow must surface an error
     # and never be persisted — the guard fires before any run can exist.
+
+    for translator <- ["Iterate", "Batch"] do
+      test "rejects non-object #{translator} post-process entries and persists nothing" do
+        before = Repo.aggregate(Workflow, :count)
+
+        process = %{
+          "name" => "capture",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.CaptureValue",
+          "params" => %{}
+        }
+
+        attrs =
+          %{
+            "name" => "Invalid pipeline import #{System.unique_integer([:positive])}",
+            "nodes" => [
+              %{
+                "name" => "loop",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.Workflow." <> unquote(translator),
+                "index" => 0,
+                "params" => %{
+                  "process" => [process],
+                  "post_process" => [Map.put(process, "name", "tail"), nil]
+                }
+              }
+            ],
+            "edges" => []
+          }
+          |> Jason.encode!()
+          |> Jason.decode!()
+
+        assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+        [node_changeset] = changeset.changes.nodes
+        assert {message, _opts} = Keyword.fetch!(node_changeset.errors, :params)
+        assert message =~ "post_process node 1: must be a node object"
+        assert Repo.aggregate(Workflow, :count) == before
+      end
+    end
 
     test "rejects a cyclic workflow (A -> B -> A) and persists nothing" do
       before = Repo.aggregate(Workflow, :count)
