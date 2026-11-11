@@ -25,8 +25,17 @@ defmodule Zaq.Engine.ChannelHistoryUpdates do
 
   @doc "Notifies affected origins and confirmed targets after the caller's outer commit."
   def publish(ids, opts \\ []) do
+    publish_scopes(fn -> affected_scopes(ids) end, opts)
+  end
+
+  @doc "Notifies from already-loaded committed messages without reloading their metadata."
+  def publish_messages(messages, opts \\ []) do
+    publish_scopes(fn -> scopes_for_messages(messages) end, opts)
+  end
+
+  defp publish_scopes(resolve_scopes, opts) do
     unless Repo.in_transaction?() do
-      ids |> affected_scopes() |> broadcast(opts)
+      resolve_scopes.() |> broadcast(opts)
     end
 
     :ok
@@ -50,15 +59,17 @@ defmodule Zaq.Engine.ChannelHistoryUpdates do
         end
       end)
 
-    messages =
-      Repo.all(
-        from m in Message,
-          where:
-            m.id in ^ids or
-              fragment("?->>'in_reply_to_message_id' = ANY(?::text[])", m.metadata, ^ids),
-          select: %{id: m.id, metadata: m.metadata}
-      )
+    from(m in Message,
+      where:
+        m.id in ^ids or
+          fragment("?->>'in_reply_to_message_id' = ANY(?::text[])", m.metadata, ^ids),
+      select: %{id: m.id, metadata: m.metadata}
+    )
+    |> Repo.all()
+    |> scopes_for_messages()
+  end
 
+  defp scopes_for_messages(messages) do
     origins =
       Enum.flat_map(messages, fn message ->
         [message.id, message.metadata["in_reply_to_message_id"]]

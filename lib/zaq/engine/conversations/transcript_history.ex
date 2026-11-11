@@ -438,8 +438,15 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     Repo.transaction(fn ->
       Enum.each(Enum.sort(ids), &associate_prepared_target!(&1, message))
     end)
-    |> ChannelHistoryUpdates.publish_result([message.id])
+    |> publish_associated(message)
   end
+
+  defp publish_associated({:ok, _} = result, message) do
+    ChannelHistoryUpdates.publish_messages([message])
+    result
+  end
+
+  defp publish_associated(result, _message), do: result
 
   defp associate_prepared_target!(id, message) do
     receipt = message.metadata["delivery_confirmation"]

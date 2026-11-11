@@ -19,7 +19,10 @@ responses or credentials.
 `ChannelHistoryUpdates` publishes identifier-only UI invalidations through the
 existing confidential Channels broadcast event. Verified outer transaction owners
 publish after commit; nested context capture delegates publication to
-`Conversations.prepare_channel_input/3`. Notifications do not maintain data
+`Conversations.prepare_channel_input/3`. Confirmation and association owners reuse
+their loaded messages and recorded targets for invalidation instead of reloading
+message metadata. Origin placements remain included when destinations differ.
+Notifications do not maintain data
 consistency, perform writes, or schedule association recovery. Failed publication
 can leave a stale display but cannot undo committed records or change the domain
 result. Fresh authorized reads reconstruct the display independently of PubSub.

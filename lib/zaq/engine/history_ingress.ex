@@ -218,8 +218,10 @@ defmodule Zaq.Engine.HistoryIngress do
 
   def record_confirmation(_), do: {:error, :unconfirmed_delivery}
 
-  defp publish_confirmation({:ok, id} = result),
-    do: ChannelHistoryUpdates.publish_result(result, [id])
+  defp publish_confirmation({:ok, %Message{} = message}) do
+    ChannelHistoryUpdates.publish_messages([message])
+    {:ok, message.id}
+  end
 
   defp publish_confirmation(result), do: result
 
@@ -245,10 +247,10 @@ defmodule Zaq.Engine.HistoryIngress do
       fingerprint = confirmation_fingerprint(delivery)
       message = confirmed_message(delivery)
 
-      id =
+      confirmed =
         case message do
           %Message{metadata: %{"history_association" => %{"fingerprint" => ^fingerprint}}} ->
-            message.id
+            message
 
           %Message{metadata: %{"history_association" => _}} ->
             Repo.rollback(:conflicting_delivery_confirmation)
@@ -257,8 +259,8 @@ defmodule Zaq.Engine.HistoryIngress do
             prepare_confirmation(delivery, fingerprint, message)
         end
 
-      case HistoryDeliveryWorker.enqueue(id) do
-        {:ok, _} -> id
+      case HistoryDeliveryWorker.enqueue(confirmed.id) do
+        {:ok, _} -> confirmed
         _ -> Repo.rollback(:history_capture_unavailable)
       end
     end)
@@ -353,7 +355,6 @@ defmodule Zaq.Engine.HistoryIngress do
         })
 
       message |> Message.confirmation_changeset(metadata) |> Repo.update!()
-      message.id
     else
       {:error, reason} -> Repo.rollback(reason)
       _ -> Repo.rollback(:invalid_delivery_scope)
