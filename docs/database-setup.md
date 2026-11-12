@@ -118,17 +118,19 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA reporting
   GRANT SELECT ON SEQUENCES TO reporting_reader;
 ```
 
-For ParadeDB, the DBA must also grant the login access to the extension-owned
-`pdb` schema before it queries application tables:
+When `pg_search` is installed, provisioning grants the owner USAGE on the
+extension-owned `pdb` schema WITH GRANT OPTION. Before a scoped login queries
+application tables, the owner also grants it this prerequisite:
 
 ```sql
 GRANT USAGE ON SCHEMA pdb TO reporting_reader;
 ```
 
-ParadeDB needs this internal schema even for ordinary SELECT queries. The owner
-cannot delegate this access because it does not own the extension schema or have
-the grant option. Schema USAGE does not grant table access or routine execution;
-do not grant broad extension privileges or change PUBLIC permissions.
+ParadeDB needs this internal schema even for ordinary SELECT queries, including
+when ZAQ uses native full-text search with `pg_search` installed. Only USAGE is
+delegable: this grant does not let the owner delegate schema CREATE, table access
+or routine execution, and does not transfer extension ownership. PUBLIC and reader
+permissions remain unchanged. No additional DBA intervention is needed per login.
 
 Schema USAGE alone does not grant table access. Default privileges apply only to
 future objects created by the role configuring them; other creators need their
@@ -163,7 +165,7 @@ other databases in the cluster.
 
 ## Existing deployments and development/CI
 
-### Enable role creation on an existing owner
+### Enable owner-managed logins on an existing deployment
 
 For an already migrated deployment whose owner has `NOCREATEROLE`, stop ZAQ and
 migrators and have the DBA review the owner identity and run the following SQL,
@@ -173,13 +175,21 @@ substituting the actual owner login:
 ALTER ROLE zaq_owner CREATEROLE;
 ```
 
-Automatic restart and adoption require this permission but never grant it.
+If `pg_search` is installed in the target database, the DBA also runs:
+
+```sql
+GRANT USAGE ON SCHEMA pdb TO zaq_owner WITH GRANT OPTION;
+```
+
+This applies even when ZAQ uses the native backend. Automatic restart and adoption
+require these capabilities but never grant or repair them.
 Unmigrated databases can use the normal provisioning rerun. Do not rerun bootstrap
-against a migrated database or delete its migration ledger. This DBA operation
-does not rotate passwords or change data/schema grants. Afterward, validate with
-normal automatic startup, or use adoption below if no receipt exists. The legacy
-ownership repair does not change role flags and also needs this step before
-adoption when its owner has `NOCREATEROLE`.
+against a migrated database or delete its migration ledger. These DBA operations
+do not rotate passwords or grant access to application data. Afterward, validate
+with normal automatic startup, or use adoption below if no receipt exists. The
+legacy ownership repair applies the extension-schema grant through the shared
+ACL setup, but does not change role flags; it still needs the CREATEROLE step
+before adoption when its owner has `NOCREATEROLE`.
 
 ### Docker image and automatic Compose bootstrap
 

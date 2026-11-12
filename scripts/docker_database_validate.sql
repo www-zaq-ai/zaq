@@ -40,6 +40,14 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Provisioned vector capability changed; explicit DBA maintenance required';
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN
+    IF to_regnamespace('pdb') IS NULL THEN
+      RAISE EXCEPTION 'pg_search requires the pdb schema; explicit DBA maintenance required';
+    END IF;
+    IF NOT has_schema_privilege(owner_name, 'pdb', 'USAGE WITH GRANT OPTION') THEN
+      RAISE EXCEPTION 'Provisioned owner cannot delegate pdb USAGE; explicit DBA maintenance required';
+    END IF;
+  END IF;
   IF current_setting('zaq.bootstrap_engine') = 'paradedb' THEN
     IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search'
       AND extowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)) THEN

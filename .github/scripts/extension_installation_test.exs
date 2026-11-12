@@ -262,14 +262,7 @@ defmodule Zaq.ExtensionInstallationTest do
     Repo.query!("CREATE TABLE public.unshared_items (id integer)")
 
     if context.engine == "paradedb" do
-      # The owner cannot delegate access to this DBA-owned extension schema.
-      {:ok, admin} = Postgrex.start_link(context.admin_config)
-
-      try do
-        Postgrex.query!(admin, "GRANT USAGE ON SCHEMA pdb TO #{login}", [])
-      after
-        GenServer.stop(admin)
-      end
+      Repo.query!("GRANT USAGE ON SCHEMA pdb TO #{login}")
     end
 
     config = Keyword.merge(context.admin_config, username: login, password: context.password)
@@ -314,6 +307,115 @@ defmodule Zaq.ExtensionInstallationTest do
       assert error.postgres.code == :insufficient_privilege
     after
       GenServer.stop(reader)
+    end
+  end
+
+  test "bootstrap delegates pdb usage based on the installed extension", context do
+    {output, status} = provision(context)
+    assert status == 0, output
+    start_supervised!(Repo)
+
+    if context.engine == "paradedb" do
+      assert %{rows: [[true, false, false]]} =
+               Repo.query!(
+                 "SELECT has_schema_privilege($1, 'pdb', 'USAGE WITH GRANT OPTION'), has_schema_privilege($2, 'pdb', 'USAGE WITH GRANT OPTION'), has_schema_privilege($1, 'pdb', 'CREATE WITH GRANT OPTION')",
+                 [context.owner, context.reader]
+               )
+
+      {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+      try do
+        Postgrex.query!(
+          admin,
+          "REVOKE GRANT OPTION FOR USAGE ON SCHEMA pdb FROM #{context.owner}",
+          []
+        )
+
+        provision_twice(%{context | engine: "postgres"})
+
+        assert %{rows: [[true]]} =
+                 Repo.query!(
+                   "SELECT has_schema_privilege(current_user, 'pdb', 'USAGE WITH GRANT OPTION')"
+                 )
+
+        before = password_hash(admin, context.owner)
+        Postgrex.query!(admin, "ALTER SCHEMA pdb RENAME TO pdb_missing", [])
+
+        try do
+          {output, status} =
+            provision(%{context | engine: "postgres", password: "must-not-be-applied"})
+
+          assert status != 0
+          assert output =~ "pdb"
+        after
+          Postgrex.query!(admin, "ALTER SCHEMA pdb_missing RENAME TO pdb", [])
+        end
+
+        assert password_hash(admin, context.owner) == before
+      after
+        GenServer.stop(admin)
+      end
+    else
+      provision_twice(context)
+
+      assert %{rows: [[nil]]} = Repo.query!("SELECT to_regnamespace('pdb')::text")
+    end
+  end
+
+  test "adoption and restart validate pdb delegation without repairing it", context do
+    provision_twice(context)
+    start_supervised!(Repo)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    validation_context = %{context | engine: "postgres"}
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      before = password_hash(admin, context.owner)
+
+      for command <- ["adopt-existing-db", "provision-db"] do
+        args = if command == "provision-db", do: ["--automatic"], else: []
+
+        if context.engine == "paradedb" do
+          for {change, restore, expected_error} <- [
+                {"REVOKE GRANT OPTION FOR USAGE ON SCHEMA pdb FROM #{context.owner}",
+                 "GRANT USAGE ON SCHEMA pdb TO #{context.owner} WITH GRANT OPTION",
+                 "owner cannot delegate pdb USAGE"},
+                {"ALTER SCHEMA pdb RENAME TO pdb_missing",
+                 "ALTER SCHEMA pdb_missing RENAME TO pdb", "pdb"}
+              ] do
+            Postgrex.query!(admin, change, [])
+
+            try do
+              {output, status} = docker_provision(validation_context, args, [], command)
+              assert status != 0
+              assert output =~ expected_error
+
+              if String.starts_with?(change, "REVOKE") do
+                assert %{rows: [[true, false]]} =
+                         Postgrex.query!(
+                           admin,
+                           "SELECT has_schema_privilege($1, 'pdb', 'USAGE'), has_schema_privilege($1, 'pdb', 'USAGE WITH GRANT OPTION')",
+                           [context.owner]
+                         )
+              end
+            after
+              Postgrex.query!(admin, restore, [])
+            end
+
+            assert password_hash(admin, context.owner) == before
+
+            if command == "adopt-existing-db" do
+              assert %{rows: [[nil]]} =
+                       Repo.query!("SELECT to_regnamespace('zaq_bootstrap')::text")
+            end
+          end
+        end
+
+        {output, status} = docker_provision(validation_context, args, [], command)
+        assert status == 0, output
+      end
+    after
+      GenServer.stop(admin)
     end
   end
 
