@@ -1,3 +1,15 @@
+# Superseded historical snapshot
+
+This snapshot predates the BO-only policy administration correction and removal of
+the account-administration Action. Its file inventory, grants/scopes, environment
+and validation status are historical, not current contracts. Do not execute its
+"Next step" instructions.
+
+Current contracts are documented in [resource policies](../../services/resource-policies.md)
+and [BO authentication](../../services/bo-auth.md). Beadwork `zaq-w2e` owns current
+progress and remaining work (`bw show zaq-w2e`). Archiving this snapshot does not
+mark the feature complete. The original snapshot is preserved below.
+
 # Goal
 
 Implement PR-01 of GitHub #350: the inactive resource-policy foundation, BO role

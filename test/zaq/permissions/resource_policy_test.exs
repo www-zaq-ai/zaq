@@ -71,6 +71,30 @@ defmodule Zaq.Permissions.ResourcePolicyTest do
     assert get_field(ResourcePolicy.changeset(policy, %{}), :classification_level) == 2
   end
 
+  test "string-key overrides distinguish omitted fields, explicit nil and zero" do
+    policy =
+      struct!(ResourcePolicy, attrs(%{classification_level: 2, clearance_level: 4}))
+
+    changeset =
+      ResourcePolicy.changeset(policy, %{
+        "classification_level" => nil,
+        "lock_version" => 99,
+        "unknown" => "ignored"
+      })
+
+    assert changeset.valid?
+    assert changeset.params == %{"classification_level" => nil}
+    assert get_field(changeset, :classification_level) == nil
+    assert get_field(changeset, :clearance_level) == 4
+    assert get_field(changeset, :lock_version) == 1
+
+    changeset = ResourcePolicy.changeset(policy, %{"clearance_level" => 0})
+
+    assert changeset.valid?
+    assert get_field(changeset, :classification_level) == 2
+    assert get_field(changeset, :clearance_level) == 0
+  end
+
   test "coordinates are registered, required and immutable after insertion" do
     for extra <- [%{resource_type: "arbitrary_table"}, %{resource_id: ""}, %{resource_id: "0"}] do
       refute ResourcePolicy.changeset(%ResourcePolicy{}, attrs(extra)).valid?
@@ -137,6 +161,32 @@ defmodule Zaq.Permissions.ResourcePolicyTest do
         assert changeset.valid?
         assert get_field(changeset, :classification_level) == classification
         assert get_field(changeset, :clearance_level) == clearance
+      end
+    end
+  end
+
+  property "atom keys take precedence over string keys even for nil and false" do
+    check all(
+            field <- member_of([:classification_level, :clearance_level]),
+            atom_value <- one_of([integer(0..2_147_483_647), member_of([nil, false])]),
+            string_value <- integer(0..2_147_483_647)
+          ) do
+      policy =
+        struct!(ResourcePolicy, attrs(%{classification_level: 2, clearance_level: 4}))
+
+      string_key = Atom.to_string(field)
+
+      changeset =
+        ResourcePolicy.changeset(policy, %{field => atom_value, string_key => string_value})
+
+      assert changeset.params == %{string_key => atom_value}
+
+      if atom_value == false do
+        refute changeset.valid?
+        assert errors_on(changeset)[field]
+      else
+        assert changeset.valid?
+        assert get_field(changeset, field) == atom_value
       end
     end
   end

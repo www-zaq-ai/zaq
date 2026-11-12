@@ -33,13 +33,7 @@ defmodule Zaq.Permissions.ResourcePolicy do
   @doc "Validates explicit overrides and fences edits with an optimistic version lock."
   @spec changeset(t(), term()) :: Ecto.Changeset.t()
   def changeset(policy, attrs) when is_map(attrs) and not is_struct(attrs) do
-    params =
-      Map.new([:resource_type, :resource_id | @level_fields], fn field ->
-        {Atom.to_string(field), Map.get(attrs, field, Map.get(attrs, Atom.to_string(field)))}
-      end)
-      |> Map.filter(fn {key, _value} ->
-        Map.has_key?(attrs, key) or Map.has_key?(attrs, String.to_existing_atom(key))
-      end)
+    params = normalize_params(attrs)
 
     policy
     |> cast(params, [:resource_type, :resource_id | @level_fields], empty_values: [])
@@ -64,6 +58,23 @@ defmodule Zaq.Permissions.ResourcePolicy do
 
   def changeset(policy, _),
     do: policy |> change() |> add_error(:base, "must be a map of settings")
+
+  defp normalize_params(attrs) do
+    Enum.reduce([:resource_type, :resource_id | @level_fields], %{}, fn field, params ->
+      string_key = Atom.to_string(field)
+
+      cond do
+        Map.has_key?(attrs, field) ->
+          Map.put(params, string_key, Map.fetch!(attrs, field))
+
+        Map.has_key?(attrs, string_key) ->
+          Map.put(params, string_key, Map.fetch!(attrs, string_key))
+
+        true ->
+          params
+      end
+    end)
+  end
 
   defp validate_coordinates(changeset) do
     case ResourceRef.new(
