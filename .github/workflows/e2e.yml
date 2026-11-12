@@ -62,6 +62,8 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
+          # Browser dependencies only need Ubuntu, not optional runner repositories.
+          test -f /etc/apt/sources.list.d/ubuntu.sources
           # Mirror fallback retains the runner's Ubuntu signing-key verification.
           printf '%s\n' \
             'https://archive.ubuntu.com/ubuntu/' \
@@ -73,6 +75,8 @@ jobs:
             | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
           # Keep these bounds for Playwright's later APT dependency installation too.
           printf '%s\n' \
+            'Dir::Etc::sourcelist "/etc/apt/sources.list.d/ubuntu.sources";' \
+            'Dir::Etc::sourceparts "-";' \
             'Acquire::Retries "3";' \
             'Acquire::http::Timeout "15";' \
             'Acquire::https::Timeout "15";' \
