@@ -59,11 +59,25 @@ jobs:
 
       - name: Install inotify-tools
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          # Keep Ubuntu signature verification without depending on the failing ubuntu.com DNS zone.
-          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
+          # Mirror fallback retains the runner's Ubuntu signing-key verification.
+          printf '%s\n' \
+            'https://archive.ubuntu.com/ubuntu/' \
+            'https://mirrors.edge.kernel.org/ubuntu/' \
+            | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          printf '%s\n' \
+            'https://security.ubuntu.com/ubuntu/' \
+            'https://mirrors.edge.kernel.org/ubuntu/' \
+            | sudo tee /etc/apt/apt-mirrors-security.txt > /dev/null
+          # Keep these bounds for Playwright's later APT dependency installation too.
+          printf '%s\n' \
+            'Acquire::Retries "3";' \
+            'Acquire::http::Timeout "15";' \
+            'Acquire::https::Timeout "15";' \
+            'APT::Update::Error-Mode "any";' \
+            | sudo tee /etc/apt/apt.conf.d/80-e2e-network > /dev/null
           sudo apt-get update -o APT::Update::Error-Mode=any
           sudo apt-get install -y --no-install-recommends inotify-tools
 
