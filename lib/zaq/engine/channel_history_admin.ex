@@ -1,11 +1,14 @@
 defmodule Zaq.Engine.ChannelHistoryAdmin do
   @moduledoc """
-  Bounded canonical channel-history inspection for an already authenticated BO
+  Bounded channel-history inspection for an already authenticated BO
   super-admin. `Engine.Api` verifies the current user and confidential event;
   this module never accepts a caller-supplied Person grant as authorization.
 
   Message information projects an exact completed private answer root only after
-  placement and execution-owner checks; ordinary history rows remain public.
+  canonical placement or verified provisional scope and execution-owner checks;
+  ordinary history rows remain public.
+  Provisional delivery rows are a separate read-only projection within this BO
+  response, never canonical placements or participant/model history.
   """
 
   import Ecto.Query
@@ -13,11 +16,13 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
   alias Zaq.Accounts.{People, Person, PersonChannel}
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryPending
   alias Zaq.Engine.ChannelHistoryProjection
+  alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.Conversations
-  alias Zaq.Engine.Conversations.ToolHistory
 
   alias Zaq.Engine.Conversations.{
+    AnswerOwnership,
     ExecutionRecord,
     Message,
     MessageRating,
@@ -95,35 +100,25 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
   end
 
   def dispatch(%{op: :detail, id: id} = request) do
-    cursor = Map.get(request, :cursor, 0)
+    Repo.transaction(fn -> read_detail(id, request) end)
+  end
 
+  def dispatch(%{op: :subscription, id: id}) do
     with {:ok, uuid} <- Ecto.UUID.cast(id),
          %Transcript{} = transcript <- Repo.get(Transcript, uuid),
-         {:ok, config} <- admin_connector(transcript),
-         {:ok, messages} <- TranscriptHistory.list_admin(uuid, after_position: cursor, limit: 50) do
-      {:ok,
-       %{
-         transcript: %{
-           id: transcript.id,
-           channel_id: transcript.external_channel_id,
-           channel_name: channel_name(transcript, config),
-           thread_id: transcript.external_thread_id,
-           parent_id: transcript.parent_id,
-           provider: transcript.provider,
-           connector: config.name,
-           strategy: transcript.strategy,
-           owner_person_id: transcript.owner_person_id,
-           owner:
-             Map.get(person_summaries([transcript.owner_person_id]), transcript.owner_person_id),
-           position: transcript.next_position,
-           refresh_supported?: refresh_supported?(transcript)
-         },
-         grants: grants_for(transcript),
-         root_message: root_message(transcript, request[:actor]),
-         messages: display_messages(messages, transcript, get_in(request, [:actor, :user_id]))
-       }}
+         {:ok, _} <- admin_connector(transcript) do
+      {:ok, %{topic: ChannelHistoryUpdates.topic(uuid)}}
     else
       _ -> {:error, :not_found}
+    end
+  end
+
+  def dispatch(%{op: :message_changes, id: id, message_ids: ids} = request) do
+    with true <- valid_message_ids?(ids),
+         {:ok, uuid} <- Ecto.UUID.cast(id) do
+      Repo.transaction(fn -> read_changes(uuid, Enum.uniq(ids), request) end)
+    else
+      _ -> {:error, :invalid_request}
     end
   end
 
@@ -158,9 +153,18 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
   end
 
   def dispatch(%{op: :message_info, id: id, message_id: message_id}) do
-    with {:ok, message} <- transcript_message(id, message_id) do
-      message_information(message)
-    end
+    Repo.transaction(fn ->
+      with {:ok, id} <- Ecto.UUID.cast(id),
+           {:ok, message_id} <- Ecto.UUID.cast(message_id),
+           %Transcript{} = transcript <- lock_transcript(id),
+           {:ok, _} <- admin_connector(transcript),
+           {:ok, message} <- information_message(id, message_id),
+           {:ok, information} <- message_information(message) do
+        information
+      else
+        _ -> Repo.rollback(:not_found)
+      end
+    end)
   end
 
   def dispatch(%{
@@ -182,6 +186,77 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
 
   def dispatch(_), do: {:error, :invalid_request}
 
+  defp read_detail(id, request) do
+    cursor = Map.get(request, :cursor, 0)
+
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %Transcript{} = transcript <- lock_transcript(uuid),
+         {:ok, config} <- admin_connector(transcript),
+         {:ok, messages} <- TranscriptHistory.list_admin(uuid, after_position: cursor, limit: 51),
+         {:ok, pending} <- ChannelHistoryPending.page(uuid, request[:pending_cursor]) do
+      displayed = Enum.take(messages, 50)
+      user_id = get_in(request, [:actor, :user_id])
+
+      %{
+        transcript: %{
+          id: transcript.id,
+          channel_id: transcript.external_channel_id,
+          channel_name: channel_name(transcript, config),
+          thread_id: transcript.external_thread_id,
+          parent_id: transcript.parent_id,
+          provider: transcript.provider,
+          connector: config.name,
+          strategy: transcript.strategy,
+          owner_person_id: transcript.owner_person_id,
+          owner:
+            Map.get(person_summaries([transcript.owner_person_id]), transcript.owner_person_id),
+          position: transcript.next_position,
+          refresh_supported?: refresh_supported?(transcript)
+        },
+        grants: grants_for(transcript),
+        root_message: root_message(transcript, request[:actor]),
+        messages: display_messages(displayed, transcript, user_id),
+        next_cursor: last_position(displayed, cursor),
+        has_more: length(messages) > 50,
+        pending_messages: display_messages(pending.rows, transcript, user_id),
+        pending_next_cursor: pending.next_cursor,
+        pending_has_more: pending.has_more
+      }
+    else
+      {:error, :invalid_request} -> Repo.rollback(:invalid_request)
+      _ -> Repo.rollback(:not_found)
+    end
+  end
+
+  defp read_changes(id, ids, request) do
+    with %Transcript{} = transcript <- lock_transcript(id),
+         {:ok, _} <- admin_connector(transcript),
+         {:ok, messages} <- TranscriptHistory.list_admin_by_ids(id, ids) do
+      pending = ChannelHistoryPending.by_ids(id, ids)
+      selected = Enum.map(messages ++ pending, & &1.message_id)
+      user_id = get_in(request, [:actor, :user_id])
+
+      %{
+        messages: display_messages(messages, transcript, user_id),
+        pending_messages: display_messages(pending, transcript, user_id),
+        removed_ids: ids -- selected
+      }
+    else
+      _ -> Repo.rollback(:not_found)
+    end
+  end
+
+  defp lock_transcript(id),
+    do: Repo.one(from t in Transcript, where: t.id == ^id, lock: "FOR SHARE")
+
+  defp valid_message_ids?(ids) when is_list(ids) and length(ids) <= 50,
+    do: Enum.all?(ids, &match?({:ok, _}, Ecto.UUID.cast(&1)))
+
+  defp valid_message_ids?(_ids), do: false
+
+  defp last_position([], cursor), do: cursor
+  defp last_position(messages, _cursor), do: List.last(messages).position
+
   defp message_information(message) do
     public =
       Map.take(message, [
@@ -196,14 +271,22 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
         :confidence_score
       ])
 
-    query = ToolHistory.answer_roots_query([message.id]) |> limit(2)
+    query =
+      AnswerOwnership.root_executions_query()
+      |> where([execution: execution], execution.public_answer_message_id == ^message.id)
+      |> limit(2)
 
     case Repo.all(query) do
       [] ->
         {:ok, public}
 
       [%ExecutionRecord{status: "completed"} = execution] ->
-        if ToolHistory.valid_execution_owner?(execution, message),
+        owned? =
+          AnswerOwnership.owned_root_executions_query()
+          |> where([execution: candidate], candidate.id == ^execution.id)
+          |> Repo.exists?()
+
+        if owned?,
           do: {:ok, project_private_information(public, execution)},
           else: {:error, :not_found}
 
@@ -339,6 +422,20 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
     end
   end
 
+  defp information_message(id, message_id) do
+    case transcript_message(id, message_id) do
+      {:ok, message} -> {:ok, message}
+      _ -> pending_information_message(id, message_id)
+    end
+  end
+
+  defp pending_information_message(id, message_id) do
+    case ChannelHistoryPending.inspection_message(id, message_id) do
+      %Message{} = message -> {:ok, message}
+      _ -> {:error, :not_found}
+    end
+  end
+
   defp channel_name(transcript, config) do
     room =
       if transcript.channel_config_id && transcript.external_channel_id,
@@ -403,7 +500,11 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
       |> Map.merge(%{
         feedback: Map.get(ratings, message.message_id),
         rating_summary: Map.get(summaries, message.message_id, %{positive: 0, negative: 0}),
-        inserted_at: record.provider_sent_at || record.inserted_at
+        inserted_at:
+          if(Map.has_key?(message, :delivery),
+            do: record.inserted_at,
+            else: record.provider_sent_at || record.inserted_at
+          )
       })
     end)
   end

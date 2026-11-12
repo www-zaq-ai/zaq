@@ -13,6 +13,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   The configured agent owns its system prompt and model. All run-specific/custom
   data belongs in `input` (the user message), never in a prompt override.
 
+  An unsuccessful agent response retains observed telemetry through the workflow
+  Action failure-results contract. It remains an error with the same public
+  `agent_failed:` message; no partial answer is promoted to a successful output.
+  Failures without observed telemetry retain the existing plain-string reason.
+
   ## What this tool does (and does not do)
 
   Like a channel, `run_agent` only builds a correct `%Incoming{}` carrying identity
@@ -112,6 +117,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   require Logger
 
+  alias Jido.Action.Error.ExecutionFailureError
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.StreamEvents
   alias Zaq.Agent.TokenEstimator
@@ -287,7 +293,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp handle_response(%Outgoing{} = outgoing) do
     if error_metadata?(outgoing.metadata) do
       reason = outgoing.metadata[:reason] || "unknown"
-      {:error, "agent_failed:#{reason}"}
+      failure_result("agent_failed:#{reason}", outgoing.metadata)
     else
       {:ok, trace_result(outgoing)}
     end
@@ -297,6 +303,21 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp handle_response(other), do: {:error, "agent_failed:#{inspect(other)}"}
 
   defp error_metadata?(metadata), do: is_map(metadata) and metadata[:error]
+
+  # Carry observed diagnostics through the ordinary Action error envelope. The
+  # workflow runner owns persistence; this Action does not write step rows or
+  # propagate callbacks across the agent dispatch boundary.
+  defp failure_result(message, metadata) do
+    results = StreamEvents.telemetry_fields(metadata, json_safe: true)
+
+    if results.trace != [] or results.measurements != %{} or
+         not is_nil(results.model) or not is_nil(results.agent) do
+      {:error,
+       ExecutionFailureError.exception(message: message, details: %{workflow_results: results})}
+    else
+      {:error, message}
+    end
+  end
 
   # StepRunner persists this map verbatim, and Jido's output validation merges
   # undeclared keys through untouched, so no output_schema change is needed.

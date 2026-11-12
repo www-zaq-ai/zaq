@@ -311,6 +311,65 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
   end
 
   describe "run/2 validation" do
+    test "folder and file child Actions share the inherited trace route with distinct identities" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo 'https://example.org/'
+elif [ "$1" = "screenshot" ]; then
+  printf '\211PNG\r\n\032\nDATA' > "$2"
+fi
+))
+      {:ok, folder} = Provenance.seal(%Record{id: "trace-folder", kind: :folder})
+      {:ok, document} = Provenance.seal(%Record{id: "trace-document", kind: :file})
+      owner = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        response =
+          case event.opts[:action] do
+            :system_config_get_web_browsing_config ->
+              {:ok,
+               %Zaq.System.WebBrowsingConfig{
+                 provider: "google_drive",
+                 config_id: 12,
+                 folder_id: "parent"
+               }}
+
+            :data_source_list_files ->
+              {:ok, %{records: []}}
+
+            :data_source_create_file ->
+              {:ok,
+               %{record: if(event.request.params["kind"] == "folder", do: folder, else: document)}}
+          end
+
+        %{event | response: response}
+      end)
+
+      context = %{
+        node_router: Zaq.NodeRouterMock,
+        tool_call_id: "browser-root",
+        on_tool_event: fn event ->
+          send(owner, {:browser_trace, event})
+          :ok
+        end
+      }
+
+      assert {:ok, %{record: ^document}} = Browsing.run(%{command: "screenshot"}, context)
+      assert_receive {:browser_trace, folder_started}
+      assert_receive {:browser_trace, folder_done}
+      assert_receive {:browser_trace, file_started}
+      assert_receive {:browser_trace, file_done}
+      assert folder_started.tool_call_id != file_started.tool_call_id
+
+      assert Enum.all?(
+               [folder_started, folder_done, file_started, file_done],
+               &(&1.data.parent_id == "browser-root")
+             )
+
+      assert folder_done.data.outcome == "succeeded"
+      assert file_done.data.outcome == "succeeded"
+    end
+
     test "captures the current redirected page to its hostname folder and never returns bytes or local path" do
       fake_bin(~S(#!/bin/sh
 if [ "$1" = "get" ]; then

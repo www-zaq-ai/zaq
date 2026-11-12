@@ -1,5 +1,49 @@
 # Engine Service
 
+## Channel delivery observations and BO invalidation
+
+`Conversations.AnswerOwnership` owns the persisted input/answer/root-execution
+relationship queries shared by tool history, delivery eligibility and privileged
+inspection. Raw root lookup stays separate from validated ownership so invalid
+evidence cannot become a missing-evidence fallback. Canonical conversation-less
+evidence requires both transcript placements and does not grant private inspection.
+Reader authorization and completion/delivery policy remain with the callers.
+
+`Conversations.MessageDelivery` records bounded delivery observations against an
+exact persisted input/answer and connector scope. Confirmation is authoritative;
+an observation never creates transcript membership or schedules a send. Unknown
+transport outcomes remain unconfirmed, including timeouts that may have occurred
+after provider acceptance. Private metadata stores reason codes, not raw provider
+responses or credentials.
+
+`ChannelHistoryUpdates` publishes identifier-only UI invalidations through the
+existing confidential Channels broadcast event. Verified outer transaction owners
+publish after commit; nested context capture delegates publication to
+`Conversations.prepare_channel_input/3`. Confirmation and association owners reuse
+their loaded messages and recorded targets for invalidation instead of reloading
+message metadata. Origin placements remain included when destinations differ.
+Notifications do not maintain data
+consistency, perform writes, or schedule association recovery. Failed publication
+can leave a stale display but cannot undo committed records or change the domain
+result. Fresh authorized reads reconstruct the display independently of PubSub.
+
+The confidential super-admin `:channel_history_admin` read adds outstanding
+answers separately from canonical `messages`, with independent keyset pagination.
+Each pending row carries an opaque continuation token so a bounded BO merge can
+retain access to rows displaced by an older newly eligible answer. UI hints do not
+advance fetched-page cursors or implicitly load outstanding pages.
+`ChannelHistoryPending` requires exact input placement and answer ownership;
+historical missing outcomes are unconfirmed, not inferred failures. Durable
+confirmation permits a history-updating row only in its recorded target
+transcripts. Confirmed delivery elsewhere removes the origin's provisional row.
+Bounded `:message_changes` reads return current scoped rows or removal IDs without
+revealing private traces or authorizing a global message lookup. The explicit
+super-admin message-information read also accepts an exactly scoped provisional
+answer, retaining private execution-owner validation so failed sends can be
+inspected with their traces. Ratings still require canonical placement. Short transcript
+read locks keep canonical and provisional membership consistent while composing
+the response; no read repairs or creates business data.
+
 Foundation hardening evidence, acceptance map and measured coverage exceptions:
 [`connect-foundation-validation.md`](connect-foundation-validation.md) (`zaq-jrg.9`).
 
@@ -1202,6 +1246,14 @@ counters. Legacy admissions keep their existing Message storage and artifact
 references; no historical repair is performed. The existing token aggregator
 uses completed execution counters in preference to Message counters, with a
 per-counter legacy fallback; retries still recompute totals once per answer.
+
+Trace artifact preparation owns configured byte limits and storage validation.
+Artifacts explicitly marked `optional: true` carry diagnostic evidence: invalid
+or oversized payloads are omitted individually, with a safe `artifact_omissions`
+reason on the matching trace row. Accepted siblings still use the ordinary
+transactional artifact storage and authorized reads. Unmarked/required artifacts
+retain strict failure behavior; authorization and database write failures are not
+converted into omissions or successful finalizations.
 
 `Conversations.reserve_answer_identity/3` is the Engine reservation boundary for a
 selected answer root. Under the existing admitted-input lock it verifies the

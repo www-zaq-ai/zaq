@@ -3,7 +3,8 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
   ZAQ host adapter for Jido's runtime Agent Skills resource provider.
 
   The adapter maps Jido's generic list/load callbacks onto ZAQ's existing
-  data-source document actions through `Jido.Exec`. It never calls channel bridges
+  data-source document actions through `ActionContract`, preserving inherited
+  invocation tracing and Jido execution policy. It never calls channel bridges
   directly and never accepts caller-supplied provider identity from the model.
 
   Manifest-listed resources are skill assets: loading them explicitly bypasses the
@@ -16,6 +17,7 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Skill.Resource
   alias Zaq.Agent.Skills
+  alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
   alias Zaq.Agent.Tools.DataSource.GetDocument
   alias Zaq.Contracts.Record
@@ -41,7 +43,11 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
          {:ok, %Record{materialization_handle: handle} = record} <-
            get_document(location, resource, resource_context),
          {:ok, %{record: %Record{content: content} = loaded_record}} <-
-           Jido.Exec.run(DownloadDocument, download_params(handle, record), resource_context),
+           ActionContract.execute(
+             DownloadDocument,
+             download_params(handle, record),
+             resource_context
+           ),
          {:ok, content} <- decode_content(content, loaded_record.attributes) do
       {:ok,
        %{
@@ -75,7 +81,7 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
   end
 
   defp get_document(location, %Resource{} = resource, context) do
-    case Jido.Exec.run(GetDocument, get_params(location, resource), context) do
+    case ActionContract.execute(GetDocument, get_params(location, resource), context) do
       {:ok, %{record: %Record{materialization_handle: handle} = record}} when is_binary(handle) ->
         {:ok, record}
 

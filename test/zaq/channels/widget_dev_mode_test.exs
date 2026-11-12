@@ -1,5 +1,5 @@
 defmodule Zaq.Channels.WidgetDevModeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: true, group: :widget_vm_startup
 
   test "development flag supplies only the widget partitioning default" do
     script = """

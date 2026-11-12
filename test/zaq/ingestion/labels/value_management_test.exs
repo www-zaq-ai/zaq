@@ -6,7 +6,7 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
   import Zaq.LabelFixtures
   alias Zaq.Accounts.People
   alias Zaq.Ingestion.{Chunk, Document, Labels}
-  alias Zaq.Ingestion.Labels.{DocumentAssignment, ValueManagement}
+  alias Zaq.Ingestion.Labels.{Assignment, ValueManagement}
   alias Zaq.Permissions
 
   setup do
@@ -14,11 +14,19 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
     actor = %{user_id: user.id}
 
     {:ok, label} =
-      Labels.save_definition(%{name: "Location", targets: ["document", "chunk"]}, actor)
+      label_definition(actor, %{
+        name: "Location",
+        value_type: "options",
+        value_config:
+          option_config(
+            ["Paris", "London", "Berlin", "Rome", "Tokyo", "Unspecified", "X"] ++
+              Enum.map(1..52, &"City #{&1}%")
+          )
+      })
 
     docs = for n <- 1..3, do: elem(Document.create(%{source: "usage-#{n}"}), 1)
 
-    for {doc, value} <- Enum.zip(docs, ["Paris", "Paris", nil]) do
+    for {doc, value} <- Enum.zip(docs, ["Paris", "Paris", "Unspecified"]) do
       {:ok, _} =
         Labels.edit_resource(
           %{type: "document", id: doc.id},
@@ -30,7 +38,7 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
     %{actor: actor, label: label, docs: docs}
   end
 
-  test "usage groups assigned values including empty and chunks; resource identities stay typed",
+  test "usage groups explicit options and chunks; resource identities stay typed",
        ctx do
     assert :ok = Chunk.create_table(1536)
     doc = hd(ctx.docs)
@@ -44,28 +52,42 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
       )
 
     assert {:ok, rows} = ValueManagement.values(ctx.label.id, "", 0, ctx.actor)
-    assert Enum.find(rows, &is_nil(&1.value)) == %{value: nil, documents: 1, chunks: 0}
-    assert Enum.find(rows, &(&1.value == "Paris")) == %{value: "Paris", documents: 2, chunks: 1}
+
+    assert Enum.find(rows, &(&1.value == "Unspecified")) == %{
+             value: "Unspecified",
+             state: :assigned,
+             documents: 1,
+             chunks: 0
+           }
+
+    assert Enum.find(rows, &(&1.value == "Paris")) == %{
+             value: "Paris",
+             state: :assigned,
+             documents: 2,
+             chunks: 1
+           }
+
     assert {:ok, summaries} = ValueManagement.summaries([ctx.label.id], ctx.actor)
     assert summaries[ctx.label.id] == %{values: 2, resources: 4}
     assert {:ok, resources} = ValueManagement.resources(ctx.label.id, "Paris", 0, ctx.actor)
     assert Enum.count(resources, &(&1.type == "document")) == 2
     assert Enum.count(resources, &(&1.type == "chunk")) == 1
     assert Enum.all?(resources, &(&1.editable? and &1.expected_version == 1))
-    assert {:ok, [_]} = ValueManagement.resources(ctx.label.id, nil, 0, ctx.actor)
+    assert {:ok, [_]} = ValueManagement.resources(ctx.label.id, "Unspecified", 0, ctx.actor)
   end
 
-  test "validated bulk action changes only selected resources and clearing keeps the label",
+  test "validated bulk action changes only selected resources and requires an explicit option",
        ctx do
     {:ok, [first | _]} = ValueManagement.resources(ctx.label.id, "Paris", 0, ctx.actor)
-    assert {:ok, 1} = apply_value(ctx, [first], " London ")
-    assert Repo.get_by!(DocumentAssignment, document_id: first.id).value == "London"
+    assert {:ok, 1} = apply_value(ctx, [first], "London")
+    assert Repo.get_by!(Assignment, document_id: first.id).value == "London"
     assert {:ok, [_]} = ValueManagement.resources(ctx.label.id, "Paris", 0, ctx.actor)
     {:ok, [updated]} = ValueManagement.resources(ctx.label.id, "London", 0, ctx.actor)
-    assert {:ok, 1} = apply_value(ctx, [updated], "")
-    assignment = Repo.get_by!(DocumentAssignment, document_id: first.id)
-    assert assignment.selected
-    assert assignment.value == nil
+    assert {:error, :invalid_value} = apply_value(ctx, [updated], "")
+    assert {:ok, 1} = apply_value(ctx, [updated], "Unspecified")
+    assignment = Repo.get_by!(Assignment, document_id: first.id)
+    assert assignment.state == :assigned
+    assert assignment.value == "Unspecified"
     assert {:ok, []} = ValueManagement.values(ctx.label.id, "London", 0, ctx.actor)
   end
 
@@ -73,8 +95,8 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
     {:ok, [first, second]} = ValueManagement.resources(ctx.label.id, "Paris", 0, ctx.actor)
     assert {:ok, 1} = apply_value(ctx, [second], "Berlin")
     assert {:error, :stale} = apply_value(ctx, [first, second], "Rome")
-    assert Repo.get_by!(DocumentAssignment, document_id: first.id).value == "Paris"
-    assert Repo.get_by!(DocumentAssignment, document_id: second.id).value == "Berlin"
+    assert Repo.get_by!(Assignment, document_id: first.id).value == "Paris"
+    assert Repo.get_by!(Assignment, document_id: second.id).value == "Berlin"
   end
 
   test "discovery respects read rights and bulk writes require read and update rights", ctx do
@@ -137,8 +159,8 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
     {:ok, _} = Permissions.grant(second, %{person_id: person.id, access_rights: ["update"]})
     assert {:ok, [%{documents: 1}]} = ValueManagement.values(ctx.label.id, "", 0, actor)
     assert {:error, :forbidden} = apply_value(%{ctx | actor: actor}, rows, "Rome")
-    assert Repo.get_by!(DocumentAssignment, document_id: first.id).value == "Paris"
-    assert Repo.get_by!(DocumentAssignment, document_id: second.id).value == "Paris"
+    assert Repo.get_by!(Assignment, document_id: first.id).value == "Paris"
+    assert Repo.get_by!(Assignment, document_id: second.id).value == "Paris"
   end
 
   test "removed assignments cannot be revived by a bulk value correction", ctx do
@@ -153,17 +175,18 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
 
     row = %{type: "document", id: doc.id, expected_version: 2}
     assert {:error, :stale} = apply_value(ctx, [row], "Paris")
-    refute Repo.get_by!(DocumentAssignment, document_id: doc.id).selected
+    refute Repo.get_by!(Assignment, document_id: doc.id).state == :assigned
   end
 
   test "value pages are bounded and literal searches do not interpret wildcard characters", ctx do
     for n <- 1..52 do
       {:ok, doc} = Document.create(%{source: "paged-values-#{n}"})
 
-      Repo.insert!(%DocumentAssignment{
-        document_id: doc.id,
+      Repo.insert!(%Assignment{
+        resource_type: "document",
+        resource_id: to_string(doc.id),
         label_id: ctx.label.id,
-        selected: true,
+        state: :assigned,
         origin: :manual,
         value: "City #{n}%"
       })
@@ -185,12 +208,12 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
   property "bulk changes preserve every unselected assignment", ctx do
     check all(
             indexes <- uniq_list_of(integer(0..2), min_length: 1, max_length: 3),
-            value <- member_of(["", "Paris", "Tokyo", " London "]),
+            value <- member_of(["Unspecified", "Paris", "Tokyo", "London"]),
             max_runs: 12
           ) do
       before =
         Map.new(ctx.docs, fn doc ->
-          {doc.id, Repo.get_by!(DocumentAssignment, document_id: doc.id)}
+          {doc.id, Repo.get_by!(Assignment, document_id: doc.id)}
         end)
 
       resources =
@@ -204,17 +227,11 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
       selected = MapSet.new(resources, & &1.id)
 
       for doc <- ctx.docs do
-        after_assignment = Repo.get_by!(DocumentAssignment, document_id: doc.id)
-        assert after_assignment.selected
+        after_assignment = Repo.get_by!(Assignment, document_id: doc.id)
+        assert after_assignment.state == :assigned
 
         if MapSet.member?(selected, doc.id) do
-          expected =
-            case String.trim(value) do
-              "" -> nil
-              value -> value
-            end
-
-          assert after_assignment.value == expected
+          assert after_assignment.value == value
         else
           assert after_assignment == before[doc.id]
         end

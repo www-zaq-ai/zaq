@@ -62,6 +62,7 @@ defmodule Zaq.Contracts.ToolStep do
   @spec project(term()) :: [t()]
   def project(calls) when is_list(calls) do
     calls
+    |> Enum.reject(&nested?/1)
     |> Enum.flat_map(&project_invocation/1)
     |> Enum.sort_by(& &1["sequence"])
   end
@@ -82,6 +83,7 @@ defmodule Zaq.Contracts.ToolStep do
   @spec from_trace(term()) :: [t()]
   def from_trace(trace) when is_list(trace) do
     trace
+    |> Enum.reject(&nested?/1)
     |> Enum.flat_map(fn
       %{"type" => "tool_call"} = call ->
         call |> Map.put_new("outcome", "unknown") |> project_invocation()
@@ -99,6 +101,15 @@ defmodule Zaq.Contracts.ToolStep do
   end
 
   def from_trace(_trace), do: []
+
+  # Explicit facts distinguish diagnostic children; opaque native ID prefixes
+  # never establish hierarchy, including when a native root resembles our IDs.
+  defp nested?(call) when is_map(call) do
+    value(call, :origin) == "zaq_action" or
+      match?([_, _ | _], value(call, :invocation_path))
+  end
+
+  defp nested?(_call), do: false
 
   @doc "Validates an already-public snapshot, discarding invalid entries and private extra fields."
   @spec snapshot(term()) :: [t()]

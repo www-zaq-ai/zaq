@@ -450,6 +450,7 @@ defmodule Zaq.Agent.Factory do
       end
       |> Map.put(:context_window, Map.get(config, :context_window, %{}))
 
+    context = Map.put(context, :tool_event_sink, {:pid, self()})
     Keyword.put(opts, :tool_context, context)
   end
 

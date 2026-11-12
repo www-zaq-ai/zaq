@@ -12,11 +12,9 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
 
   alias Zaq.Ingestion.Labels.{
     Access,
+    Assignment,
     AssignmentValue,
-    ChunkAssignment,
-    DocumentAssignment,
-    Label,
-    Target
+    Label
   }
 
   alias Zaq.Permissions
@@ -31,8 +29,7 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
         {:error, :not_found}
 
       doc ->
-        {:ok,
-         %{type: "document", id: id, document: doc, schema: DocumentAssignment, key: :document_id}}
+        {:ok, %{type: "document", id: id, document: doc}}
     end
   end
 
@@ -58,9 +55,7 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
          %{
            type: "chunk",
            id: id,
-           document: chunk.document,
-           schema: ChunkAssignment,
-           key: :chunk_id
+           document: chunk.document
          }}
     end
   end
@@ -101,7 +96,7 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
 
         definitions = lock_definitions!(edits)
         lock_chunk!(resource)
-        Enum.each(edits, &apply_edit!(resource, &1, definitions))
+        Enum.each(edits, &apply_edit!(resource, &1, definitions, actor))
         edit_result(resource, Keyword.get(opts, :return_projection, true))
       end)
     end
@@ -129,11 +124,7 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
       ids = Enum.map(visible, & &1.id)
 
       chips =
-        Repo.all(DocumentAssignment.selected_labels_query(ids))
-        |> Enum.map(fn
-          {id, %{value: nil} = chip} -> {id, Map.delete(chip, :value)}
-          entry -> entry
-        end)
+        Repo.all(Assignment.selected_labels_query(ids))
         |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
       {:ok,
@@ -164,15 +155,15 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
 
   defp value_candidates(label_id, query, documents) do
     document_values =
-      from a in matching_values(DocumentAssignment, label_id, query),
-        where: a.document_id in subquery(documents),
+      from a in matching_values(label_id, query),
+        where: a.resource_type == "document" and a.document_id in subquery(documents),
         select: %{value: a.value}
 
     if Chunk.table_exists?() do
       chunk_values =
-        from a in matching_values(ChunkAssignment, label_id, query),
+        from a in matching_values(label_id, query),
           join: c in Chunk,
-          on: c.id == a.chunk_id,
+          on: a.resource_type == "chunk" and c.id == a.chunk_id,
           where: c.document_id in subquery(documents),
           select: %{value: a.value}
 
@@ -182,10 +173,9 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
     end
   end
 
-  defp matching_values(schema, label_id, query) do
-    from a in schema,
-      where: a.label_id == ^label_id and a.selected and not is_nil(a.value),
-      where: fragment("strpos(lower(?), ?) > 0", a.value, ^query)
+  defp matching_values(label_id, query) do
+    from(a in Assignment, where: a.label_id == ^label_id and a.state == :assigned)
+    |> Assignment.search_values(query)
   end
 
   defp visible_documents(documents, _actor, %{role: %{name: "super_admin"}}), do: documents
@@ -204,14 +194,15 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
     labels =
       Repo.all(
         from l in Label,
-          join: t in Target,
-          on: t.label_id == l.id,
-          where: t.resource_type == ^resource.type,
+          where: ^resource.type in l.resources,
           order_by: l.normalized_name
       )
 
     assignments =
-      Repo.all(from a in resource.schema, where: field(a, ^resource.key) == ^resource.id)
+      Repo.all(
+        from a in Assignment,
+          where: a.resource_type == ^resource.type and a.resource_id == ^to_string(resource.id)
+      )
       |> Map.new(&{&1.label_id, &1})
 
     rows =
@@ -222,7 +213,13 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
           id: label.id,
           name: label.name,
           description: label.description,
-          selected: assignment != nil and assignment.selected,
+          value_type: label.value_type,
+          value_config: label.value_config,
+          assignment_type: label.assignment_type,
+          threshold: label.threshold,
+          selected: assignment != nil and assignment.state in [:assigned, :pending],
+          state: if(assignment, do: assignment.state, else: nil),
+          origin: if(assignment, do: assignment.origin, else: nil),
           value: if(assignment, do: assignment.value, else: nil),
           expected_version: if(assignment, do: assignment.lock_version, else: 0)
         }
@@ -248,9 +245,6 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
 
       length(Enum.uniq_by(edits, & &1.label_id)) != length(edits) ->
         {:error, :invalid_edits}
-
-      Enum.any?(edits, &(&1.operation == "reset_automatic")) ->
-        {:error, :automation_unavailable}
 
       true ->
         :ok
@@ -284,19 +278,16 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
     ) || Repo.rollback(:not_found)
   end
 
-  defp apply_edit!(resource, edit, definitions) do
+  defp apply_edit!(resource, edit, definitions, actor) do
     label = Map.fetch!(definitions, edit.label_id)
-
-    unless Repo.exists?(
-             from t in Target,
-               where: t.label_id == ^label.id and t.resource_type == ^resource.type
-           ),
-           do: Repo.rollback(:target_mismatch)
+    validate_target!(resource, label, edit.operation)
 
     existing =
       Repo.one(
-        from a in resource.schema,
-          where: field(a, ^resource.key) == ^resource.id and a.label_id == ^label.id,
+        from a in Assignment,
+          where:
+            a.resource_type == ^resource.type and a.resource_id == ^to_string(resource.id) and
+              a.label_id == ^label.id,
           lock: "FOR UPDATE"
       )
 
@@ -304,15 +295,37 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
     if actual_version != edit.expected_version, do: Repo.rollback(:stale)
 
     assignment =
-      existing || struct(resource.schema, [{resource.key, resource.id}, {:label_id, label.id}])
+      existing ||
+        %Assignment{
+          resource_type: resource.type,
+          resource_id: to_string(resource.id),
+          label_id: label.id
+        }
 
     changeset =
-      resource.schema.decision_changeset(
+      Assignment.decision_changeset(
         assignment,
-        edit.operation == "add",
+        label,
+        edit.operation,
         Map.get(edit, :value, :unchanged)
       )
+      |> Ecto.Changeset.change(
+        metadata: Map.put(assignment.metadata, "updated_by_user_id", actor.user_id)
+      )
 
+    persist_assignment!(changeset, existing)
+  end
+
+  defp validate_target!(resource, label, operation) do
+    unless resource.type in label.resources, do: Repo.rollback(:target_mismatch)
+
+    if operation == "reset_automatic" and label.assignment_type != "automatic",
+      do: Repo.rollback(:automation_unavailable)
+  end
+
+  defp persist_assignment!(%{valid?: false}, _existing), do: Repo.rollback(:invalid_value)
+
+  defp persist_assignment!(changeset, existing) do
     case save_assignment(changeset, existing) do
       {:ok, _} -> :ok
       {:error, reason} -> Repo.rollback(reason)

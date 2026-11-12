@@ -8,12 +8,24 @@ defmodule Zaq.LabelFixtures do
   def label_definition(actor, attrs \\ %{}) do
     Labels.save_definition(
       Map.merge(
-        %{name: "Security", description: "Access control", targets: ["document", "chunk"]},
+        %{
+          name: "Security",
+          description: "Access control",
+          resources: ["document", "chunk"],
+          value_type: "boolean",
+          value_config: %{},
+          assignment_type: "manual",
+          threshold: 80
+        },
         attrs
       ),
       actor
     )
   end
+
+  @doc "Builds explicit option choices; tests can retain readable stable IDs independently of display edits."
+  def option_config(values),
+    do: %{"options" => Enum.map(values, &%{"id" => &1, "label" => &1})}
 
   @doc "Dispatches a confidential Ingestion event with the supplied actor."
   def label_event(action, request, actor) do

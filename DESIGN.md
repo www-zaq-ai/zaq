@@ -367,7 +367,7 @@ Icon **color** follows semantic tokens: `--zaq-icon-color-default` for neutral, 
 | `storybook/patterns/` | Composed patterns — upsell cards, credentials |
 | `storybook/layouts/` | Page shells — **`bo_layout` is the mandatory BO page wrapper**; also app layout, master-detail |
 | `storybook/modals/` + `storybook/bo_modal/` | Modal variants — prefer stories linked to `DesignSystem.*` modules |
-| Feature folders (`chat/`, `dashboard/`, `history/`, `ingestion/`) | Feature-composed components |
+| Feature folders (`chat/`, `dashboard/`, `history/`, `ingestion/`, `workflows/`) | Feature-composed components; workflow step previews belong in `workflows/`, not `chat/` |
 | `storybook/playground/` | Experiments — not a contract |
 | `storybook/legacy_ui/`, `storybook/not_used/` | Deprecated — do not reference or reuse |
 
@@ -414,6 +414,7 @@ All controls share: `surface-raised` background, `border-default` stroke, 16px r
 | Input | `ZaqWeb.Components.DesignSystem.Input` | `input/1` | text-like types, `textarea`, `hidden`; use dedicated Checkbox for BO checkboxes |
 | Select | `ZaqWeb.Select` | `select/1` | standard dropdown |
 | Searchable Select | `ZaqWeb.Components.SearchableSelect` | `searchable_select/1` | filterable; modal-safe via fixed positioning |
+| AI Model Selector | `ZaqWeb.Components.DesignSystem.AIModelSelector` | `ai_model_selector/1` | credential, catalog/manual model and modalities; inline or stacked; modalities stay beside the model |
 | Checkbox | `ZaqWeb.Components.DesignSystem.Checkbox` | `checkbox/1` | canonical BO checkbox |
 | Toggle | `ZaqWeb.Components.DesignSystem.Toggle` | `toggle/1` | on/off switch |
 | Secret Input | `ZaqWeb.Components.DesignSystem.SecretInput` | `secret_input/1` | show/hide for passwords and tokens |

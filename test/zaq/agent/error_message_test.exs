@@ -12,8 +12,87 @@ defmodule Zaq.Agent.ErrorMessageTest do
     :dispatch_error,
     :no_results,
     :blocked,
-    :provider_not_supported
+    :provider_not_supported,
+    :model_not_supported
   ]
+
+  describe "diagnostic_for/1" do
+    test "uses shared HTTP and credential categories with a typed bounded status" do
+      for {status, category} <- [
+            {401, :provider_authentication_failed},
+            {403, :provider_authentication_failed},
+            {429, :provider_rate_limited},
+            {500, :provider_unavailable},
+            {422, :provider_request_rejected}
+          ] do
+        error = %ReqLLM.Error.API.Request{
+          status: status,
+          reason: "private",
+          response_body: "private"
+        }
+
+        assert ErrorMessage.public_reason_for(error) == category
+        assert ErrorMessage.diagnostic_for(error) == %{reason: category, http_status: status}
+
+        assert ErrorMessage.diagnostic_for({:failed, :error, error}) == %{
+                 reason: category,
+                 http_status: status
+               }
+      end
+
+      assert ErrorMessage.diagnostic_for(%{reason: :credential_revoked, credential_id: "private"}) ==
+               %{reason: :credential_revoked}
+    end
+
+    test "invalid parameters are not classified as unsupported models" do
+      error = %ReqLLM.Error.Invalid.Parameter{parameter: "private arbitrary parameter error"}
+      assert ErrorMessage.public_reason_for(error) == :invalid_parameter
+      assert ErrorMessage.diagnostic_for(error) == %{reason: :invalid_parameter}
+
+      assert ErrorMessage.diagnostic_for(%ReqLLM.Error.Invalid.Provider{provider: "private"}) ==
+               %{reason: :provider_not_supported}
+    end
+
+    test "typed timeouts share a retryable safe category" do
+      for reason <- [
+            %ReqLLM.Error.API.Timeout{kind: :total, timeout: 1},
+            %Req.TransportError{reason: :timeout}
+          ] do
+        assert ErrorMessage.public_reason_for(reason) == :timeout
+        assert ErrorMessage.diagnostic_for(reason) == %{reason: :timeout}
+        assert ErrorMessage.retryable?(reason)
+      end
+    end
+
+    property "diagnostics never format or retain arbitrary payloads, atoms or HTTP statuses" do
+      check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 40)) do
+        private = "PRIVATE_ERROR_" <> suffix
+
+        for error <- [
+              private,
+              RuntimeError.exception(private),
+              %{reason: private, message: private},
+              :private_provider_error,
+              %ReqLLM.Error.API.Request{status: private, reason: private},
+              %ReqLLM.Error.API.Request{status: 900, reason: private},
+              %ReqLLM.Error.Invalid.Parameter{parameter: private}
+            ] do
+          diagnostic = ErrorMessage.diagnostic_for(error)
+
+          assert diagnostic.reason in [
+                   :agent_execution_failed,
+                   :provider_request_rejected,
+                   :provider_unavailable,
+                   :invalid_parameter
+                 ]
+
+          refute Map.has_key?(diagnostic, :http_status)
+          refute inspect(diagnostic) =~ private
+          refute inspect(diagnostic) =~ "private_provider_error"
+        end
+      end
+    end
+  end
 
   describe "from_reason/2" do
     test "maps prompt guard reasons to shared guard message" do

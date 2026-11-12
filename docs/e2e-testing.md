@@ -14,6 +14,18 @@ must preserve assertions and intent, never weaken them to hide regressions.
 The separate [real browser-tool integration](#real-browser-tool-integration-flow-3)
 uses ExUnit and the production `agent-browser` CLI, not the Playwright journey suite.
 
+Storybook checks use the dev server on port `4000`. In dev, `mix assets.build`
+builds both the production `app.css` and the separate `app.dev.css` preview bundle;
+the dev server watches both. Storybook loads `app.dev.css`, so the production
+asset build performed by `npm test` cannot overwrite its sandbox/theme styles.
+Keep those output paths separate when changing asset profiles.
+
+The dev-only Storybook entry also guards PhoenixStorybook 1.3's delayed iframe
+height measurement against frames removed by LiveView patches. It preserves
+per-variation iframe isolation and replaces only the upstream inline resizer;
+JavaScript errors are not suppressed. Its lifecycle checks use a controlled
+scheduler in `test/e2e/support/storybook-iframes.test.cjs`.
+
 ```
 test/e2e/
 ├── playwright.config.js     # Playwright config (port, timeout, browser)
@@ -211,6 +223,32 @@ Screenshots are written under `test/e2e/test-results/history-*.png`.
 No E2E bootstrap, port-4002 demo restart, database reset or real provider credentials
 are needed. Install the same Playwright dependencies/engines as other browser tests.
 
+### Channel delivery visibility (isolated, no reset)
+
+After the completed-UX approval recorded in `zaq-rgo.6`, run:
+
+```sh
+mix assets.build
+mix test test/zaq_web/channel_delivery_visibility_browser_test.exs --include real_browser --timeout 180000
+```
+
+Chromium, Firefox and WebKit exercise the real BO login, Endpoint, committed
+answer/evidence persistence, Channels-to-Engine reporting, scoped asynchronous
+PubSub invalidation and authorized incremental reads. Answers use deterministic
+capture/admission/finalization fixtures, not a model run. Definite rejection and
+later acceptance use the real Mattermost adapter against local HTTP; timeout is
+injected only at the transport callback. No BO read or persistence is mocked.
+
+The journey checks inline ordering, safe errors, retained DOM/focus/scroll,
+desktop/mobile stored information and traces, independent pending pagination,
+deferred association, duplicate hints, unrelated transcript isolation, staff
+denial and live role revocation. A deliberately dropped UI dispatch leaves the
+committed outcome intact; reload displays it without replay or data repair.
+Screenshots are written to `test/e2e/test-results/channel-delivery-*.png`.
+The existing domain tests separately verify outer-owner commit/rollback timing,
+fixed-target scoping and notification-failure isolation. No public test endpoint,
+database reset, provider account or retry/cancel transport operation is added.
+
 ### Real embedded widget lifecycle (isolated, no reset)
 
 ```sh
@@ -272,7 +310,7 @@ After building assets and installing the Playwright engines from `test/e2e`:
 ```sh
 mix assets.build
 mix test test/zaq_web/tool_activity_browser_test.exs --include real_browser --timeout 180000
-node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs
+node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs test/e2e/support/storybook-iframes.test.cjs
 ```
 
 The browser journey reuses the sandboxed ephemeral Endpoint and private process
@@ -290,6 +328,37 @@ catch sidebar collapse loss during LiveView patches. Screenshots are written to
 `Path.join(System.tmp_dir!(), "opencode")` as `tool-activity-<engine>-<width>.png`.
 Set `TOOL_ACTIVITY_SCREENSHOTS` to retain these in a chosen artifact directory.
 The Node commands are clock-controlled hook/layout unit tests, not browser journeys.
+
+### Nested Action traces (isolated, no reset)
+
+After the UX approval recorded in `zaq-1dq.13`, run:
+
+```sh
+mix test test/zaq_web/nested_action_traces_browser_test.exs --include real_browser --include paradedb --timeout 180000
+```
+
+This reuses `HistoryBrowser`'s ephemeral Endpoint and SQL Sandbox without E2E
+endpoints or a database reset. Chromium, Firefox and WebKit execute a real native
+configured-agent keyword search, expand nested evidence and reload it as an admin.
+Downgrading that user's role proves fresh authorization returns public root-only
+history, and a tampered conversation ID cannot expose another owner's history.
+
+A real workflow DAG runs composed test Actions through `StepRunner` and
+`ActionContract`. The existing local HTTP fixture gates an external-I/O sibling
+while the browser inspects a successful child/grandchild, then checks live
+completion or actual UI cancellation and reload. Capability sentinels in child
+arguments/results must remain redacted; an unfinished cancelled sibling must be
+unknown rather than successful. The active step is selected automatically on
+mount; terminal steps are selected explicitly after reload. Provider HTTP and
+the gated external dependency are local fixtures, not mocked trace collectors.
+
+After renewed UX approval for `zaq-1dq.18`, the same journey also executes real
+configured `RunAgent` workflow nodes: successful nested work, provider rate-limit
+failure after nested work, and provider failure before any tool starts. Failed
+steps keep their failure reason and expandable agent evidence on reload; known
+child outcomes stay successful, and pre-tool failures invent no child spans.
+These runs use owned tasks that finish before sandbox teardown. The original
+chat/direct-Action assertions, waits, timeouts, and zero retries are unchanged.
 
 ### People authentication journey (isolated, no reset)
 

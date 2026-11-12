@@ -4,8 +4,8 @@ defmodule Zaq.Agent.ZAQRouter do
 
   ZAQ Provider is a LiteLLM gateway exposed through the User Portal. It appears
   in the provider list alongside openai/anthropic but routes all requests through
-  the credential endpoint using the OpenAI-compatible protocol — `ProviderSpec`
-  maps `:zaq_router` to `:openai` for ReqLLM routing.
+   the credential endpoint using the registered `Zaq.Agent.Providers.ZAQRouter`
+   adapter for OpenAI-compatible generation/embeddings and LiteLLM reranking.
 
   The model list below is the default set advertised at startup. Call `reload/1`
   with a runtime list (e.g. from the portal `/models` response) to update it
@@ -23,110 +23,141 @@ defmodule Zaq.Agent.ZAQRouter do
   # (asserted at compile time below) so provisioning never wires a config that
   # points at a model the catalog doesn't advertise.
   @default_chat_model "openai/gpt-oss-120b"
-  @default_embedding_model "nvidia/llama-nemotron-embed-vl-1b-v2"
-  @default_embedding_dimension 2048
-  @default_image_model "nvidia/nemotron-nano-12b-v2-vl"
+  @default_embedding_model "baai/bge-m3"
+  @default_embedding_dimension 1024
+  @default_image_model "deepseek/deepseek-v4.1-flash"
+  @default_translation_model "openai/gpt-oss-20b"
+  @default_small_model "openai/gpt-oss-20b"
+  @default_reranking_model "Qwen/Qwen3-Reranker-0.6B"
+  @default_decision_model "typesafe/jev-1.14"
 
-  @vision_modalities %{input: [:image, :text], output: [:text]}
-
-  @embedding_caps_3072 %{
+  @non_generative_caps %{
     chat: false,
-    embeddings: %{default_dimensions: 3072, max_dimensions: 3072},
+    evaluate: false,
+    embeddings: false,
+    rerank: false,
     json: %{native: false, schema: false, strict: false},
     reasoning: %{enabled: false},
     streaming: %{text: false, tool_calls: false},
-    tools: %{enabled: false}
+    tools: %{enabled: false, streaming: false, strict: false, parallel: false}
   }
 
-  @default_models %{
-    # Context limits are token counts from OpenRouter's model catalog (chat),
-    # NVIDIA's model cards (Nemotron), and OpenAI/Google's embedding model docs.
-    # The multimodal Nemotron embedding limit includes image and text tokens.
-    # ── LLM / Chat models ──────────────────────────────────────────────
-    # Free
-    "openai/gpt-oss-120b" => %{
-      limits: %{context: 131_072},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
-    },
-    "qwen/qwen3-235b-a22b-2507" => %{
-      limits: %{context: 262_144},
-      capabilities: %{chat: true, tools: %{enabled: true}}
-    },
-    "mistralai/mistral-small-2603" => %{
-      limits: %{context: 262_144},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-      modalities: @vision_modalities
-    },
-    "deepseek/deepseek-v4-pro" => %{
-      limits: %{context: 1_048_576},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
-    },
-    "moonshotai/kimi-k3" => %{
-      limits: %{context: 1_048_576},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
-    },
-    "deepseek/deepseek-v4.1-flash" => %{
-      limits: %{context: 1_048_576},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
-    },
+  # Verified 2026-11-04 against https://openrouter.ai/api/v1/models?output_modalities=all.
+  # Entries are {id, context, input, reasoning?, structured_json?}; tool support is explicit.
+  @generation_models Map.new(
+                       [
+                         {"openai/gpt-oss-120b", 131_072, [:text], true, true},
+                         {"openai/gpt-oss-20b", 131_072, [:text], true, true},
+                         {"qwen/qwen3-235b-a22b-2507", 262_144, [:text], false, true},
+                         {"qwen/qwen3-vl-235b-a22b-instruct", 262_144, [:text, :image], false,
+                          true},
+                         {"google/gemma-3-27b-it", 131_072, [:text, :image], false, true},
+                         {"google/gemma-4-31b-it", 262_144, [:text, :image, :video], true, true},
+                         {"google/gemini-2.5-flash-lite", 1_048_576,
+                          [:text, :image, :audio, :video, :file], true, true},
+                         {"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", 256_000,
+                          [:text, :image, :audio, :video], true, false},
+                         {"deepseek/deepseek-v4-pro", 1_048_576, [:text], true, true},
+                         {"deepseek/deepseek-v4.1-flash", 1_048_576, [:text, :image], true, true},
+                         {"moonshotai/kimi-k3", 1_048_576, [:text, :image, :video], true, true},
+                         {"moonshotai/kimi-k3.1-pro", 1_048_576, [:text, :image, :video], true,
+                          true},
+                         {"z-ai/glm-5.3-flash", 1_048_576, [:text, :image, :video], true, true}
+                       ],
+                       fn {id, context, input, reasoning?, json?} ->
+                         {id,
+                          %{
+                            limits: %{context: context},
+                            modalities: %{input: input, output: [:text]},
+                            capabilities: %{
+                              chat: true,
+                              evaluate: false,
+                              embeddings: false,
+                              rerank: false,
+                              reasoning: %{enabled: reasoning?},
+                              tools: %{enabled: true},
+                              json: %{native: json?, schema: json?, strict: nil},
+                              streaming: %{text: true, tool_calls: true}
+                            }
+                          }}
+                       end
+                     )
 
-    # ── Vision models (image-to-text) ──────────────────────────────────
-    "nvidia/nemotron-nano-12b-v2-vl" => %{
-      limits: %{context: 131_072},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-      modalities: @vision_modalities
-    },
-    "google/gemma-3-27b-it" => %{
-      limits: %{context: 131_072},
-      capabilities: %{chat: true, tools: %{enabled: true}},
-      modalities: @vision_modalities
-    },
-    "google/gemini-2.5-flash-lite" => %{
-      limits: %{context: 1_048_576},
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-      modalities: @vision_modalities
-    },
-    "qwen/qwen3-vl-235b-a22b-instruct" => %{
-      limits: %{context: 262_144},
-      capabilities: %{chat: true, tools: %{enabled: true}},
-      modalities: @vision_modalities
-    },
+  # Dimensions/input limits: NVIDIA's model card, OpenAI embeddings guide,
+  # ai.google.dev/gemini-api/docs/models/gemini-embedding-001 and BAAI/bge-m3's model card.
+  @embedding_models Map.new(
+                      [
+                        {"nvidia/llama-nemotron-embed-vl-1b-v2", 10_240, [:text, :image], 2048,
+                         2048},
+                        {"openai/text-embedding-3-large", 8192, [:text], 1, 3072},
+                        {"openai/text-embedding-3-small", 8192, [:text], 1, 1536},
+                        {"google/gemini-embedding-001", 2048, [:text], 128, 3072},
+                        {"baai/bge-m3", 8192, [:text], 1024, 1024}
+                      ],
+                      fn {id, context, input, min, dimensions} ->
+                        {id,
+                         %{
+                           limits: %{context: context},
+                           modalities: %{input: input, output: [:embeddings]},
+                           capabilities:
+                             Map.put(@non_generative_caps, :embeddings, %{
+                               min_dimensions: min,
+                               max_dimensions: dimensions,
+                               default_dimensions: dimensions
+                             })
+                         }}
+                      end
+                    )
 
-    # ── Embedding models ───────────────────────────────────────────────
-    "nvidia/llama-nemotron-embed-vl-1b-v2" => %{
-      limits: %{context: 10_240},
-      capabilities: %{
-        chat: false,
-        embeddings: %{default_dimensions: 2048, max_dimensions: 2048},
-        json: %{native: false, schema: false, strict: false},
-        reasoning: %{enabled: false},
-        streaming: %{text: false, tool_calls: false},
-        tools: %{enabled: false}
-      }
-    },
-    "openai/text-embedding-3-small" => %{
-      limits: %{context: 8192},
-      capabilities: %{
-        chat: false,
-        embeddings: %{default_dimensions: 1536, max_dimensions: 1536},
-        json: %{native: false, schema: false, strict: false},
-        reasoning: %{enabled: false},
-        streaming: %{text: false, tool_calls: false},
-        tools: %{enabled: false}
-      }
-    },
-    "google/gemini-embedding-001" => %{
-      limits: %{context: 2048},
-      capabilities: @embedding_caps_3072
-    },
-    "openai/text-embedding-3-large" => %{
-      limits: %{context: 8192},
-      capabilities: @embedding_caps_3072
-    }
-  }
+  @default_models @generation_models
+                  |> Map.merge(@embedding_models)
+                  |> Map.merge(%{
+                    # https://docs.typesafe.ai/models: images/extended context require opt-in.
+                    "typesafe/jev-1.14" => %{
+                      limits: %{context: 65_536},
+                      modalities: %{input: [:text, :image], output: [:decisions]},
+                      capabilities: %{@non_generative_caps | evaluate: true},
+                      catalog_only: false,
+                      execution: %{
+                        evaluate: %{
+                          supported: true,
+                          family: "typesafe_systemone",
+                          wire_protocol: "typesafe_systemone",
+                          transport: "http",
+                          path: "/v1/systemone",
+                          provider_model_id: "typesafe/jev-1.14"
+                        }
+                      }
+                    },
+                    # https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
+                    "Qwen/Qwen3-Reranker-0.6B" => %{
+                      limits: %{context: 32_768},
+                      modalities: %{input: [:text], output: [:rerank]},
+                      capabilities: %{@non_generative_caps | rerank: true},
+                      catalog_only: false,
+                      execution: %{
+                        rerank: %{
+                          supported: true,
+                          family: "cohere_rerank_compatible",
+                          wire_protocol: "cohere_rerank",
+                          transport: "http",
+                          path: "/rerank",
+                          provider_model_id: "Qwen/Qwen3-Reranker-0.6B"
+                        }
+                      }
+                    }
+                  })
 
   # Compile-time guard: the bootstrap default models must be real catalog entries.
-  for model <- [@default_chat_model, @default_embedding_model, @default_image_model] do
+  for model <- [
+        @default_chat_model,
+        @default_embedding_model,
+        @default_image_model,
+        @default_translation_model,
+        @default_small_model,
+        @default_reranking_model,
+        @default_decision_model
+      ] do
     unless Map.has_key?(@default_models, model) do
       raise "ZAQRouter default model #{inspect(model)} is not present in @default_models"
     end
@@ -143,6 +174,22 @@ defmodule Zaq.Agent.ZAQRouter do
   @doc "Default image-to-text model wired on first-run provisioning."
   @spec default_image_model() :: String.t()
   def default_image_model, do: @default_image_model
+
+  @doc "Default knowledge-query translation model wired on first-run provisioning."
+  @spec default_translation_model() :: String.t()
+  def default_translation_model, do: @default_translation_model
+
+  @doc "Default Small model wired on first-run provisioning for conversation titles."
+  @spec default_small_model() :: String.t()
+  def default_small_model, do: @default_small_model
+
+  @doc "Default reranking model wired on first-run provisioning."
+  @spec default_reranking_model() :: String.t()
+  def default_reranking_model, do: @default_reranking_model
+
+  @doc "Default decision model selection wired on first-run provisioning."
+  @spec default_decision_model() :: String.t()
+  def default_decision_model, do: @default_decision_model
 
   @doc """
   Returns the LiteLLM base URL configured for this deployment, or `nil` when the
@@ -182,6 +229,18 @@ defmodule Zaq.Agent.ZAQRouter do
   end
 
   defp build_opts(models) do
-    [custom: %{@provider_id => [name: "ZAQ Router", models: models]}]
+    [
+      custom: %{
+        @provider_id => [
+          name: "ZAQ Router",
+          catalog_only: false,
+          runtime: %{
+            base_url: default_endpoint() || "https://llm.zaq.ai",
+            auth: %{type: "bearer", env: []}
+          },
+          models: models
+        ]
+      }
+    ]
   end
 end

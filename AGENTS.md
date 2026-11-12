@@ -7,7 +7,7 @@ ZAQ is an AI-powered company brain built with Elixir/Phoenix. This file is the d
 - On a new environment, follow [agent workflow setup](docs/agent-setup.md) to configure and verify Context Mode, Serena and Beadwork before starting automated work.
 - On every task, run `bw prime` and read the applicable sections of [the workflow](docs/WORKFLOW_AGENT.md). Check existing Beadwork issues before complex work.
 - Before using tools, read the routing rules in [agent tools](docs/agent-tools.md). Read catalog/maintenance sections only when needed.
-- Before changing documentation, agent guidance or project memories, read [documentation hygiene](docs/documentation.md); use the [docs index](docs/README.md) for navigation.
+- Before changing code comments, documentation, agent guidance or project memories, read [documentation hygiene](docs/documentation.md), including its [writing rules](docs/documentation.md#writing-comments-and-documentation); use the [docs index](docs/README.md) for navigation.
 - Before designing or changing operations, read [Action reuse](docs/action-reuse.md); record reuse/extend/new/local-only evidence, or justified not-applicable. Never duplicate operations or automatically expose Actions as agent tools.
 - Read the required documents below **before the affected work**. Links are not automatic imports. Do not load the entire map.
 - Read relevant sections once; reuse unchanged instructions already in context. After compaction, recover applicable policies and verify current files, Git and Beadwork state before acting.
@@ -15,7 +15,8 @@ ZAQ is an AI-powered company brain built with Elixir/Phoenix. This file is the d
 
 ## Essential constraints
 
-- Prefer the smallest coherent change that fully satisfies the request; follow [minimal change surface](docs/code-quality.md#minimal-change-surface) and established patterns.
+- Apply [Write for Humans](docs/code-quality.md#write-for-humans) and the [naming conventions](docs/conventions.md#naming) when writing or reviewing code.
+- Prefer the smallest coherent change that fully satisfies the request; follow [minimal change surface](docs/code-quality.md#minimal-change-surface), the [function reuse decision](docs/code-quality.md#function-reuse-decision), and established patterns.
 - Never push directly to `main`; changes go through a PR. Commit/push/merge only when authorized.
 - All cross-service BO calls use `NodeRouter.dispatch/1` with `%Zaq.Event{}`, not direct module calls.
 - Read a module's `@moduledoc` before adding a function; respect its responsibility.

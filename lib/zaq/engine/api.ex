@@ -23,6 +23,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Connect.OAuthAttempts
   alias Zaq.Engine.ConnectorLifecycle
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.MessageDelivery
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.EmailConnectorSettings
   alias Zaq.Engine.History.{CommunicationPolicy, Delivery}
@@ -185,7 +186,7 @@ defmodule Zaq.Engine.Api do
            %{role: %{name: "super_admin"}} <- Accounts.get_user(id) do
         request =
           case event.request do
-            %{op: op} = request when op in [:list, :detail, :refresh, :rate] ->
+            %{op: op} = request when op in [:list, :detail, :message_changes, :refresh, :rate] ->
               Map.put(request, :actor, event.actor)
 
             other ->
@@ -236,6 +237,15 @@ defmodule Zaq.Engine.Api do
         _context
       ) do
     %{event | response: Delivery.capture({:ok, receipt}, outgoing, event.opts)}
+  end
+
+  def handle_event(%Event{request: observation} = event, :record_delivery_observation, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: MessageDelivery.record(observation, event.opts),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response, next_hop: nil}
   end
 
   def handle_event(%Event{request: reference} = event, :confirmed_history_delivery, _context) do
@@ -906,6 +916,20 @@ defmodule Zaq.Engine.Api do
     case event.request do
       %{attrs: attrs} when is_map(attrs) ->
         %{event | response: System.save_retrieval_config(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_get_decision_model_config, _context) do
+    %{event | response: System.get_decision_model_config()}
+  end
+
+  def handle_event(%Event{} = event, :system_config_save_decision_model_config, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.save_decision_model_config(attrs)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

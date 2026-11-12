@@ -203,19 +203,27 @@ defmodule Zaq.UserPortal.Provisioner do
 
     case dispatch(request, :agent, :invoke, opts) do
       {:error, :agent_not_found} ->
-        attrs = %{
-          name: @agent_name,
-          job: "Help users answer questions using the company knowledge base.",
-          credential_id: credential_id,
-          model: ZAQRouter.default_chat_model(),
-          conversation_enabled: true,
-          enabled_tool_keys: [
-            "answering.search_knowledge_base",
-            "answering.get_knowledge_base_chunks"
-          ]
-        }
+        with {:ok, model} <- LLMDB.model(:zaq_router, ZAQRouter.default_chat_model()) do
+          attrs = %{
+            name: @agent_name,
+            job: "Help users answer questions using the company knowledge base.",
+            credential_id: credential_id,
+            model: model.id,
+            model_max_context_tokens: model.limits.context,
+            conversation_enabled: true,
+            enabled_tool_keys: [
+              "answering.search_knowledge_base",
+              "answering.get_knowledge_base_chunks"
+            ]
+          }
 
-        dispatch(%{module: Agent, function: :create_agent, args: [attrs]}, :agent, :invoke, opts)
+          dispatch(
+            %{module: Agent, function: :create_agent, args: [attrs]},
+            :agent,
+            :invoke,
+            opts
+          )
+        end
 
       result ->
         result
@@ -256,6 +264,34 @@ defmodule Zaq.UserPortal.Provisioner do
       })
       |> System.save_image_to_text_config()
       |> log_config_result("image-to-text")
+    end
+
+    for {kind, model} <- [
+          translation: ZAQRouter.default_translation_model(),
+          small: ZAQRouter.default_small_model()
+        ],
+        not System.model_config_initialized?(kind) do
+      System.save_operation_model_config(kind, %{
+        credential_id: cred_id,
+        model: model
+      })
+      |> log_config_result(Atom.to_string(kind))
+    end
+
+    unless System.model_config_initialized?(:reranking) do
+      System.save_rag_model_config(:reranking, %{
+        credential_id: cred_id,
+        model: ZAQRouter.default_reranking_model()
+      })
+      |> log_config_result("reranking")
+    end
+
+    unless System.model_config_initialized?(:decision) do
+      System.save_decision_model_config(%{
+        credential_id: cred_id,
+        model: ZAQRouter.default_decision_model()
+      })
+      |> log_config_result("decision")
     end
 
     :ok

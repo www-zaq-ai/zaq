@@ -99,6 +99,16 @@ defmodule Zaq.TestSupport.OpenAIStub do
     }
   end
 
+  @doc "A scripted decision response; answers retain the provider's wire representation."
+  def decision_response(answers, opts \\ []) do
+    %{
+      "id" => "decision-test",
+      "model" => Keyword.get(opts, :model, "test-model"),
+      "answers" => answers,
+      "usage" => Keyword.get(opts, :usage, %{"input_tokens" => 10, "output_tokens" => 5})
+    }
+  end
+
   @doc "Seeds an explicitly selected dedicated operation model at the stub endpoint."
   def seed_operation_model_config(kind, endpoint, overrides \\ []) do
     credential =

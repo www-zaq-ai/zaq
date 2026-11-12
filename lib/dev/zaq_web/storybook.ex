@@ -3,7 +3,7 @@ defmodule ZaqWeb.Storybook do
   use PhoenixStorybook,
     otp_app: :zaq,
     content_path: Path.expand("../../../storybook", __DIR__),
-    css_path: "/assets/css/app.css",
+    css_path: "/assets/css/app.dev.css",
     js_path: "/assets/js/storybook.js",
     title: "ZAQ Design System",
     color_mode: true,

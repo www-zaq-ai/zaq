@@ -28,6 +28,12 @@ mix q                        # issue-level quality check, includes formatting
 
 ## Review Checklist
 
+### Comments and Documentation
+- [ ] Touched comments and documentation follow the [writing rules](../../docs/documentation.md#writing-comments-and-documentation); flag misleading, stale, redundant, or missing useful information
+
+### Function Reuse (mandatory)
+- [ ] Apply the [function reuse decision](../../docs/code-quality.md#function-reuse-decision) to changed functions; assess compatibility and risk before churn, with concrete candidates and contract evidence
+
 ### Action Reuse (mandatory)
 - [ ] Read `docs/action-reuse.md` and inspect the issue's assessment and relevant existing Actions/tools/domain APIs, not only the diff
 - [ ] Reuse / extend / new Action / local-only decisions have source evidence, contracts, consumers, and tests (or justified not applicable)
@@ -45,11 +51,8 @@ cite concrete candidates rather than demanding speculative wrappers.
 - [ ] LLM endpoint not hardcoded — must come from config or env
 
 ### Elixir Quality
-- [ ] Pattern matching used instead of nested conditionals
-- [ ] `with/1` used for multi-step happy path flows
-- [ ] Private helpers extracted with `defp` for clarity
-- [ ] No magic numbers — use module attributes (`@default_chunk_size 512`)
-- [ ] Pipelines used where appropriate
+- [ ] Changed code follows [Write for Humans](../../docs/code-quality.md#write-for-humans), including control flow, helper extraction, and domain literals; readability findings explain a concrete ambiguity and its consequence
+- [ ] Names follow the [naming conventions](../../docs/conventions.md#naming)
 - [ ] No unused variables or aliases (compiler will warn)
 
 ### Ecto / Database
@@ -80,6 +83,8 @@ cite concrete candidates rather than demanding speculative wrappers.
 
 ## Output Format
 
+Illustrative findings, not verified repository issues:
+
 ```
 [MUST FIX] lib/zaq_web/live/bo/ai/ingestion_live.ex:42
   Direct remote Agent call bypasses NodeRouter.
@@ -87,10 +92,8 @@ cite concrete candidates rather than demanding speculative wrappers.
   preserving trusted actor and request/response contracts; see docs/architecture.md.
 
 [SHOULD FIX] lib/zaq/ingestion/chunker.ex:18
-  Magic number 512 — extract as @default_chunk_size module attribute
-
-[SUGGESTION] lib/zaq/accounts.ex:33
-  Nested case can be flattened with with/1
+  The chunk-size limit 512 is unexplained at the call site, hiding its purpose.
+  Name the domain value with a module attribute such as @default_chunk_size.
 ```
 
 Flag issues by priority: MUST FIX → SHOULD FIX → SUGGESTION. Provide exact file and line, and a concrete fix.

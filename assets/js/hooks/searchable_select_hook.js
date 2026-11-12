@@ -151,7 +151,8 @@ export const SearchableSelectHook = {
     })
 
     this._outsideClick = (e) => {
-      if (!root.contains(e.target)) closePanel()
+      // Flash auto-dismiss clicks its close button programmatically, not as user intent.
+      if (e.isTrusted && !root.contains(e.target)) closePanel()
     }
     document.addEventListener("click", this._outsideClick, true)
 
