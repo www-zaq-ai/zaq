@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.EventsTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.Channels.Events
+  alias Zaq.Channels.{Api, Events}
   alias Zaq.Engine.Messages.Outgoing
 
   defmodule StubNodeRouter do
@@ -9,6 +9,47 @@ defmodule Zaq.Channels.EventsTest do
       send(self(), {:node_router_dispatch, event})
       %{event | response: :ok}
     end
+  end
+
+  test "source record context dispatch preserves trusted actor and confidential metadata" do
+    reference = %{provider: "disk", config_id: 7, record_id: Ecto.UUID.generate()}
+    actor = %{person_id: 42}
+
+    event =
+      Events.build_and_dispatch_data_source_record_context_event(reference, :update,
+        actor: actor,
+        node_router: StubNodeRouter
+      )
+
+    assert event.request == %{source_ref: reference, right: :update}
+    assert event.actor == actor
+    assert event.next_hop.destination == :channels
+    assert event.opts[:action] == :data_source_record_context
+    assert event.opts[:confidential] == true
+    assert event.response == :ok
+    assert_received {:node_router_dispatch, _}
+  end
+
+  test "source context role boundary derives authority only from the event envelope" do
+    reference = %{provider: "disk", config_id: 42, record_id: Ecto.UUID.generate()}
+
+    event =
+      Events.build_data_source_record_context_event(reference, :update,
+        event_opts: [skip_permissions: true]
+      )
+
+    event = %{event | request: Map.put(event.request, :actor, %{skip_permissions: true})}
+
+    assert %{response: {:error, :unauthorized}} =
+             Api.handle_event(event, :data_source_record_context, nil)
+
+    invalid =
+      Events.build_data_source_record_context_event(%{reference | record_id: ""}, :read,
+        actor: %{person_id: 7}
+      )
+
+    assert %{response: {:error, :invalid_source_reference}} =
+             Api.handle_event(invalid, :data_source_record_context, nil)
   end
 
   test "build_upsert_message_event forces sync when message_id missing" do

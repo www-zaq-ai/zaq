@@ -11,6 +11,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
+  alias Zaq.Ingestion.ExternalSource
   alias Zaq.Repo
 
   defmodule ProjectionSyncRouter do
@@ -256,6 +257,240 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   end
 
   defmodule StubNoDataSourceCallbacks do
+  end
+
+  defmodule ContextBridge do
+    def get_file(_config, %{"file_id" => id}, _context) do
+      send(self(), {:context_metadata, id})
+
+      case Map.fetch(Process.get(:context_records, %{}), id) do
+        {:ok, record} -> {:ok, %{record: record}}
+        :error -> {:error, :not_found}
+      end
+    end
+  end
+
+  describe "authorized source record context" do
+    setup do
+      configure_channels(%{google_drive: %{bridge: ContextBridge}})
+      config = insert_data_source_config(:google_drive)
+      person = person_fixture()
+      permission = permission_fixture(person.email, ["read", "edit"])
+
+      records =
+        for {id, parent, kind} <- [
+              {"file", "near", :file},
+              {"near", "root", :folder},
+              {"root", nil, :folder}
+            ],
+            into: %{} do
+          {id,
+           %Record{
+             id: id,
+             kind: kind,
+             parent_id: parent,
+             parent_ids: if(parent, do: [parent], else: []),
+             permissions: [permission]
+           }}
+        end
+
+      Process.put(:context_records, records)
+
+      {:ok,
+       reference: %{provider: "google_drive", config_id: config.id, record_id: "file"},
+       context: actor_context(person),
+       records: records}
+    end
+
+    test "returns sealed identity, permission evidence and nearest-first ancestors", state do
+      assert {:ok, result} =
+               DataSourceBridge.record_context(state.reference, :update, state.context)
+
+      assert result.reference.config_id == to_string(state.reference.config_id)
+      assert result.record.id == "file"
+      assert {:ok, claims} = Provenance.verify(result.record)
+      assert to_string(claims["config_id"]) == to_string(state.reference.config_id)
+      assert result.permissions == result.record.permissions
+
+      assert ExternalSource.source(result.record) ==
+               "data_source/google_drive/#{state.reference.config_id}/file"
+
+      assert Enum.map(result.ancestors, &{&1.reference.record_id, &1.depth}) == [
+               {"near", 1},
+               {"root", 2}
+             ]
+
+      assert Enum.all?(result.ancestors, &(&1.reference.config_id == result.reference.config_id))
+      assert_received {:context_metadata, "file"}
+      assert_received {:context_metadata, "near"}
+      assert_received {:context_metadata, "root"}
+      refute_received {:context_metadata, _}
+    end
+
+    test "denies absent and read-only mutation actors before returning context", state do
+      assert {:error, :unauthorized} =
+               DataSourceBridge.record_context(state.reference, :read, %{})
+
+      refute_received {:context_metadata, _}
+      [permission] = state.records["file"].permissions
+      permission = put_in(permission.attributes["access_rights"], ["read"])
+
+      Process.put(
+        :context_records,
+        Map.update!(state.records, "file", &%{&1 | permissions: [permission]})
+      )
+
+      assert {:ok, _} = DataSourceBridge.record_context(state.reference, :read, state.context)
+
+      assert {:error, :unauthorized} =
+               DataSourceBridge.record_context(state.reference, :update, state.context)
+    end
+
+    test "does not expose a readable child's inaccessible ancestor", state do
+      records = Map.update!(state.records, "near", &%{&1 | permissions: []})
+      Process.put(:context_records, records)
+
+      assert {:error, :incomplete_ancestry} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+
+      refute_received {:context_metadata, "root"}
+    end
+
+    test "rejects ambiguous parents, cycles and broken parent chains", state do
+      records = Map.update!(state.records, "file", &%{&1 | parent_ids: ["near", "other"]})
+      Process.put(:context_records, records)
+
+      assert {:error, :ambiguous_ancestry} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+
+      records =
+        Map.update!(state.records, "near", &%{&1 | parent_id: "file", parent_ids: ["file"]})
+
+      Process.put(:context_records, records)
+
+      assert {:error, :ancestry_cycle} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+
+      Process.put(:context_records, Map.delete(state.records, "near"))
+
+      assert {:error, :incomplete_ancestry} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+    end
+
+    test "rejects invalid references and provider/config identity mismatches", state do
+      for reference <- [
+            Map.delete(state.reference, :config_id),
+            %{state.reference | config_id: "invalid"},
+            %{state.reference | record_id: ""}
+          ] do
+        assert {:error, :invalid_source_reference} =
+                 DataSourceBridge.record_context(reference, :read, state.context)
+      end
+
+      assert {:error, :invalid_source_reference} =
+               DataSourceBridge.record_context(state.reference, :delete, state.context)
+
+      assert {:error, :invalid_source_reference} =
+               DataSourceBridge.record_context(
+                 %{state.reference | provider: "disk", record_id: "archives/file.md"},
+                 :read,
+                 state.context
+               )
+
+      assert {:error, _} =
+               DataSourceBridge.record_context(
+                 %{state.reference | provider: "sharepoint"},
+                 :read,
+                 state.context
+               )
+    end
+
+    test "canonicalizes copied identity attributes from verified source claims", state do
+      records =
+        Map.update!(state.records, "file", &%{&1 | attributes: %{"provider" => "sharepoint"}})
+
+      Process.put(:context_records, records)
+
+      assert {:ok, result} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+
+      assert ExternalSource.source(result.record) ==
+               "data_source/google_drive/#{state.reference.config_id}/file"
+
+      records =
+        Map.update!(
+          state.records,
+          "file",
+          &%{&1 | attributes: %{"provider_record_id" => "other"}}
+        )
+
+      Process.put(:context_records, records)
+
+      assert {:error, :invalid_source_reference} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+    end
+
+    test "bounds provider metadata requests for deep ancestry", state do
+      [permission] = state.records["file"].permissions
+
+      records =
+        Map.new(0..66, fn index ->
+          parent = if index < 66, do: to_string(index + 1)
+
+          {to_string(index),
+           %Record{
+             id: to_string(index),
+             kind: :folder,
+             parent_id: parent,
+             permissions: [permission]
+           }}
+        end)
+
+      Process.put(:context_records, records)
+      reference = %{state.reference | record_id: "0"}
+
+      assert {:error, :ancestry_depth_exceeded} =
+               DataSourceBridge.record_context(reference, :read, state.context)
+
+      refute_received {:context_metadata, "65"}
+    end
+
+    property "complete chains preserve nearest-first origin and canonical source identity",
+             state do
+      check all(depth <- integer(0..8), max_runs: 12) do
+        [permission] = state.records["file"].permissions
+
+        records =
+          Map.new(0..depth, fn index ->
+            parent = if index < depth, do: to_string(index + 1)
+
+            {to_string(index),
+             %Record{
+               id: to_string(index),
+               kind: :folder,
+               parent_id: parent,
+               permissions: [permission]
+             }}
+          end)
+
+        Process.put(:context_records, records)
+
+        assert {:ok, result} =
+                 DataSourceBridge.record_context(
+                   %{state.reference | record_id: "0"},
+                   :read,
+                   state.context
+                 )
+
+        expected = if depth == 0, do: [], else: Enum.map(1..depth, &{to_string(&1), &1})
+        assert Enum.map(result.ancestors, &{&1.reference.record_id, &1.depth}) == expected
+
+        assert Enum.all?(
+                 result.ancestors,
+                 &(&1.reference.config_id == result.reference.config_id)
+               )
+      end
+    end
   end
 
   defmodule StubRecordReturningDataSourceBridge do

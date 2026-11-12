@@ -87,6 +87,15 @@ defmodule Zaq.Storage.Api do
     %{event | response: Storage.describe_document(file_id, opts(event))}
   end
 
+  def handle_event(
+        %Event{request: %{file_id: file_id, right: right}} = event,
+        :document_ancestors,
+        _context
+      )
+      when is_binary(file_id) and right in [:read, :update] do
+    %{event | response: Storage.document_ancestors(file_id, right, opts(event))}
+  end
+
   def handle_event(%Event{request: %{params: params}} = event, :list_documents, _context)
       when is_map(params) do
     %{event | response: Storage.list_documents(params, opts(event))}
