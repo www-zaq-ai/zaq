@@ -402,13 +402,27 @@ defmodule Zaq.IngestionTest do
           owners: [%{"email" => "owner@example.com", "display_name" => "Owner Person"}],
           permissions: [
             %Record{
+              id: "perm-owner",
+              kind: :permission,
+              name: "Owner Person",
+              attributes: %{
+                "email" => "owner@example.com",
+                "principal_type" => "user",
+                "principal_key" => "owner@example.com",
+                "role" => "owner",
+                "access_rights" => ["read", "write"]
+              }
+            },
+            %Record{
               id: "perm-reader",
               kind: :permission,
               name: "Reader Person",
               attributes: %{
                 "email" => "reader@example.com",
+                "principal_type" => "user",
                 "principal_key" => "reader@example.com",
-                "role" => "reader"
+                "role" => "reader",
+                "access_rights" => ["read"]
               },
               raw: %{"emailAddress" => "reader@example.com", "role" => "reader"}
             },
@@ -418,8 +432,10 @@ defmodule Zaq.IngestionTest do
               name: "Writer Person",
               attributes: %{
                 "email" => "writer@example.com",
+                "principal_type" => "user",
                 "principal_key" => "writer@example.com",
-                "role" => "writer"
+                "role" => "writer",
+                "access_rights" => ["read", "write"]
               },
               raw: %{"emailAddress" => "writer@example.com", "role" => "writer"}
             }
