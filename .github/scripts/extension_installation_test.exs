@@ -260,6 +260,18 @@ defmodule Zaq.ExtensionInstallationTest do
     Repo.query!("CREATE TABLE reporting.future_items (id bigserial PRIMARY KEY)")
     Repo.query!("INSERT INTO reporting.future_items DEFAULT VALUES")
     Repo.query!("CREATE TABLE public.unshared_items (id integer)")
+
+    if context.engine == "paradedb" do
+      # The owner cannot delegate access to this DBA-owned extension schema.
+      {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+      try do
+        Postgrex.query!(admin, "GRANT USAGE ON SCHEMA pdb TO #{login}", [])
+      after
+        GenServer.stop(admin)
+      end
+    end
+
     config = Keyword.merge(context.admin_config, username: login, password: context.password)
     {:ok, scoped} = Postgrex.start_link(config)
 

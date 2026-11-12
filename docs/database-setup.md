@@ -118,6 +118,18 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA reporting
   GRANT SELECT ON SEQUENCES TO reporting_reader;
 ```
 
+For ParadeDB, the DBA must also grant the login access to the extension-owned
+`pdb` schema before it queries application tables:
+
+```sql
+GRANT USAGE ON SCHEMA pdb TO reporting_reader;
+```
+
+ParadeDB needs this internal schema even for ordinary SELECT queries. The owner
+cannot delegate this access because it does not own the extension schema or have
+the grant option. Schema USAGE does not grant table access or routine execution;
+do not grant broad extension privileges or change PUBLIC permissions.
+
 Schema USAGE alone does not grant table access. Default privileges apply only to
 future objects created by the role configuring them; other creators need their
 own defaults. Grant schema CREATE, table writes, or sequence USAGE separately only
