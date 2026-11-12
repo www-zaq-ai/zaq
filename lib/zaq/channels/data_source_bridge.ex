@@ -48,6 +48,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   Record permissions.
   """
 
+  alias Zaq.Accounts.Person
   alias Zaq.Channels.Bridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Authorization
@@ -57,6 +58,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Events.Helper
   alias Zaq.Events.TrustedContext
+  alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
 
   @callback auth_handshake(map(), map()) :: {:ok, term()} | {:error, term()}
   @callback list_resources(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
@@ -103,6 +105,8 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback owns_permission_checks?() :: boolean()
   @callback record_ancestors(map(), map(), TrustedContext.t()) ::
               {:ok, [Record.t()]} | {:error, term()}
+  @callback record_contexts(map(), map(), TrustedContext.t()) ::
+              {:ok, [%{record: Record.t(), ancestors: [Record.t()]}]} | {:error, term()}
 
   # Every callback above is optional. This module already dispatches through
   # `supports_callback?/3` and answers `{:error, :unsupported}` for anything a bridge does
@@ -112,6 +116,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   # bridge (`Zaq.Channels.DiskBridge`) still get compile-time checking on the callbacks it
   # does implement.
   @optional_callbacks auth_handshake: 2,
+                      record_contexts: 3,
                       record_ancestors: 3,
                       list_resources: 2,
                       download_resource: 3,
@@ -483,26 +488,324 @@ defmodule Zaq.Channels.DataSourceBridge do
   @spec record_context(map(), :read | :update, TrustedContext.t() | map()) ::
           {:ok, SourceRecordContext.t()} | {:error, term()}
   def record_context(reference, right \\ :read, context \\ %{}) do
+    with {:ok, reference} <- source_reference(reference, right),
+         {:ok, [resolved]} <- record_contexts([reference], right, context) do
+      {:ok, resolved}
+    end
+  end
+
+  @doc """
+  Resolves up to 500 source references, preserving order and duplicate positions.
+
+  Authorization, metadata and ancestry are shared only within this request and
+  provider/config scope. Traversal permits 64 ancestors per target and 1024 distinct
+  ancestor identities. Errors return no partial contexts or inaccessible metadata.
+  """
+  @spec record_contexts([map()], :read | :update, TrustedContext.t() | map()) ::
+          {:ok, [SourceRecordContext.t()]} | {:error, term()}
+  def record_contexts(references, right \\ :read, context \\ %{})
+
+  def record_contexts(references, right, context)
+      when is_list(references) and length(references) <= 500 and right in [:read, :update] do
     trusted = TrustedContext.normalize(context)
 
-    with {:ok, reference} <- source_reference(reference, right),
-         true <- is_map(trusted.actor) || {:error, :unauthorized},
-         {:ok, bridge} <- Bridge.resolve_bridge(reference.provider),
-         {:ok, config} <- resolve_data_source_config(reference.provider, reference),
-         {:ok, record} <- context_record(reference, trusted),
+    with {:ok, references} <- context_references(references, right),
+         true <- source_context_actor?(trusted.actor) || {:error, :unauthorized},
+         {:ok, state} <- resolve_context_groups(references, right, trusted) do
+      {:ok, Enum.map(references, &Map.fetch!(state.contexts, context_key(&1)))}
+    end
+  end
+
+  def record_contexts(_, _, _), do: {:error, :invalid_source_references}
+
+  defp source_context_actor?(%Person{id: id}),
+    do: not is_nil(ActorNormalizer.normalize_id(id))
+
+  defp source_context_actor?(actor) when is_map(actor) do
+    match?({:ok, _}, ExecutionActor.identity(actor)) or
+      not is_nil(
+        ActorNormalizer.normalize_id(Map.get(actor, :user_id) || Map.get(actor, "user_id"))
+      )
+  end
+
+  defp source_context_actor?(_actor), do: false
+
+  defp context_references(references, right) do
+    Enum.reduce_while(references, {:ok, []}, fn reference, {:ok, acc} ->
+      case source_reference(reference, right) do
+        {:ok, reference} -> {:cont, {:ok, [reference | acc]}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, references} -> {:ok, Enum.reverse(references)}
+      error -> error
+    end
+  end
+
+  defp resolve_context_groups(references, right, trusted) do
+    state = %{records: %{}, chains: %{}, contexts: %{}, ancestor_keys: MapSet.new()}
+
+    references
+    |> Enum.uniq()
+    |> Enum.group_by(&{&1.provider, &1.config_id})
+    |> Enum.reduce_while({:ok, state}, fn {_scope, references}, {:ok, state} ->
+      reference = hd(references)
+
+      with {:ok, bridge} <- Bridge.resolve_bridge(reference.provider),
+           {:ok, config} <- resolve_data_source_config(reference.provider, reference),
+           {:ok, state} <-
+             resolve_context_group(bridge, config, references, right, trusted, state) do
+        {:cont, {:ok, state}}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp resolve_context_group(bridge, config, references, right, trusted, state) do
+    cond do
+      supports_callback?(bridge, :record_contexts, 3) ->
+        native_context_group(bridge, config, references, right, trusted, state)
+
+      bridge_owns_permission_checks?(bridge) ->
+        {:error, :unsupported}
+
+      true ->
+        collect_contexts(references, state, fn reference, state ->
+          remote_context(reference, bridge, config, right, trusted, state)
+        end)
+    end
+  end
+
+  defp native_context_group(bridge, config, references, right, trusted, state) do
+    params = %{file_ids: Enum.map(references, & &1.record_id), right: right}
+
+    with {:ok, contexts} when is_list(contexts) <- bridge.record_contexts(config, params, trusted),
+         true <- length(contexts) == length(references) || {:error, :invalid_source_reference},
+         {:ok, by_id} <- native_contexts_by_id(contexts) do
+      collect_contexts(references, state, fn reference, state ->
+        native_context(
+          reference,
+          Map.get(by_id, reference.record_id),
+          bridge,
+          config,
+          right,
+          trusted,
+          state
+        )
+      end)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :incomplete_ancestry}
+    end
+  end
+
+  defp collect_contexts(references, state, resolve) do
+    Enum.reduce_while(references, {:ok, state}, fn reference, {:ok, state} ->
+      case resolve.(reference, state) do
+        {:ok, state} -> {:cont, {:ok, state}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp native_contexts_by_id(contexts) do
+    Enum.reduce_while(contexts, {:ok, %{}}, fn
+      %{record: %Record{id: id}, ancestors: ancestors} = context, {:ok, by_id}
+      when is_binary(id) and is_list(ancestors) ->
+        if Map.has_key?(by_id, id),
+          do: {:halt, {:error, :invalid_source_reference}},
+          else: {:cont, {:ok, Map.put(by_id, id, context)}}
+
+      _, _ ->
+        {:halt, {:error, :incomplete_ancestry}}
+    end)
+  end
+
+  defp native_context(
+         reference,
+         %{record: %Record{} = record, ancestors: ancestors},
+         bridge,
+         config,
+         right,
+         trusted,
+         state
+       )
+       when is_list(ancestors) do
+    with {:ok, record} <- seal_value(record, config),
+         {:ok, record} <- canonical_context_record(reference, record),
          :ok <- authorize_context_record(bridge, record, right, trusted),
-         {:ok, ancestors} <- context_ancestors(bridge, config, reference, record, right, trusted),
-         {:ok, permissions} <- context_permissions(reference, record, trusted),
+         {:ok, ancestors} <- seal_list(ancestors, config),
+         :ok <- complete_context_chain(record, ancestors, MapSet.new([record.id]), 0),
+         {:ok, origins} <- canonical_context_ancestors(ancestors, reference, bridge, trusted),
+         {:ok, state} <- count_context_ancestors(reference, ancestors, state) do
+      finish_context(reference, record, origins, config, trusted, state)
+    end
+  end
+
+  defp native_context(_, _, _, _, _, _, _), do: {:error, :incomplete_ancestry}
+
+  defp remote_context(reference, bridge, config, right, trusted, state) do
+    with {:ok, record, state} <- cached_context_record(reference, trusted, state),
+         :ok <- authorize_context_record(bridge, record, right, trusted),
+         {:ok, ancestors, state} <-
+           remote_context_chain(
+             reference,
+             record,
+             trusted,
+             state,
+             MapSet.new([context_key(reference)]),
+             0
+           ) do
+      origins =
+        ancestors
+        |> Enum.with_index(1)
+        |> Enum.map(fn {record, depth} -> ancestor_origin(reference, record, depth) end)
+
+      finish_context(reference, record, origins, config, trusted, state)
+    end
+  end
+
+  defp finish_context(reference, record, ancestors, config, trusted, state) do
+    with {:ok, permissions} <- context_permissions(reference, record, trusted),
          {:ok, record} <- seal_value(%{record | permissions: permissions}, config) do
+      context = %SourceRecordContext{
+        reference: reference,
+        record: record,
+        permissions: record.permissions,
+        ancestors: ancestors
+      }
+
       {:ok,
-       %SourceRecordContext{
-         reference: reference,
-         record: record,
-         permissions: record.permissions,
-         ancestors: ancestors
+       %{
+         state
+         | contexts: Map.put(state.contexts, context_key(reference), context),
+           records: Map.put(state.records, context_key(reference), record)
        }}
     end
   end
+
+  defp cached_context_record(reference, trusted, state) do
+    key = context_key(reference)
+
+    case Map.fetch(state.records, key) do
+      {:ok, record} ->
+        {:ok, record, state}
+
+      :error ->
+        with {:ok, record} <- context_record(reference, trusted) do
+          {:ok, record, %{state | records: Map.put(state.records, key, record)}}
+        end
+    end
+  end
+
+  defp remote_context_chain(reference, record, trusted, state, seen, depth) do
+    case Map.fetch(state.chains, context_key(reference)) do
+      {:ok, chain} when length(chain) + depth <= 64 -> {:ok, chain, state}
+      {:ok, _chain} -> {:error, :ancestry_depth_exceeded}
+      :error -> remote_context_parent(reference, record, trusted, state, seen, depth)
+    end
+  end
+
+  defp remote_context_parent(reference, record, trusted, state, seen, depth) do
+    case context_parent(record) do
+      {:ok, nil} ->
+        {:ok, [], %{state | chains: Map.put(state.chains, context_key(reference), [])}}
+
+      {:ok, parent} ->
+        resolve_context_parent(reference, parent, trusted, state, seen, depth)
+
+      error ->
+        error
+    end
+  end
+
+  defp resolve_context_parent(reference, parent, trusted, state, seen, depth) do
+    parent_ref = %{reference | record_id: parent}
+    parent_key = context_key(parent_ref)
+
+    cond do
+      MapSet.member?(seen, parent_key) ->
+        {:error, :ancestry_cycle}
+
+      depth >= 64 ->
+        {:error, :ancestry_depth_exceeded}
+
+      true ->
+        with {:ok, state} <- count_context_ancestors(reference, [%{id: parent}], state),
+             {:ok, %Record{kind: :folder} = record, state} <-
+               cached_context_record(parent_ref, trusted, state),
+             {:ok, tail, state} <-
+               remote_context_chain(
+                 parent_ref,
+                 record,
+                 trusted,
+                 state,
+                 MapSet.put(seen, parent_key),
+                 depth + 1
+               ) do
+          chain = [record | tail]
+          {:ok, chain, %{state | chains: Map.put(state.chains, context_key(reference), chain)}}
+        else
+          {:error, reason}
+          when reason in [
+                 :ancestry_cycle,
+                 :ancestry_depth_exceeded,
+                 :ancestry_budget_exceeded,
+                 :ambiguous_ancestry
+               ] ->
+            {:error, reason}
+
+          _ ->
+            {:error, :incomplete_ancestry}
+        end
+    end
+  end
+
+  defp count_context_ancestors(reference, ancestors, state) do
+    keys =
+      Enum.reduce(ancestors, state.ancestor_keys, fn record, keys ->
+        MapSet.put(keys, context_key(%{reference | record_id: record.id}))
+      end)
+
+    if MapSet.size(keys) <= 1024,
+      do: {:ok, %{state | ancestor_keys: keys}},
+      else: {:error, :ancestry_budget_exceeded}
+  end
+
+  defp complete_context_chain(record, [], seen, depth) do
+    case context_parent(record) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, parent} ->
+        cond do
+          MapSet.member?(seen, parent) -> {:error, :ancestry_cycle}
+          depth >= 64 -> {:error, :ancestry_depth_exceeded}
+          true -> {:error, :incomplete_ancestry}
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp complete_context_chain(record, [%Record{id: id} = ancestor | tail], seen, depth) do
+    with {:ok, ^id} <- context_parent(record),
+         false <- MapSet.member?(seen, id),
+         true <- depth < 64 do
+      complete_context_chain(ancestor, tail, MapSet.put(seen, id), depth + 1)
+    else
+      true -> {:error, :ancestry_cycle}
+      false -> {:error, :ancestry_depth_exceeded}
+      _ -> {:error, :incomplete_ancestry}
+    end
+  end
+
+  defp complete_context_chain(_, _, _, _), do: {:error, :incomplete_ancestry}
+
+  defp context_key(reference), do: {reference.provider, reference.config_id, reference.record_id}
 
   defp source_reference(%{provider: provider, config_id: config_id, record_id: id}, right)
        when is_binary(provider) and provider != "" and is_binary(id) and id != "" and
@@ -568,18 +871,6 @@ defmodule Zaq.Channels.DataSourceBridge do
     authorize_record(bridge, record, [if(right == :update, do: :edit, else: :read)], context)
   end
 
-  defp context_ancestors(bridge, config, reference, record, right, context) do
-    if supports_callback?(bridge, :record_ancestors, 3) do
-      with {:ok, ancestors} <-
-             bridge.record_ancestors(config, %{file_id: record.id, right: right}, context),
-           {:ok, ancestors} <- seal_list(ancestors, config) do
-        canonical_context_ancestors(ancestors, reference, bridge, context)
-      end
-    else
-      walk_ancestors(reference, record, context, MapSet.new([record.id]), [], 1)
-    end
-  end
-
   defp canonical_context_ancestors(ancestors, reference, bridge, context) do
     ancestors
     |> Enum.with_index(1)
@@ -596,40 +887,6 @@ defmodule Zaq.Channels.DataSourceBridge do
     |> case do
       {:ok, origins} -> {:ok, Enum.reverse(origins)}
       error -> error
-    end
-  end
-
-  defp walk_ancestors(reference, record, context, seen, ancestors, depth) do
-    case context_parent(record) do
-      {:ok, nil} -> {:ok, Enum.reverse(ancestors)}
-      {:ok, parent} -> walk_parent(reference, parent, context, seen, ancestors, depth)
-      error -> error
-    end
-  end
-
-  defp walk_parent(reference, parent, context, seen, ancestors, depth) do
-    cond do
-      MapSet.member?(seen, parent) ->
-        {:error, :ancestry_cycle}
-
-      depth > 64 ->
-        {:error, :ancestry_depth_exceeded}
-
-      true ->
-        case context_record(%{reference | record_id: parent}, context) do
-          {:ok, %Record{kind: :folder} = record} ->
-            walk_ancestors(
-              reference,
-              record,
-              context,
-              MapSet.put(seen, parent),
-              [ancestor_origin(reference, record, depth) | ancestors],
-              depth + 1
-            )
-
-          _ ->
-            {:error, :incomplete_ancestry}
-        end
     end
   end
 

@@ -171,16 +171,32 @@ defmodule Zaq.Channels.DiskBridge do
     request = %{file_id: file_id, right: right}
 
     with {:ok, ancestors} <- dispatch(:document_ancestors, request, config, context) do
+      {:ok, Enum.map(ancestors, &ancestor_record/1)}
+    end
+  end
+
+  @doc "Resolves source metadata and authorized ancestry in one Storage batch."
+  @impl true
+  def record_contexts(config, %{file_ids: file_ids, right: right}, context) do
+    with {:ok, contexts} <-
+           dispatch(:document_contexts, %{file_ids: file_ids, right: right}, config, context) do
       {:ok,
-       Enum.map(ancestors, fn entry ->
-         %Record{
-           id: entry.id,
-           kind: :folder,
-           parent_id: entry.parent_id,
-           parent_ids: Enum.reject([entry.parent_id], &is_nil/1)
+       Enum.map(contexts, fn item ->
+         %{
+           record: map_entry(item.entry, Enum.map(item.permissions, &map_permission/1), config),
+           ancestors: Enum.map(item.ancestors, &ancestor_record/1)
          }
        end)}
     end
+  end
+
+  defp ancestor_record(entry) do
+    %Record{
+      id: entry.id,
+      kind: :folder,
+      parent_id: entry.parent_id,
+      parent_ids: Enum.reject([entry.parent_id], &is_nil/1)
+    }
   end
 
   @doc """
@@ -523,9 +539,14 @@ defmodule Zaq.Channels.DiskBridge do
   defp storage_event_opts(action, config_id) do
     opts = maybe_put([], :config_id, config_id)
 
-    if action in [:describe_document, :document_ancestors, :list_document_grants],
-      do: Keyword.put(opts, :confidential, true),
-      else: opts
+    if action in [
+         :describe_document,
+         :document_ancestors,
+         :document_contexts,
+         :list_document_grants
+       ],
+       do: Keyword.put(opts, :confidential, true),
+       else: opts
   end
 
   defp maybe_put(opts, _key, nil), do: opts

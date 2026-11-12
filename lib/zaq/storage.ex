@@ -89,18 +89,121 @@ defmodule Zaq.Storage do
   @spec document_ancestors(String.t(), :read | :update, keyword()) ::
           {:ok, [EntryCatalog.t()]} | {:error, term()}
   def document_ancestors(file_id, right, opts \\ []) when right in [:read, :update] do
-    with {:ok, opts} <- disk_config_opts(%{}, opts),
-         {:ok, _uuid} <- Ecto.UUID.cast(file_id),
-         %EntryCatalog{} = entry <- entry_catalog(opts).by_id(file_id) || {:error, :not_found},
-         {:ok, _entry} <- file_info(entry.volume, entry.relative_path, opts),
-         ancestors = entry_catalog(opts).ancestors_many([entry.id]) |> Map.get(entry.id, []),
-         :ok <- complete_ancestor_chain(entry, ancestors),
-         :ok <- authorize_ancestor_chain([entry | ancestors], right, opts) do
-      {:ok, ancestors}
-    else
-      :error -> {:error, :not_found}
+    case resolve_document_contexts([file_id], [right], opts) do
+      {:ok, [context]} -> {:ok, context.ancestors}
+      {:error, :invalid_file_ids} -> {:error, :not_found}
       error -> error
     end
+  end
+
+  @doc """
+  Returns ordered source metadata, readable ancestry and current effective grants.
+
+  Batches allow 500 file IDs, 64 ancestors per file and 1024 distinct ancestor IDs.
+  Every target must allow read and the requested right; no partial contexts are returned.
+  """
+  @spec document_contexts([String.t()], :read | :update, keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def document_contexts(file_ids, right, opts \\ [])
+
+  def document_contexts(file_ids, right, opts)
+      when is_list(file_ids) and length(file_ids) <= 500 and right in [:read, :update] do
+    resolve_document_contexts(file_ids, Enum.uniq([:read, right]), opts)
+  end
+
+  def document_contexts(_, _, _), do: {:error, :invalid_file_ids}
+
+  defp resolve_document_contexts(file_ids, target_rights, opts) do
+    with {:ok, ids} <- context_file_ids(file_ids),
+         {:ok, opts} <- disk_config_opts(%{}, opts),
+         {:ok, entries} <- context_entries(Enum.uniq(ids), opts),
+         ancestry = entry_catalog(opts).ancestors_many(Enum.uniq(ids)),
+         :ok <- validate_context_chains(entries, ancestry),
+         chains = context_resource_chains(entries, ancestry),
+         nodes = entries ++ Enum.flat_map(Map.values(ancestry), & &1),
+         grants = effective_grants_by_id(Enum.uniq_by(nodes, & &1.id), chains, opts),
+         :ok <- authorize_context_chains(entries, ancestry, grants, target_rights, opts) do
+      contexts =
+        Map.new(entries, fn entry ->
+          {entry.id,
+           %{
+             entry: entry,
+             ancestors: Map.get(ancestry, entry.id, []),
+             permissions:
+               Enum.map(Map.get(grants, entry.id, []), &entry_permission_grant(&1, opts))
+           }}
+        end)
+
+      {:ok, Enum.map(ids, &Map.fetch!(contexts, &1))}
+    end
+  end
+
+  defp context_file_ids(ids) do
+    Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, acc} ->
+      case Ecto.UUID.cast(id) do
+        {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
+        _ -> {:halt, {:error, :invalid_file_ids}}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> {:ok, Enum.reverse(ids)}
+      error -> error
+    end
+  end
+
+  defp context_entries(ids, opts) do
+    entries = entry_catalog(opts).by_ids(ids) |> Map.new(&{&1.id, &1})
+
+    Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, acc} ->
+      with %{volume: volume, relative_path: path} <- Map.get(entries, id) || {:error, :not_found},
+           {:ok, %Entry{id: ^id} = entry} <- file_info(volume, path, opts) do
+        {:cont, {:ok, [entry | acc]}}
+      else
+        {:error, _} = error -> {:halt, error}
+        _ -> {:halt, {:error, :not_found}}
+      end
+    end)
+    |> case do
+      {:ok, entries} -> {:ok, Enum.reverse(entries)}
+      error -> error
+    end
+  end
+
+  defp validate_context_chains(entries, ancestry) do
+    distinct = ancestry |> Map.values() |> List.flatten() |> Enum.map(& &1.id) |> MapSet.new()
+
+    if MapSet.size(distinct) > 1024 do
+      {:error, :ancestry_budget_exceeded}
+    else
+      validate_target_chains(entries, ancestry)
+    end
+  end
+
+  defp validate_target_chains(entries, ancestry) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case complete_ancestor_chain(entry, Map.get(ancestry, entry.id, [])) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp context_resource_chains(entries, ancestry) do
+    Enum.reduce(entries, %{}, fn entry, chains ->
+      put_context_chain([entry | Map.get(ancestry, entry.id, [])], chains)
+    end)
+  end
+
+  defp put_context_chain([], chains), do: chains
+
+  defp put_context_chain([entry | ancestors], chains) do
+    if Map.has_key?(chains, entry.id),
+      do: chains,
+      else:
+        put_context_chain(
+          ancestors,
+          Map.put(chains, entry.id, Enum.map(ancestors, &storage_resource(&1.id)))
+        )
   end
 
   defp complete_ancestor_chain(entry, ancestors) do
@@ -115,25 +218,24 @@ defmodule Zaq.Storage do
     end
   end
 
-  defp authorize_ancestor_chain([entry | ancestors] = chain, right, opts) do
+  defp authorize_context_chains(entries, ancestry, grants, target_rights, opts) do
     if Keyword.get(opts, :skip_permissions, false) do
       :ok
     else
-      chains =
-        chain
-        |> Enum.with_index()
-        |> Map.new(fn {entry, index} ->
-          {entry.id, Enum.drop(chain, index + 1) |> Enum.map(&storage_resource(&1.id))}
-        end)
-
-      grants = effective_grants_by_id(chain, chains, opts)
       permissions = permissions(opts)
       person = person_from_opts(opts)
-      target_access = permissions.access(person, right)
+      target_access = Enum.map(target_rights, &permissions.access(person, &1))
       read_access = permissions.access(person, :read)
 
+      targets_allowed? =
+        Enum.all?(entries, fn entry ->
+          Enum.all?(target_access, &permissions.grants_allow?(Map.get(grants, entry.id, []), &1))
+        end)
+
+      ancestors = ancestry |> Map.values() |> List.flatten() |> Enum.uniq_by(& &1.id)
+
       cond do
-        not permissions.grants_allow?(Map.get(grants, entry.id, []), target_access) ->
+        not targets_allowed? ->
           {:error, :unauthorized}
 
         Enum.all?(ancestors, &permissions.grants_allow?(Map.get(grants, &1.id, []), read_access)) ->

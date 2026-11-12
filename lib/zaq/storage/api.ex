@@ -102,6 +102,14 @@ defmodule Zaq.Storage.Api do
   end
 
   def handle_event(
+        %Event{request: %{file_ids: file_ids, right: right}} = event,
+        :document_contexts,
+        _context
+      ) do
+    %{event | response: Storage.document_contexts(file_ids, right, opts(event))}
+  end
+
+  def handle_event(
         %Event{request: %{file_id: file_id} = request} = event,
         :materialize_document,
         _context

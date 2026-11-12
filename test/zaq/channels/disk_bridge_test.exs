@@ -122,6 +122,43 @@ defmodule Zaq.Channels.DiskBridgeTest do
     refute Keyword.has_key?(mutation_opts, :confidential)
   end
 
+  test "batch contexts use one confidential Storage request and retain permission records" do
+    first = Ecto.UUID.generate()
+    second = Ecto.UUID.generate()
+    parent = Ecto.UUID.generate()
+    actor = %{person_id: 7}
+
+    contexts =
+      Enum.map([first, second], fn id ->
+        %{
+          entry: entry(id, %{parent_id: parent}),
+          ancestors: [%{id: parent, parent_id: nil}],
+          permissions: [grant(1)]
+        }
+      end)
+
+    stub_response({:ok, contexts})
+
+    assert {:ok, [one, two]} =
+             DiskBridge.record_contexts(config(), %{file_ids: [first, second], right: :update}, %{
+               actor: actor
+             })
+
+    assert one.record.id == first
+    assert two.record.id == second
+    assert [%Record{id: ^parent, kind: :folder}] = one.ancestors
+    assert [%Record{kind: :permission}] = one.record.permissions
+
+    assert_received {:dispatch, :storage, :document_contexts,
+                     %{file_ids: [^first, ^second], right: :update}}
+
+    assert_received {:dispatch_actor, :storage, :document_contexts, ^actor}
+    assert_received {:dispatch_opts, :storage, :document_contexts, opts}
+    assert opts[:confidential] == true
+    assert opts[:config_id] == 42
+    refute_received {:dispatch, _, _, _}
+  end
+
   defp grant(id, attrs \\ %{}) do
     Map.merge(
       %{id: id, type: "person", target_id: "7", name: "Ada", access_rights: ["read"]},

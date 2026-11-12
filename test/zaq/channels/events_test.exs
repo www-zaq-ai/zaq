@@ -52,6 +52,41 @@ defmodule Zaq.Channels.EventsTest do
              Api.handle_event(invalid, :data_source_record_context, nil)
   end
 
+  test "batch context dispatch carries only references and envelope authority" do
+    reference = %{provider: "disk", config_id: 7, record_id: Ecto.UUID.generate()}
+    actor = %{person_id: 42}
+
+    event =
+      Events.build_and_dispatch_data_source_record_contexts_event([reference], :read,
+        actor: actor,
+        node_router: StubNodeRouter
+      )
+
+    assert event.request == %{source_refs: [reference], right: :read}
+    assert event.actor == actor
+    assert event.opts[:action] == :data_source_record_contexts
+    assert event.opts[:confidential] == true
+    assert event.response == :ok
+
+    unauthenticated =
+      Events.build_data_source_record_contexts_event([reference], :read,
+        event_opts: [skip_permissions: true]
+      )
+
+    forged = %{
+      unauthenticated
+      | request:
+          Map.merge(unauthenticated.request, %{
+            actor: actor,
+            records: [%{id: reference.record_id}],
+            ancestors: []
+          })
+    }
+
+    assert %{response: {:error, :unauthorized}} =
+             Api.handle_event(forged, :data_source_record_contexts, nil)
+  end
+
   test "build_upsert_message_event forces sync when message_id missing" do
     event =
       Events.build_upsert_message_event(%Outgoing{

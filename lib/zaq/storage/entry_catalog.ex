@@ -66,6 +66,11 @@ defmodule Zaq.Storage.EntryCatalog do
     Repo.one(from(e in __MODULE__, where: e.id == ^id and is_nil(e.deleted_at)))
   end
 
+  @doc "Returns active catalog entries for canonical IDs in one query."
+  @spec by_ids([Ecto.UUID.t()]) :: [t()]
+  def by_ids(ids) when is_list(ids),
+    do: Repo.all(from e in __MODULE__, where: e.id in ^ids and is_nil(e.deleted_at))
+
   @doc "Returns active ancestors from nearest parent to root."
   def ancestors(id) when is_binary(id) do
     ancestors_many([id]) |> Map.get(id, [])

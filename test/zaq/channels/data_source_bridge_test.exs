@@ -11,6 +11,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
+  alias Zaq.Identity.ActorNormalizer
   alias Zaq.Ingestion.ExternalSource
   alias Zaq.Repo
 
@@ -260,13 +261,29 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   end
 
   defmodule ContextBridge do
-    def get_file(_config, %{"file_id" => id}, _context) do
+    def get_file(config, %{"file_id" => id}, _context) do
       send(self(), {:context_metadata, id})
+      send(self(), {:context_scope, config.id, id})
 
-      case Map.fetch(Process.get(:context_records, %{}), id) do
+      records = Process.get(:context_records, %{})
+
+      response =
+        case Map.fetch(records, {config.id, id}) do
+          :error -> Map.fetch(records, id)
+          found -> found
+        end
+
+      case response do
         {:ok, record} -> {:ok, %{record: record}}
         :error -> {:error, :not_found}
       end
+    end
+  end
+
+  defmodule BatchContextBridge do
+    def record_contexts(config, params, context) do
+      send(self(), {:native_context_batch, config.id, params, context})
+      Process.get(:native_context_response)
     end
   end
 
@@ -327,6 +344,207 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       refute_received {:context_metadata, _}
     end
 
+    test "batch contexts share ancestry reads and preserve input order and duplicates", state do
+      sibling = %{
+        state.records["file"]
+        | id: "sibling",
+          parent_id: "middle",
+          parent_ids: ["middle"]
+      }
+
+      middle = %{state.records["near"] | id: "middle", parent_id: "near", parent_ids: ["near"]}
+
+      Process.put(
+        :context_records,
+        Map.merge(state.records, %{"sibling" => sibling, "middle" => middle})
+      )
+
+      references = [state.reference, %{state.reference | record_id: "sibling"}, state.reference]
+
+      assert {:ok, [first, second, duplicate]} =
+               DataSourceBridge.record_contexts(references, :read, state.context)
+
+      assert first == duplicate
+      assert first.record.id == "file"
+      assert second.record.id == "sibling"
+      assert Enum.map(first.ancestors, & &1.reference.record_id) == ["near", "root"]
+
+      assert Enum.map(second.ancestors, &{&1.reference.record_id, &1.depth}) ==
+               [{"middle", 1}, {"near", 2}, {"root", 3}]
+
+      for id <- ["file", "sibling", "middle", "near", "root"],
+          do: assert_received({:context_metadata, ^id})
+
+      refute_received {:context_metadata, _}
+
+      assert {:ok, ^first} =
+               DataSourceBridge.record_context(state.reference, :read, state.context)
+    end
+
+    test "cached ancestor read permission never satisfies a later target update", state do
+      [permission] = state.records["near"].permissions
+      read_only = put_in(permission.attributes["access_rights"], ["read"])
+      records = Map.update!(state.records, "near", &%{&1 | permissions: [read_only]})
+      Process.put(:context_records, records)
+
+      assert {:error, :unauthorized} =
+               DataSourceBridge.record_contexts(
+                 [state.reference, %{state.reference | record_id: "near"}],
+                 :update,
+                 state.context
+               )
+
+      for id <- ["file", "near", "root"], do: assert_received({:context_metadata, ^id})
+      refute_received {:context_metadata, _}
+    end
+
+    test "batch memoization is scoped to configuration and one request", state do
+      other = insert_data_source_config(:google_drive)
+      [permission] = state.records["file"].permissions
+      isolated = %Record{id: "file", kind: :file, permissions: [permission]}
+      Process.put(:context_records, Map.put(state.records, {other.id, "file"}, isolated))
+      other_ref = %{state.reference | config_id: other.id}
+
+      assert {:ok, [first, second]} =
+               DataSourceBridge.record_contexts(
+                 [state.reference, other_ref],
+                 :read,
+                 state.context
+               )
+
+      assert length(first.ancestors) == 2
+      assert second.ancestors == []
+      assert second.reference.config_id == to_string(other.id)
+      assert_received {:context_scope, _, "file"}
+      assert_received {:context_scope, _, "file"}
+
+      Process.put(:context_records, Map.update!(state.records, "near", &%{&1 | permissions: []}))
+
+      assert {:error, :incomplete_ancestry} =
+               DataSourceBridge.record_contexts([state.reference], :read, state.context)
+    end
+
+    test "native batch contexts are matched to references and malformed results fail closed",
+         state do
+      configure_channels(%{google_drive: %{bridge: BatchContextBridge}})
+      sibling = %{state.records["file"] | id: "sibling"}
+
+      contexts =
+        Enum.map([state.records["file"], sibling], fn record ->
+          %{record: record, ancestors: [state.records["near"], state.records["root"]]}
+        end)
+
+      Process.put(:native_context_response, {:ok, contexts})
+      references = [%{state.reference | record_id: "sibling"}, state.reference, state.reference]
+      assert {:ok, results} = DataSourceBridge.record_contexts(references, :read, state.context)
+      assert Enum.map(results, & &1.record.id) == ["sibling", "file", "file"]
+
+      assert_received {:native_context_batch, _, %{file_ids: ["sibling", "file"], right: :read},
+                       _}
+
+      refute_received {:context_metadata, _}
+
+      Process.put(:native_context_response, {:ok, [%{record: nil}, %{record: nil}]})
+
+      assert {:error, :incomplete_ancestry} =
+               DataSourceBridge.record_contexts(references, :read, state.context)
+    end
+
+    test "batch rejects oversized requests and denies partial inaccessible chains", state do
+      assert {:error, :invalid_source_references} =
+               DataSourceBridge.record_contexts(
+                 List.duplicate(state.reference, 501),
+                 :read,
+                 state.context
+               )
+
+      refute_received {:context_metadata, _}
+
+      assert {:error, :unauthorized} =
+               DataSourceBridge.record_contexts([state.reference], :read, %{})
+
+      refute_received {:context_metadata, _}
+
+      assert {:ok, contexts} =
+               DataSourceBridge.record_contexts(
+                 List.duplicate(state.reference, 500),
+                 :read,
+                 state.context
+               )
+
+      assert length(contexts) == 500
+      Process.put(:context_records, Map.update!(state.records, "root", &%{&1 | permissions: []}))
+
+      assert {:error, :incomplete_ancestry} =
+               DataSourceBridge.record_contexts([state.reference], :read, state.context)
+    end
+
+    test "source context requires identity even with explicit bypass", state do
+      for actor <- [%{}, %{user_id: nil, person_id: nil}] do
+        trusted = %{actor: actor, skip_permissions: true}
+
+        assert {:error, :unauthorized} =
+                 DataSourceBridge.record_context(state.reference, :read, trusted)
+
+        assert {:error, :unauthorized} =
+                 DataSourceBridge.record_contexts([state.reference], :read, trusted)
+      end
+
+      refute_received {:context_metadata, _}
+
+      assert {:ok, _} = DataSourceBridge.record_contexts([state.reference], :read, state.context)
+
+      for actor <- [
+            %{user_id: 42, person_id: nil},
+            %{kind: :system, subject: "source-batch-test"}
+          ] do
+        assert {:ok, _} =
+                 DataSourceBridge.record_contexts([state.reference], :read, %{
+                   actor: actor,
+                   skip_permissions: true
+                 })
+      end
+
+      person_id = ActorNormalizer.person_id(state.context.actor)
+      person = People.get_person_with_channels(person_id)
+
+      assert {:ok, _} =
+               DataSourceBridge.record_contexts([state.reference], :read, %{actor: person})
+    end
+
+    test "batch caps distinct ancestor nodes across disjoint chains", state do
+      [permission] = state.records["file"].permissions
+
+      records =
+        for target <- 1..342, depth <- 0..3, into: %{} do
+          id = "#{target}-#{depth}"
+          parent = if depth < 3, do: "#{target}-#{depth + 1}"
+
+          {id,
+           %Record{
+             id: id,
+             kind: if(depth == 0, do: :file, else: :folder),
+             parent_id: parent,
+             permissions: [permission]
+           }}
+        end
+
+      Process.put(:context_records, records)
+      references = Enum.map(1..342, &%{state.reference | record_id: "#{&1}-0"})
+
+      assert {:error, :ancestry_budget_exceeded} =
+               DataSourceBridge.record_contexts(references, :read, state.context)
+
+      refute_received {:context_metadata, "342-2"}
+
+      Process.put(:context_records, Map.update!(records, "342-1", &%{&1 | parent_id: nil}))
+
+      assert {:ok, contexts} =
+               DataSourceBridge.record_contexts(references, :read, state.context)
+
+      assert length(contexts) == 342
+    end
+
     test "denies absent and read-only mutation actors before returning context", state do
       assert {:error, :unauthorized} =
                DataSourceBridge.record_context(state.reference, :read, %{})
@@ -363,6 +581,9 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       assert {:error, :ambiguous_ancestry} =
                DataSourceBridge.record_context(state.reference, :read, state.context)
 
+      assert {:error, :ambiguous_ancestry} =
+               DataSourceBridge.record_contexts([state.reference], :read, state.context)
+
       records =
         Map.update!(state.records, "near", &%{&1 | parent_id: "file", parent_ids: ["file"]})
 
@@ -370,6 +591,9 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
       assert {:error, :ancestry_cycle} =
                DataSourceBridge.record_context(state.reference, :read, state.context)
+
+      assert {:error, :ancestry_cycle} =
+               DataSourceBridge.record_contexts([state.reference], :read, state.context)
 
       Process.put(:context_records, Map.delete(state.records, "near"))
 
@@ -452,7 +676,29 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       assert {:error, :ancestry_depth_exceeded} =
                DataSourceBridge.record_context(reference, :read, state.context)
 
+      assert {:error, :ancestry_depth_exceeded} =
+               DataSourceBridge.record_contexts([reference], :read, state.context)
+
       refute_received {:context_metadata, "65"}
+
+      assert {:error, :ancestry_depth_exceeded} =
+               DataSourceBridge.record_contexts(
+                 [%{reference | record_id: "60"}, reference],
+                 :read,
+                 state.context
+               )
+
+      records =
+        records
+        |> Map.take(Enum.map(0..64, &to_string/1))
+        |> Map.update!("64", &%{&1 | parent_id: nil})
+
+      Process.put(:context_records, records)
+
+      assert {:ok, [context]} =
+               DataSourceBridge.record_contexts([reference], :read, state.context)
+
+      assert length(context.ancestors) == 64
     end
 
     property "complete chains preserve nearest-first origin and canonical source identity",
