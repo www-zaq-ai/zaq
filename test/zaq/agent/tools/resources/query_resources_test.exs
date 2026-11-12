@@ -31,6 +31,13 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
 
       assert tool.description =~
                "agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule"
+
+      filter_description = tool.parameters_schema.properties.filters.description
+      assert filter_description =~ "native booleans"
+      assert filter_description =~ "exact option IDs"
+      assert filter_description =~ "Pending configurations match label_ids only"
+      refute filter_description =~ "trimming/NFC"
+      refute filter_description =~ "null matches"
     end
 
     test "runtime validation preserves query params" do

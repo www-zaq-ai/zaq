@@ -298,7 +298,7 @@ defmodule Zaq.Ingestion.Document do
       {:ok, value} = fetch(pair, "value")
       {id, AssignmentValue.normalize(value)}
     end)
-    |> Enum.uniq()
+    |> Enum.uniq_by(fn {id, value} -> {id, AssignmentValue.equality_key(value)} end)
   end
 
   defp valid_ids?({:ok, ids}) when is_list(ids) and length(ids) <= 100,

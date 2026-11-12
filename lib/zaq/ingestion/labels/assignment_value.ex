@@ -29,6 +29,14 @@ defmodule Zaq.Ingestion.Labels.AssignmentValue do
   @doc "Values are native scalars; option IDs are never coerced or renamed."
   def normalize(value), do: value
 
+  @doc "Comparison key for JSON numeric equality, preserving exact nonnumeric values."
+  def equality_key(value) when is_number(value) do
+    {coefficient, exponent} = decimal_parts(value)
+    numeric_key(coefficient, exponent)
+  end
+
+  def equality_key(value), do: {:scalar, value}
+
   @doc "Validates an assigned value; absence is represented by state rather than a value."
   def valid_for?(%{value_type: "boolean"}, value), do: is_boolean(value)
 
@@ -64,4 +72,11 @@ defmodule Zaq.Ingestion.Labels.AssignmentValue do
     %Decimal{sign: sign, coef: coefficient, exp: exponent} = Decimal.from_float(value)
     {sign * coefficient, exponent}
   end
+
+  defp numeric_key(0, _exponent), do: {:number, 0, 0}
+
+  defp numeric_key(coefficient, exponent) when rem(coefficient, 10) == 0,
+    do: numeric_key(div(coefficient, 10), exponent + 1)
+
+  defp numeric_key(coefficient, exponent), do: {:number, coefficient, exponent}
 end

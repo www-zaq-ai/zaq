@@ -8,6 +8,7 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Resources.QueryResources
   alias Zaq.Ingestion.{Api, Document, Labels}
+  alias Zaq.Ingestion.Labels.Assignment
   alias Zaq.Permissions
 
   setup :verify_on_exit!
@@ -134,6 +135,170 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
                %{filters: %{"label_values" => [], "label_match" => "all"}},
                ctx.context
              )
+  end
+
+  test "all value filters deduplicate JSON-equivalent numeric representations", ctx do
+    huge = Integer.pow(10, 100)
+
+    for {index, value, variants} <- [
+          {0, 0, [0, -0.0, 0.0]},
+          {1, 1, [1, 1.0]},
+          {2, -10, [-10, -10.0]},
+          {3, huge, [huge, 1.0e100]},
+          {4, 9_007_199_254_740_992, [9_007_199_254_740_992, 9_007_199_254_740_992.0]}
+        ] do
+      {:ok, label} =
+        label_definition(ctx.actor, %{
+          name: "Numeric equality #{index}",
+          resources: ["document"],
+          value_type: "scale",
+          value_config: %{"min" => -huge, "max" => huge, "increment" => 1}
+        })
+
+      assert {:ok, _} =
+               Labels.edit_resource(
+                 %{type: "document", id: ctx.both.id},
+                 [
+                   %{label_id: label.id, operation: "add", value: value, expected_version: 0}
+                 ],
+                 ctx.actor
+               )
+
+      for variant <- variants do
+        assert %{rows: [[true]]} =
+                 Repo.query!("SELECT $1::text::jsonb = $2::text::jsonb", [
+                   Jason.encode!(value),
+                   Jason.encode!(variant)
+                 ])
+      end
+
+      filters = %{
+        "label_values" => Enum.map(variants, &%{"label_id" => label.id, "value" => &1}),
+        "label_match" => "all"
+      }
+
+      assert :ok = Document.validate_label_filters(filters)
+
+      assert Enum.map(Repo.all(Document.filter_by_labels(Document, filters)), & &1.id) == [
+               ctx.both.id
+             ]
+
+      assert {:ok, result} =
+               Jido.Exec.run(
+                 QueryResources,
+                 %{
+                   mode: "query",
+                   resource_type: "document",
+                   filters: filters,
+                   fields: ["id", "labels"]
+                 },
+                 ctx.context
+               )
+
+      assert ids(result) == [ctx.both.id]
+
+      assert Enum.find(result.resources |> hd() |> Map.fetch!(:labels), &(&1.id == label.id)).value ===
+               value
+    end
+  end
+
+  property "numeric equality filters keep distinct values distinct at any Decimal precision",
+           ctx do
+    large = Integer.pow(10, 100)
+
+    {:ok, label} =
+      label_definition(ctx.actor, %{
+        name: "Numeric distinction",
+        resources: ["document"],
+        value_type: "scale",
+        value_config: %{"min" => -large, "max" => large, "increment" => 1}
+      })
+
+    assert {:ok, _} =
+             Labels.edit_resource(
+               %{type: "document", id: ctx.both.id},
+               [
+                 %{label_id: label.id, operation: "add", value: 0, expected_version: 0}
+               ],
+               ctx.actor
+             )
+
+    check all(
+            value <-
+              one_of([
+                integer(-10_000..10_000),
+                member_of([large, large - 1, -large, -large + 1])
+              ]),
+            max_runs: 16
+          ) do
+      assignment = Repo.get_by!(Assignment, document_id: ctx.both.id, label_id: label.id)
+
+      assert {:ok, _} =
+               Labels.edit_resource(
+                 %{type: "document", id: ctx.both.id},
+                 [
+                   %{
+                     label_id: label.id,
+                     operation: "add",
+                     value: value,
+                     expected_version: assignment.lock_version
+                   }
+                 ],
+                 ctx.actor
+               )
+
+      distinct = if value == large, do: value - 1, else: value + 1
+
+      filters = %{
+        "label_values" => [
+          %{"label_id" => label.id, "value" => value},
+          %{"label_id" => label.id, "value" => distinct}
+        ],
+        "label_match" => "all"
+      }
+
+      Decimal.Context.with(%Decimal.Context{precision: 1}, fn ->
+        assert {:ok, result} = query("document", %{filters: filters}, ctx.context)
+        assert result.resources == []
+      end)
+    end
+  end
+
+  test "native Boolean, numeric and option values retain separate identities and payloads", ctx do
+    {:ok, boolean} =
+      label_definition(ctx.actor, %{name: "Boolean identity", resources: ["document"]})
+
+    {:ok, option} =
+      label_definition(ctx.actor, %{
+        name: "Option identity",
+        resources: ["document"],
+        value_type: "options",
+        value_config: option_config(["0", "false", "é", "é"])
+      })
+
+    assert {:ok, _} =
+             Labels.edit_resource(
+               %{type: "document", id: ctx.both.id},
+               [
+                 %{label_id: boolean.id, operation: "add", value: false, expected_version: 0},
+                 %{label_id: option.id, operation: "add", value: "0", expected_version: 0}
+               ],
+               ctx.actor
+             )
+
+    for {label, variants} <- [{boolean, [false, 0]}, {option, ["0", 0]}] do
+      filters = %{
+        "label_values" => Enum.map(variants, &%{"label_id" => label.id, "value" => &1}),
+        "label_match" => "all"
+      }
+
+      assert {:ok, result} = query("document", %{filters: filters}, ctx.context)
+      assert result.resources == []
+    end
+
+    assert {:ok, result} = query("document", %{id: ctx.both.id, fields: ["labels"]}, ctx.context)
+    assert Enum.find(result.resource.labels, &(&1.id == boolean.id)).value === false
+    assert Enum.find(result.resource.labels, &(&1.id == option.id)).value === "0"
   end
 
   test "value filters validate inputs and support explicit options and combined ID filters",

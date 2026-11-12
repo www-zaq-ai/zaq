@@ -39,7 +39,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
             filters:
               Zoi.map(Zoi.string(), Zoi.any(),
                 description:
-                  "Optional exact filters. Keys must be listed in the resource's filter_fields. Documents also accept label_ids and label_values (up to 100 {label_id, value} pairs), with label_match (any by default, or all). Values match exactly after trimming/NFC normalization; null matches a label without a value. Only selected document assignments match. Empty lists match nothing. If both label_ids and label_values are supplied, both filter groups must match."
+                  "Optional exact filters. Keys must be listed in the resource's filter_fields. Documents also accept label_ids and label_values (up to 100 {label_id, value} pairs), with label_match (any by default, or all). Values use native booleans, scale numbers, or exact option IDs without string normalization. Numerically equivalent scale numbers match equally. label_values matches assigned values only. Pending configurations match label_ids only. Empty lists match nothing. If both label_ids and label_values are supplied, both filter groups must match."
               )
               |> Zoi.default(%{}),
             fields:
@@ -91,7 +91,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
   use Zaq.Engine.Workflows.Action,
     name: "query_resources",
     description:
-      "Query allowlisted ZAQ Ecto resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule, label, document. Data source connector configs are channel_config rows with kind=data_source. Use mode=describe to discover fields/search_fields/filter_fields/sort_fields. Use mode=query with optional id for get mode, or query/filters/sort/limit/offset for list/search mode. Public reads: agent, mcp, skill. Private reads require permissions or trusted execution-context skip_permissions. Document results contain metadata and selected labels as {id, name, value}; document content is never returned. Use label_values filters to find documents such as Location=Paris after discovering the label ID. Labels are visible only when selected on a readable document; trusted admin context can see all definitions.",
+      "Query allowlisted ZAQ Ecto resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule, label, document. Data source connector configs are channel_config rows with kind=data_source. Use mode=describe to discover fields/search_fields/filter_fields/sort_fields. Use mode=query with optional id for get mode, or query/filters/sort/limit/offset for list/search mode. Public reads: agent, mcp, skill. Private reads require permissions or trusted execution-context skip_permissions. Document results contain metadata and label configurations with native values and assignment states; document content is never returned. Discover a label's value_type and value_config before using label_values with a boolean, scale number, or exact option ID. Use label_ids to include pending configurations. Labels are visible only when configured on a readable document; trusted admin context can see all definitions.",
     schema: @schema,
     output_schema: @output_schema
 
