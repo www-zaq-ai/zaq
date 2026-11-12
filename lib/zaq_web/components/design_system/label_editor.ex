@@ -3,13 +3,12 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
   use Phoenix.Component
   import ZaqWeb.Components.DesignSystem.Button
   import ZaqWeb.Components.DesignSystem.Input
-  import ZaqWeb.Components.SearchableSelect
   alias ZaqWeb.Components.BOModal
+  alias ZaqWeb.Components.DesignSystem.LabelValue
 
   attr :labels, :list, required: true
   attr :selected, :any, required: true
   attr :values, :map, default: %{}
-  attr :suggestions, :map, default: %{}
   attr :editable, :boolean, default: false
   attr :error, :string, default: nil
   attr :target, :any, default: nil
@@ -82,6 +81,9 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
                 class="zaq-text-body-sm zaq-label-description"
                 style="color: var(--zaq-text-color-body-tertiary)"
               >{label.description}</span>
+              <span :if={LabelValue.status_text(label) != ""} class="zaq-text-body-sm">
+                {LabelValue.status_text(label)}
+              </span>
             </button>
             <p :if={@available_labels == []} class="zaq-text-body-sm p-4" role="status">
               No matching labels.
@@ -89,7 +91,7 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
           </div>
         </form>
         <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
-          Choose a label, then select an existing value or enter a new one.
+          Choose a label, then set its value.
         </p>
         <p :if={!@editable} class="zaq-text-body-sm">You have read-only access to these labels.</p>
         <p
@@ -105,8 +107,7 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
           <.label_choice
             :for={label <- @active_labels}
             label={label}
-            value={Map.get(@values, label.id, "")}
-            suggestions={Map.get(@suggestions, label.id, [])}
+            value={Map.get(@values, label.id, Map.get(label, :value))}
             editable={@editable}
             target={@target}
           />
@@ -161,6 +162,9 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
             class="zaq-text-body-sm zaq-label-description"
             style="color: var(--zaq-text-color-body-tertiary)"
           >{@label.description}</span>
+          <span :if={LabelValue.status_text(@label) != ""} class="zaq-text-body-sm">
+            {LabelValue.status_text(@label)}
+          </span>
         </span>
       </div>
       <form
@@ -170,36 +174,16 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
         phx-target={@target}
       >
         <input type="hidden" name="label_id" value={@label.id} />
-        <.searchable_select
+        <LabelValue.value_input
           id={"label-value-#{@label.id}"}
-          name="value"
+          definition={@label}
           value={@value}
-          options={value_options(@value, @suggestions)}
           label={"Value for #{@label.name}"}
-          label_position="block"
-          placeholder="Search or enter a value"
-          empty_label="Choose or enter a value"
-          allow_create={@editable}
-          create_on_no_exact_match
-          clearable
-          on_create_event="create_label_value"
-          on_search="search_label_values"
+          editable={@editable}
           target={@target}
-          event_context={%{label_id: to_string(@label.id)}}
-          maxlength={200}
-          disabled={!@editable}
-          compact
         />
       </form>
     </div>
     """
-  end
-
-  defp value_options(value, suggestions) do
-    [value | suggestions]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.uniq()
-    |> Enum.map(&{&1, &1})
-    |> then(&[{"No value", ""} | &1])
   end
 end

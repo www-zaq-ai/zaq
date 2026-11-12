@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Components.LabelValueManager do
   @moduledoc "Paged label usage and explicit resource selection for versioned bulk value changes."
   use ZaqWeb, :live_component
-  alias ZaqWeb.Components.DesignSystem.{Button, Input, Table}
+  alias ZaqWeb.Components.DesignSystem.{Button, Input, LabelValue, Table}
   alias ZaqWeb.Live.BO.LabelEvents
 
   @impl true
@@ -20,7 +20,8 @@ defmodule ZaqWeb.Components.LabelValueManager do
          more?: false,
          selected: MapSet.new(),
          value: nil,
-         draft: "",
+         draft: nil,
+         value_state: nil,
          confirming?: false,
          error: nil,
          notice: nil
@@ -37,10 +38,16 @@ defmodule ZaqWeb.Components.LabelValueManager do
     case Integer.parse(index) do
       {n, ""} when n >= 0 ->
         case Enum.at(socket.assigns.rows, n) do
-          %{value: value} ->
+          %{value: value, state: state} ->
             {:noreply,
              socket
-             |> assign(mode: :resources, value: value, offset: 0, draft: value || "")
+             |> assign(
+               mode: :resources,
+               value: value,
+               value_state: state,
+               offset: 0,
+               draft: value
+             )
              |> load()}
 
           _ ->
@@ -88,12 +95,18 @@ defmodule ZaqWeb.Components.LabelValueManager do
   end
 
   def handle_event("review_value_update", %{"value" => value}, socket) do
-    {:noreply,
-     assign(socket,
-       draft: value,
-       confirming?: MapSet.size(socket.assigns.selected) > 0,
-       error: nil
-     )}
+    case LabelValue.parse_input(socket.assigns.label, value) do
+      {:ok, native_value} ->
+        {:noreply,
+         assign(socket,
+           draft: native_value,
+           confirming?: MapSet.size(socket.assigns.selected) > 0,
+           error: nil
+         )}
+
+      :error ->
+        {:noreply, assign(socket, error: "Choose a value that matches this label's type.")}
+    end
   end
 
   def handle_event("cancel_value_update", _, socket),
@@ -166,8 +179,13 @@ defmodule ZaqWeb.Components.LabelValueManager do
     do: rows |> Enum.filter(& &1.editable?) |> Enum.map(&resource_key/1) |> MapSet.new()
 
   defp resource_title(row), do: row.title || row.source
-  defp value_text(nil), do: "Empty value"
-  defp value_text(value), do: value
+
+  defp value_text(label, row) do
+    case LabelValue.status_text(row) do
+      "" -> LabelValue.format_value(label, row.value)
+      status -> status
+    end
+  end
 
   @impl true
   def render(assigns) do
@@ -225,7 +243,7 @@ defmodule ZaqWeb.Components.LabelValueManager do
                     phx-value-index={index}
                     phx-target={@myself}
                   >
-                    <span class="truncate" title={value_text(row.value)}>{value_text(row.value)}</span>
+                    <span class="truncate" title={value_text(@label, row)}>{value_text(@label, row)}</span>
                   </Button.button>
                 </Table.table_cell>
                 <Table.table_cell>
@@ -249,14 +267,15 @@ defmodule ZaqWeb.Components.LabelValueManager do
             phx-target={@myself}
             icon="hero-arrow-left"
           >All values</Button.button>
-          <span class="zaq-text-body-sm truncate">{@label.name}: {value_text(@value)}</span>
+          <span class="zaq-text-body-sm truncate">{@label.name}: {value_text(@label, %{
+            value: @value,
+            state: @value_state
+          })}</span>
         </div>
         <%= if @confirming? do %>
           <div id="label-usage-confirm" class="zaq-card-default zaq-layout-stack">
             <p class="zaq-text-body">
-              {if String.trim(@draft) == "",
-                do: "Clear the value",
-                else: "Set the value to “#{@draft}”"} on {MapSet.size(@selected)} selected resource(s)?
+              Set the value to “{LabelValue.format_value(@label, @draft)}” on {MapSet.size(@selected)} selected resource(s)?
             </p>
             <p class="zaq-text-body-sm">
               The label will remain assigned. Other resources will keep their values.
@@ -282,12 +301,13 @@ defmodule ZaqWeb.Components.LabelValueManager do
             phx-target={@myself}
             class="zaq-layout-stack-tight"
           >
-            <Input.input
+            <LabelValue.value_input
+              id="bulk-label-value"
+              definition={@label}
               name="value"
               value={@draft}
               label="New value"
-              placeholder="Leave empty to clear the value"
-              maxlength="200"
+              target={@myself}
             />
             <Button.button
               id="review-label-value-update"

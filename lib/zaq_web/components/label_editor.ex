@@ -8,6 +8,7 @@ defmodule ZaqWeb.Components.LabelEditor do
   """
   use ZaqWeb, :live_component
   alias ZaqWeb.Components.DesignSystem.LabelEditor, as: Editor
+  alias ZaqWeb.Components.DesignSystem.LabelValue
   alias ZaqWeb.Live.BO.LabelEvents
 
   @impl true
@@ -19,7 +20,7 @@ defmodule ZaqWeb.Components.LabelEditor do
          labels: [],
          selected: MapSet.new(),
          values: %{},
-         suggestions: %{},
+         invalid_values: MapSet.new(),
          editable: false,
          query: "",
          error: nil
@@ -44,7 +45,12 @@ defmodule ZaqWeb.Components.LabelEditor do
           do: MapSet.delete(selected, label.id),
           else: MapSet.put(selected, label.id)
 
-      {:noreply, assign(socket, selected: selected, query: "")}
+      {:noreply,
+       assign(socket,
+         selected: selected,
+         query: "",
+         invalid_values: MapSet.delete(socket.assigns.invalid_values, label.id)
+       )}
     else
       {:noreply, socket}
     end
@@ -56,24 +62,23 @@ defmodule ZaqWeb.Components.LabelEditor do
         {:noreply, socket}
 
       label ->
-        socket =
-          assign(socket,
-            values: Map.put(socket.assigns.values, label.id, String.slice(value, 0, 200))
-          )
+        case LabelValue.parse_input(label, value) do
+          {:ok, native_value} ->
+            {:noreply,
+             assign(socket,
+               values: Map.put(socket.assigns.values, label.id, native_value),
+               invalid_values: MapSet.delete(socket.assigns.invalid_values, label.id),
+               error: nil
+             )}
 
-        {:noreply, socket}
+          :error ->
+            {:noreply,
+             assign(socket,
+               invalid_values: MapSet.put(socket.assigns.invalid_values, label.id),
+               error: LabelEvents.error_message(:invalid_value)
+             )}
+        end
     end
-  end
-
-  def handle_event("search_label_values", %{"label_id" => id, "query" => query}, socket) do
-    case editable_label(socket, id) do
-      nil -> {:noreply, socket}
-      label -> {:noreply, suggest_values(socket, label.id, query)}
-    end
-  end
-
-  def handle_event("create_label_value", %{"label_id" => id, "name" => value}, socket) do
-    handle_event("change_label_value", %{"label_id" => id, "value" => value}, socket)
   end
 
   def handle_event("reload_labels", _, socket), do: {:noreply, load(socket)}
@@ -85,6 +90,14 @@ defmodule ZaqWeb.Components.LabelEditor do
     do: {:noreply, socket}
 
   def handle_event("save_labels", _, socket) do
+    if MapSet.disjoint?(socket.assigns.invalid_values, socket.assigns.selected) do
+      save_changes(socket)
+    else
+      {:noreply, assign(socket, error: LabelEvents.error_message(:invalid_value))}
+    end
+  end
+
+  defp save_changes(socket) do
     edits =
       socket.assigns.labels
       |> Enum.filter(&assignment_changed?(&1, socket.assigns))
@@ -114,7 +127,7 @@ defmodule ZaqWeb.Components.LabelEditor do
     selected? = MapSet.member?(assigns.selected, label.id)
 
     label.selected != selected? or
-      (selected? and (label.value || "") != Map.get(assigns.values, label.id, ""))
+      (selected? and label.value !== Map.get(assigns.values, label.id))
   end
 
   defp editable_label(socket, id) do
@@ -125,20 +138,6 @@ defmodule ZaqWeb.Components.LabelEditor do
     end
   end
 
-  defp suggest_values(socket, label_id, query) do
-    case LabelEvents.call(socket.assigns.current_user, :label_value_suggestions, %{
-           resource: socket.assigns.resource,
-           label_id: label_id,
-           query: query
-         }) do
-      {:ok, values} ->
-        assign(socket, suggestions: Map.put(socket.assigns.suggestions, label_id, values))
-
-      {:error, reason} ->
-        assign(socket, suggestions: %{}, error: LabelEvents.error_message(reason))
-    end
-  end
-
   defp load(socket) do
     case LabelEvents.call(socket.assigns.current_user, :get_resource_labels, %{
            resource: socket.assigns.resource
@@ -146,8 +145,8 @@ defmodule ZaqWeb.Components.LabelEditor do
       {:ok, editor} ->
         assign(socket,
           labels: editor.labels,
-          values: Map.new(editor.labels, &{&1.id, &1.value || ""}),
-          suggestions: %{},
+          values: Map.new(editor.labels, &{&1.id, &1.value}),
+          invalid_values: MapSet.new(),
           selected: MapSet.new(for l <- editor.labels, l.selected, do: l.id),
           editable: editor.editable?,
           error: nil
@@ -157,7 +156,7 @@ defmodule ZaqWeb.Components.LabelEditor do
         assign(socket,
           labels: [],
           values: %{},
-          suggestions: %{},
+          invalid_values: MapSet.new(),
           selected: MapSet.new(),
           editable: false,
           error: LabelEvents.error_message(reason)
@@ -173,7 +172,6 @@ defmodule ZaqWeb.Components.LabelEditor do
         labels={@labels}
         selected={@selected}
         values={@values}
-        suggestions={@suggestions}
         editable={@editable}
         error={@error}
         target={@myself}
