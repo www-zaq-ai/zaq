@@ -148,8 +148,10 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
 
   test "classifies invalid legacy API-key storage without reporting the raw value" do
     {:ok, ai} = ai_credential(%{name: unique("invalid-key-storage"), auth_kind: "none"})
+    # The report retains the credential ID, so the invalid raw value must be distinct.
+    invalid_api_key = ai.id + 1
 
-    item = AIProviderCredentialMigration.classify_legacy_row([ai.id, 42, %{}, nil])
+    item = AIProviderCredentialMigration.classify_legacy_row([ai.id, invalid_api_key, %{}, nil])
 
     assert item == %{
              ai_provider_credential_id: ai.id,
@@ -159,7 +161,7 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
              source_connect_credential_id: nil
            }
 
-    refute 42 in Map.values(item)
+    refute invalid_api_key in Map.values(item)
   end
 
   test "unsupported auth kinds remain missing auth for keyless and blank-key rows" do
