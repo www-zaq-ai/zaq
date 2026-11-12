@@ -9,7 +9,7 @@ defmodule Zaq.Ingestion.ResourceQuery do
   import Ecto.Query
   import Zaq.Resources.QuerySupport
   alias Zaq.Ingestion.Document
-  alias Zaq.Ingestion.Labels.{DocumentAssignment, Target}
+  alias Zaq.Ingestion.Labels.Assignment
   alias Zaq.Repo
   alias Zaq.Resources.QuerySupport
 
@@ -18,7 +18,8 @@ defmodule Zaq.Ingestion.ResourceQuery do
       key: "label",
       module: Zaq.Ingestion.Labels.Label,
       public?: false,
-      fields: ~w(id name description resource_types inserted_at updated_at)a,
+      fields:
+        ~w(id name description resources resource_types value_type value_config assignment_type threshold inserted_at updated_at)a,
       search_fields: ~w(name description)a,
       filter_fields: ~w(name)a,
       sort_fields: ~w(id name inserted_at updated_at)a,
@@ -73,10 +74,10 @@ defmodule Zaq.Ingestion.ResourceQuery do
       {:ok, documents} = QuerySupport.authorized_query(descriptor, context)
 
       label_ids =
-        from a in DocumentAssignment,
+        from a in Assignment,
           join: d in subquery(documents),
           on: d.id == a.document_id,
-          where: a.selected,
+          where: a.resource_type == "document" and a.state in [:assigned, :pending],
           select: a.label_id
 
       {:ok, from(row in module, where: row.id in subquery(label_ids))}
@@ -239,18 +240,14 @@ defmodule Zaq.Ingestion.ResourceQuery do
     |> Repo.aggregate(:count, :id)
   end
 
-  defp preload_for_fields(resources, %{key: "label"}, fields) do
-    if :resource_types in fields,
-      do: Repo.preload(resources, targets: from(t in Target, order_by: t.resource_type)),
-      else: resources
-  end
+  defp preload_for_fields(resources, %{key: "label"}, _fields), do: resources
 
   defp preload_for_fields(resources, %{key: "document"}, fields) when is_list(resources) do
     if :labels in fields do
       labels =
         resources
         |> Enum.map(& &1.id)
-        |> DocumentAssignment.selected_labels_query()
+        |> Assignment.selected_labels_query()
         |> Repo.all()
         |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
@@ -265,6 +262,9 @@ defmodule Zaq.Ingestion.ResourceQuery do
   end
 
   defp project_resource_fields(query, %{key: key}, fields) when key in ["document", "label"] do
+    fields =
+      if key == "label" and :resource_types in fields, do: [:resources | fields], else: fields
+
     fields = Enum.uniq([:id | fields -- [:resource_types, :labels]])
     select(query, [row], struct(row, ^fields))
   end
@@ -274,7 +274,7 @@ defmodule Zaq.Ingestion.ResourceQuery do
   end
 
   defp serialize_field(resource, %{key: "label"}, :resource_types),
-    do: Enum.map(resource.targets, & &1.resource_type)
+    do: resource.resources
 
   defp serialize_field(resource, _descriptor, field),
     do: normalize_value(Map.get(resource, field))

@@ -1,20 +1,19 @@
 defmodule Zaq.Ingestion.Labels do
   @moduledoc """
-  Category definitions and manual resource assignments owned by Ingestion.
+  Typed definitions and resource assignments owned by Ingestion.
 
-  Definitions have typed targets. Resource decisions use separate FK-backed tables;
-  a manual exclusion is retained even when no inclusion previously existed.
-  Automatic controls are unavailable until the processing pipeline is implemented.
+  Definitions own value and assignment configuration. One polymorphic assignment
+  store retains manual exclusions and pending automatic decisions. Configuring
+  automatic labels never invokes ingestion or model evaluation.
   """
   import Ecto.Query
 
   alias Zaq.Ingestion.Labels.{
     Access,
-    ChunkAssignment,
-    DocumentAssignment,
+    Assignment,
+    AssignmentValue,
     Label,
-    ResourceLabels,
-    Target
+    ResourceLabels
   }
 
   alias Zaq.Repo
@@ -46,33 +45,35 @@ defmodule Zaq.Ingestion.Labels do
                fragment("strpos(lower(?), lower(?)) > 0", l.description, ^query),
            order_by: l.normalized_name,
            limit: 51,
-           offset: ^offset,
-           preload: :targets
-       )}
+           offset: ^offset
+       )
+       |> Enum.map(&Label.with_targets/1)}
     end
   end
 
   def list(_, _, _), do: {:error, :invalid_request}
 
-  @doc "Creates/updates a definition and target settings atomically, with expected revision on edits."
+  @doc "Creates/updates typed value and assignment configuration atomically with an expected revision."
   @spec save_definition(map(), map() | nil) :: {:ok, struct()} | {:error, term()}
   def save_definition(attrs, actor) when is_map(attrs) do
     with :ok <- Access.manager(actor),
          :ok <- valid_identity(attrs),
-         :ok <- manual_only(attrs),
-         {:ok, types} <- target_types(attrs) do
+         :ok <- valid_legacy_settings(attrs) do
       Repo.transaction(fn ->
         label = lock_definition(attrs)
         check_version!(label, attr(attrs, :expected_version))
-        check_removed_targets!(label, types)
-        saved = persist!(Label.changeset(label, attrs))
-        sync_targets(saved, types)
-        Repo.preload(saved, :targets, force: true)
+        changeset = Label.changeset(label, definition_attrs(attrs))
+        validate_definition!(changeset)
+        check_used_definition!(label, Ecto.Changeset.apply_changes(changeset))
+        changeset |> persist!() |> Label.with_targets()
       end)
     end
   end
 
   def save_definition(_, _), do: {:error, :invalid_request}
+
+  defp validate_definition!(%{valid?: true}), do: :ok
+  defp validate_definition!(changeset), do: Repo.rollback(changeset)
 
   @doc "Returns the definition revision and active document/chunk usage for deletion confirmation."
   @spec deletion_preview(pos_integer(), map() | nil) :: {:ok, map()} | {:error, term()}
@@ -150,9 +151,7 @@ defmodule Zaq.Ingestion.Labels do
   end
 
   defp delete_assignments(label_id) do
-    for schema <- [DocumentAssignment, ChunkAssignment] do
-      Repo.delete_all(from a in schema, where: a.label_id == ^label_id)
-    end
+    Repo.delete_all(from a in Assignment, where: a.label_id == ^label_id)
   end
 
   defp valid_deletion(attrs) do
@@ -174,12 +173,20 @@ defmodule Zaq.Ingestion.Labels do
       usage: %{
         documents:
           Repo.aggregate(
-            from(a in DocumentAssignment, where: a.label_id == ^label.id and a.selected),
+            from(a in Assignment,
+              where:
+                a.label_id == ^label.id and a.resource_type == "document" and
+                  a.state in [:assigned, :pending]
+            ),
             :count
           ),
         chunks:
           Repo.aggregate(
-            from(a in ChunkAssignment, where: a.label_id == ^label.id and a.selected),
+            from(a in Assignment,
+              where:
+                a.label_id == ^label.id and a.resource_type == "chunk" and
+                  a.state in [:assigned, :pending]
+            ),
             :count
           )
       }
@@ -198,14 +205,6 @@ defmodule Zaq.Ingestion.Labels do
   @spec document_chips(list(), map() | nil) :: {:ok, map()} | {:error, term()}
   defdelegate document_chips(sources, actor), to: ResourceLabels
 
-  defp manual_only(attrs) do
-    flags = [:automatic, :automatic_document, :automatic_chunk]
-
-    if Enum.any?(flags, &(attr(attrs, &1) not in [nil, false, "false"])),
-      do: {:error, :automation_unavailable},
-      else: :ok
-  end
-
   defp valid_identity(attrs) do
     case attr(attrs, :id) do
       nil -> :ok
@@ -214,16 +213,22 @@ defmodule Zaq.Ingestion.Labels do
     end
   end
 
-  defp target_types(attrs) do
-    case attr(attrs, :targets) do
-      types when is_list(types) and types != [] ->
-        if Enum.all?(types, &(&1 in ["document", "chunk"])),
-          do: {:ok, Enum.uniq(types)},
-          else: {:error, :invalid_targets}
+  defp valid_legacy_settings(attrs) do
+    if Enum.any?(
+         [:automatic, :automatic_document, :automatic_chunk],
+         &(attr(attrs, &1) not in [nil, false, "false"])
+       ),
+       do: {:error, :invalid_request},
+       else: :ok
+  end
 
-      _ ->
-        {:error, :invalid_targets}
-    end
+  defp definition_attrs(attrs) do
+    attrs = Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
+
+    # Temporary: zaq-kw0.44.5 removes the old editor's targets input.
+    if Map.has_key?(attrs, "targets") and not Map.has_key?(attrs, "resources"),
+      do: Map.put(attrs, "resources", attrs["targets"]),
+      else: attrs
   end
 
   defp lock_definition(attrs) do
@@ -241,13 +246,37 @@ defmodule Zaq.Ingestion.Labels do
   defp check_version!(%Label{lock_version: version}, version), do: :ok
   defp check_version!(_, _), do: Repo.rollback(:stale)
 
-  defp check_removed_targets!(%Label{id: nil}, _), do: :ok
+  defp check_used_definition!(%Label{id: nil}, _), do: :ok
 
-  defp check_removed_targets!(label, types) do
-    Enum.each([{"document", DocumentAssignment}, {"chunk", ChunkAssignment}], fn {type, schema} ->
-      if type not in types and Repo.exists?(from a in schema, where: a.label_id == ^label.id),
-        do: Repo.rollback(:target_in_use)
-    end)
+  defp check_used_definition!(label, updated) do
+    assignments = from a in Assignment, where: a.label_id == ^label.id
+    removed = label.resources -- updated.resources
+
+    if removed != [] and Repo.exists?(from a in assignments, where: a.resource_type in ^removed),
+      do: Repo.rollback(:target_in_use)
+
+    if label.value_type != updated.value_type and Repo.exists?(assignments),
+      do: Repo.rollback(:definition_in_use)
+
+    check_used_values!(label, updated, assignments)
+    check_assignment_mode!(label, updated, assignments)
+  end
+
+  defp check_used_values!(label, updated, _assignments)
+       when label.value_config == updated.value_config,
+       do: :ok
+
+  defp check_used_values!(_label, updated, assignments) do
+    values = from a in assignments, where: a.state == :assigned, distinct: true, select: a.value
+
+    if values |> Repo.stream() |> Enum.any?(&(not AssignmentValue.valid_for?(updated, &1))),
+      do: Repo.rollback(:definition_in_use)
+  end
+
+  defp check_assignment_mode!(label, updated, assignments) do
+    if label.assignment_type != updated.assignment_type and updated.assignment_type == "manual" and
+         Repo.exists?(from a in assignments, where: a.state == :pending),
+       do: Repo.rollback(:definition_in_use)
   end
 
   defp persist!(%{data: %{id: nil}} = changeset), do: insert!(changeset)
@@ -260,27 +289,18 @@ defmodule Zaq.Ingestion.Labels do
   defp unwrap!({:ok, record}), do: record
   defp unwrap!({:error, error}), do: Repo.rollback(error)
 
-  defp sync_targets(label, types) do
-    Repo.delete_all(
-      from t in Target, where: t.label_id == ^label.id and t.resource_type not in ^types
-    )
-
-    existing = Repo.all(from t in Target, where: t.label_id == ^label.id, select: t.resource_type)
-
-    for type <- types -- existing,
-        do: insert!(Target.changeset(%Target{label_id: label.id}, type))
-  end
-
   defp attr(attrs, key), do: Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
 
   @doc "Builds a document-ID subquery matching selected label assignments."
   @spec matching_document_ids([pos_integer()], term()) :: Ecto.Query.t()
   def matching_document_ids(ids, match) do
     assignments =
-      from a in DocumentAssignment,
-        where: a.selected and a.label_id in ^ids,
-        group_by: a.document_id,
-        select: a.document_id
+      from a in Assignment,
+        where:
+          a.resource_type == "document" and a.state in [:assigned, :pending] and
+            a.label_id in ^ids,
+        group_by: a.resource_id,
+        select: fragment("?::bigint", a.resource_id)
 
     assignments =
       if match == {:ok, "all"},
@@ -304,11 +324,11 @@ defmodule Zaq.Ingestion.Labels do
       end)
 
     assignments =
-      from a in DocumentAssignment,
-        where: a.selected,
+      from a in Assignment,
+        where: a.resource_type == "document" and a.state == :assigned,
         where: ^condition,
-        group_by: a.document_id,
-        select: a.document_id
+        group_by: a.resource_id,
+        select: fragment("?::bigint", a.resource_id)
 
     assignments =
       if match == {:ok, "all"},

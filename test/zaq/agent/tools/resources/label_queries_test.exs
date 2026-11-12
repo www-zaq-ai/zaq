@@ -3,6 +3,7 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
   use ExUnitProperties
 
   import Zaq.AccountsFixtures
+  import Zaq.LabelFixtures
 
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Resources.QueryResources
@@ -49,12 +50,15 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
     set_value(ctx, ctx.private, ctx.security, "Secret")
     assert {:ok, result} = query("document", %{id: ctx.both.id, fields: ["labels"]}, ctx.context)
 
-    assert result.resource == %{
-             labels: [
-               %{id: ctx.architecture.id, name: "Architecture", value: nil},
-               %{id: ctx.security.id, name: "Security", value: "Paris"}
-             ]
-           }
+    assert Enum.map(result.resource.labels, &Map.take(&1, [:id, :name, :value, :state])) == [
+             %{
+               id: ctx.architecture.id,
+               name: "Architecture",
+               value: "Unspecified",
+               state: :assigned
+             },
+             %{id: ctx.security.id, name: "Security", value: "Paris", state: :assigned}
+           ]
 
     assert {:ok, result} = query("document", %{fields: ["id", "labels"]}, ctx.context)
 
@@ -85,7 +89,7 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
     set_value(ctx, ctx.private, ctx.security, "Paris")
 
     pairs = [
-      %{"label_id" => ctx.security.id, "value" => " Paris "},
+      %{"label_id" => ctx.security.id, "value" => "Paris"},
       %{"label_id" => ctx.architecture.id, "value" => "Paris"}
     ]
 
@@ -132,11 +136,12 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
              )
   end
 
-  test "value filters validate inputs and support nil values and combined ID filters", ctx do
+  test "value filters validate inputs and support explicit options and combined ID filters",
+       ctx do
     for invalid <- [
           "Paris",
           [%{"label_id" => ctx.security.id}],
-          [%{"label_id" => ctx.security.id, "value" => 12}],
+          [%{"label_id" => ctx.security.id, "value" => %{}}],
           [%{"label_id" => 0, "value" => "Paris"}],
           [%{"label_id" => ctx.security.id, "value" => String.duplicate("x", 201)}]
         ] do
@@ -145,7 +150,7 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
     end
 
     filters = %{
-      "label_values" => [%{"label_id" => ctx.security.id, "value" => nil}],
+      "label_values" => [%{"label_id" => ctx.security.id, "value" => "Unspecified"}],
       "label_ids" => [ctx.architecture.id]
     }
 
@@ -164,7 +169,9 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
 
   property "unknown value strings never broaden an authorized document query", ctx do
     check all(value <- string(:alphanumeric, min_length: 1, max_length: 60)) do
-      filters = %{"label_values" => [%{"label_id" => ctx.security.id, "value" => value}]}
+      filters = %{
+        "label_values" => [%{"label_id" => ctx.security.id, "value" => "unknown-" <> value}]
+      }
 
       assert {:ok, %{resources: [], total_count: 0}} =
                query("document", %{filters: filters}, ctx.context)
@@ -230,7 +237,11 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
        ctx do
     assert {:ok, result} = query("label", %{}, ctx.context)
     assert Enum.map(result.resources, & &1.name) == ["Architecture", "Security"]
-    assert Enum.all?(result.resources, &(&1.resource_types == ["chunk", "document"]))
+
+    assert Enum.all?(
+             result.resources,
+             &(&1.resources == ["document", "chunk"] and &1.resource_types == &1.resources)
+           )
 
     assert {:ok, searched} =
              query("label", %{query: "ABOUT SECURITY", fields: ["id", "name"]}, ctx.context)
@@ -472,10 +483,12 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
 
   defp label(actor, name) do
     {:ok, label} =
-      Labels.save_definition(
-        %{name: name, description: "About #{name}", targets: ["document", "chunk"]},
-        actor
-      )
+      label_definition(actor, %{
+        name: name,
+        description: "About #{name}",
+        value_type: "options",
+        value_config: option_config(["Unspecified", "Paris", "Secret", "Finance", "London"])
+      })
 
     label
   end
@@ -496,6 +509,7 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
           %{
             label_id: label.id,
             operation: if(selected, do: "add", else: "remove"),
+            value: "Unspecified",
             expected_version: 0
           }
         end),

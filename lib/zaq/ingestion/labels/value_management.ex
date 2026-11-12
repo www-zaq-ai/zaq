@@ -2,7 +2,7 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
   @moduledoc """
   Resource-scoped label value discovery and bulk correction.
 
-  Values are derived from readable, selected assignments, including nil (empty).
+  Values are derived from readable assignments, including pending configurations.
   There is no independent value catalog. Bulk edits target at most 50 explicit
   resource/version pairs and reuse ResourceLabels.edit/4 within one transaction,
   skipping the editor projection that bulk consumers do not use.
@@ -13,21 +13,20 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
 
   alias Zaq.Ingestion.Labels.{
     Access,
+    Assignment,
     AssignmentValue,
-    ChunkAssignment,
-    DocumentAssignment,
     ResourceLabels
   }
 
   alias Zaq.Repo
 
-  @doc "Counts distinct assigned values (including empty) and readable resources for a catalog page."
+  @doc "Counts distinct assigned values, pending configurations and readable resources for a catalog page."
   def summaries(ids, actor) when is_list(ids) and length(ids) <= 50 do
     with {:ok, user} <- Access.user(actor),
          true <- Enum.all?(ids, &(is_integer(&1) and &1 > 0)) do
       groups =
         from a in subquery(assignments(ids, actor, user)),
-          group_by: [a.label_id, a.value],
+          group_by: [a.label_id, a.state, a.value],
           select: %{label_id: a.label_id, total: count()}
 
       rows =
@@ -46,7 +45,7 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
 
   def summaries(_, _), do: {:error, :invalid_request}
 
-  @doc "Returns up to 51 value groups, filtered by a literal substring; empty values form one group."
+  @doc "Returns up to 51 value/state groups, filtered by a literal substring of their display text."
   def values(label_id, query, offset, actor)
       when is_integer(label_id) and label_id > 0 and is_binary(query) and is_integer(offset) and
              offset >= 0 do
@@ -54,14 +53,14 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
       query = query |> String.slice(0, 200) |> String.trim() |> String.normalize(:nfc)
 
       rows =
-        from a in subquery(assignments([label_id], actor, user)),
-          where: fragment("strpos(lower(coalesce(?, '')), lower(?)) > 0", a.value, ^query),
-          group_by: a.value,
+        from a in subquery(assignments([label_id], actor, user, query)),
+          group_by: [a.state, a.value],
           order_by: [asc_nulls_first: a.value],
           offset: ^offset,
           limit: 51,
           select: %{
             value: a.value,
+            state: a.state,
             documents: filter(count(), a.type == "document"),
             chunks: filter(count(), a.type == "chunk")
           }
@@ -97,7 +96,7 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
 
   def resources(_, _, _, _), do: {:error, :invalid_request}
 
-  @doc "Atomically replaces or clears values on explicit selected assignments; keeps the label applied."
+  @doc "Atomically replaces typed values on explicit assigned/pending resources; keeps the label applied."
   def update(label_id, resources, value, actor) do
     with {:ok, _user} <- Access.user(actor),
          :ok <- validate_batch(label_id, resources),
@@ -150,9 +149,17 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
       {:error, reason} -> Repo.rollback(reason)
     end
 
-    case Repo.get_by(resource.schema, [{resource.key, resource.id}, {:label_id, label_id}]) do
-      %{selected: true, lock_version: version} when version == request.expected_version -> :ok
-      _ -> Repo.rollback(:stale)
+    case Repo.get_by(Assignment,
+           resource_type: resource.type,
+           resource_id: to_string(resource.id),
+           label_id: label_id
+         ) do
+      %{state: state, lock_version: version}
+      when state in [:assigned, :pending] and version == request.expected_version ->
+        :ok
+
+      _ ->
+        Repo.rollback(:stale)
     end
 
     edit = %{
@@ -177,18 +184,22 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
     end
   end
 
-  defp assignments(ids, actor, user) do
+  defp assignments(ids, actor, user, search \\ nil) do
     readable = Access.document_ids_query(actor, user)
     writable = Access.document_ids_query(actor, user, :update)
+    matching = Assignment.search_values(Assignment, search)
 
     documents =
-      from a in DocumentAssignment,
+      from a in matching,
         join: d in Document,
         on: d.id == a.document_id,
-        where: a.selected and a.label_id in ^ids and d.id in subquery(readable),
+        where:
+          a.resource_type == "document" and a.state in [:assigned, :pending] and
+            a.label_id in ^ids and d.id in subquery(readable),
         select: %{
           label_id: a.label_id,
           value: a.value,
+          state: a.state,
           type: type(^"document", :string),
           id: d.id,
           document_id: d.id,
@@ -201,15 +212,18 @@ defmodule Zaq.Ingestion.Labels.ValueManagement do
 
     if Chunk.table_exists?() do
       chunks =
-        from a in ChunkAssignment,
+        from a in matching,
           join: c in Chunk,
           on: c.id == a.chunk_id,
           join: d in Document,
           on: d.id == c.document_id,
-          where: a.selected and a.label_id in ^ids and d.id in subquery(readable),
+          where:
+            a.resource_type == "chunk" and a.state in [:assigned, :pending] and a.label_id in ^ids and
+              d.id in subquery(readable),
           select: %{
             label_id: a.label_id,
             value: a.value,
+            state: a.state,
             type: type(^"chunk", :string),
             id: c.id,
             document_id: d.id,
