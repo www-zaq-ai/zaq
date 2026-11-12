@@ -503,6 +503,14 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @impl true
+  def delivery_observation(%Outgoing{} = outgoing, response) do
+    case adapter_for(outgoing.provider) do
+      {:ok, adapter} -> DeliveryResult.delivery_observation(adapter, response)
+      _ -> nil
+    end
+  end
+
+  @impl true
   def upsert_message(
         %{provider: provider, provider_atom: provider_atom},
         request,

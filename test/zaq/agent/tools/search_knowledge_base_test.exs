@@ -3,8 +3,48 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   use ExUnitProperties
 
   alias Zaq.Agent.Tools.SearchKnowledgeBase
+  alias Zaq.Agent.Tools.SearchKnowledgeBaseTest.StubNodeRouter
   alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
+
+  test "composed retrieval Actions inherit trace context through narrow allowlists" do
+    owner = self()
+
+    callback = fn event ->
+      send(owner, {:retrieval_trace, event})
+      :ok
+    end
+
+    context = %{
+      node_router: StubNodeRouter,
+      context_window: %{max_context_tokens: 5_000},
+      tool_call_id: "search-root",
+      request_id: "request",
+      run_id: "run",
+      on_tool_event: callback,
+      unrelated_runtime_secret: "DO_NOT_FORWARD"
+    }
+
+    assert {:ok, %{count: 2}} =
+             SearchKnowledgeBase.run(%{query: "find elixir", search_mode: "semantic"}, context)
+
+    traces = collect_trace_events([])
+    starts = Enum.filter(traces, &(&1.kind == :tool_started))
+    assert length(starts) >= 3
+    assert Enum.any?(starts, &(&1.tool_name == "translate_knowledge_query"))
+    assert Enum.any?(starts, &(&1.tool_name == "semantic_knowledge_search"))
+    assert Enum.all?(traces, &(&1.data.parent_id == "search-root"))
+    assert length(Enum.uniq(Enum.map(starts, & &1.tool_call_id))) == length(starts)
+    refute inspect(traces) =~ "DO_NOT_FORWARD"
+  end
+
+  defp collect_trace_events(events) do
+    receive do
+      {:retrieval_trace, event} -> collect_trace_events([event | events])
+    after
+      0 -> Enum.reverse(events)
+    end
+  end
 
   defmodule SourceBudgetRouter do
     alias Zaq.Agent.Tools.SearchKnowledgeBaseTest.StubNodeRouter

@@ -22,8 +22,8 @@ existing owner and read the relevant service guide. Links are not automatic impo
    tool names or language support exist in this host.
 3. Write contracts and non-obvious invariants, not an exhaustive code inventory.
    ExDoc belongs with the module/function; cross-service responsibilities belong
-   in architecture/service guides. Respect ownership and organization rules in
-   `docs/documentation.md`.
+   in architecture/service guides. Apply the [writing rules](../../docs/documentation.md#writing-comments-and-documentation)
+   and ownership rules in `docs/documentation.md`.
 4. Verify runnable examples against actual signatures and role API actions.
    Cross-service examples follow `NodeRouter.dispatch/1` with `%Zaq.Event{}` as
    defined in `docs/architecture.md`; do not copy generic invoke examples or

@@ -11,6 +11,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryUpdates
 
   alias Zaq.Engine.Conversations.{
     Conversation,
@@ -44,9 +45,15 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   def capture(%Facts{} = facts, attrs, source)
       when is_map(attrs) and is_map(source) do
     Repo.transaction(fn -> capture_locked(facts, attrs, source) end)
+    |> publish_captured()
   end
 
   def capture(_, _, _), do: {:error, :invalid_request}
+
+  defp publish_captured({:ok, %{message_id: id}} = result),
+    do: ChannelHistoryUpdates.publish_result(result, [id])
+
+  defp publish_captured(result), do: result
 
   @doc "Prepares canonical content and fixed targets without making the message visible."
   def prepare_capture(%Facts{} = facts, attrs, source) do
@@ -431,7 +438,15 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     Repo.transaction(fn ->
       Enum.each(Enum.sort(ids), &associate_prepared_target!(&1, message))
     end)
+    |> publish_associated(message)
   end
+
+  defp publish_associated({:ok, _} = result, message) do
+    ChannelHistoryUpdates.publish_messages([message])
+    result
+  end
+
+  defp publish_associated(result, _message), do: result
 
   defp associate_prepared_target!(id, message) do
     receipt = message.metadata["delivery_confirmation"]
@@ -585,8 +600,12 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   def append(transcript_id, message_attrs, source_context)
       when is_map(message_attrs) and is_map(source_context) do
     case Ecto.UUID.cast(transcript_id) do
-      {:ok, id} -> Repo.transaction(fn -> append_locked(id, message_attrs, source_context) end)
-      :error -> {:error, :not_found}
+      {:ok, id} ->
+        Repo.transaction(fn -> append_locked(id, message_attrs, source_context) end)
+        |> publish_captured()
+
+      :error ->
+        {:error, :not_found}
     end
   end
 
@@ -695,6 +714,24 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   end
 
   def list_admin(_, _), do: {:error, :not_found}
+
+  @doc "Reads bounded changed canonical rows for an already-authorized admin transcript."
+  def list_admin_by_ids(transcript_id, ids) when is_list(ids) and length(ids) <= 50 do
+    with {:ok, id} <- Ecto.UUID.cast(transcript_id),
+         %Transcript{} = transcript <- Repo.get(Transcript, id),
+         :ok <- valid_admin_scope?(transcript) do
+      messages =
+        message_projection(id)
+        |> where([_placement, message], message.id in ^ids)
+        |> order_by([placement], asc: placement.position)
+        |> Repo.all()
+        |> present_messages()
+
+      {:ok, messages}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
 
   defp valid_admin_scope?(%Transcript{strategy: "legacy"} = transcript) do
     conversation_id = transcript.conversation_id

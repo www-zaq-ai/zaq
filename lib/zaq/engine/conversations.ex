@@ -35,6 +35,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements, SourceIdentity}
   alias Zaq.Engine.Messages.Incoming.Audience
@@ -634,9 +635,19 @@ defmodule Zaq.Engine.Conversations do
 
     with :ok <- IdentityResolver.authorize_channel_sender(person, scope),
          :ok <- validate_channel_input(incoming, initial_context) do
-      Repo.transaction(fn ->
-        prepare_channel_or_rollback(person, scope, incoming, initial_context)
-      end)
+      result =
+        Repo.transaction(fn ->
+          prepare_channel_or_rollback(person, scope, incoming, initial_context)
+        end)
+
+      case result do
+        {:ok, {bound, changed_ids}} ->
+          ChannelHistoryUpdates.publish(changed_ids)
+          {:ok, bound}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -644,7 +655,7 @@ defmodule Zaq.Engine.Conversations do
 
   defp prepare_channel_or_rollback(person, scope, incoming, context) do
     case prepare_channel_conversation(person, scope, incoming, context) do
-      {:ok, bound} -> bound
+      {:ok, bound, changed_ids} -> {bound, changed_ids}
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -686,7 +697,7 @@ defmodule Zaq.Engine.Conversations do
       id ->
         with {:ok, %{conversation: conversation}} <-
                restore_channel_conversation(person, scope, id, limit: 1) do
-          {:ok, bind_channel_input(incoming, person, conversation)}
+          {:ok, bind_channel_input(incoming, person, conversation), []}
         end
     end
   end
@@ -696,8 +707,9 @@ defmodule Zaq.Engine.Conversations do
            resolve_scoped_conversation(incoming.author_id, conversation_identity(incoming)),
          {:ok, conversation} <- maybe_assign_person(conversation, person.id),
          true <- conversation.person_id == person.id,
-         :ok <- seed_channel_context(conversation, person, incoming, if(created?, do: context)) do
-      {:ok, bind_channel_input(incoming, person, conversation)}
+         {:ok, changed_ids} <-
+           seed_channel_context(conversation, person, incoming, if(created?, do: context)) do
+      {:ok, bind_channel_input(incoming, person, conversation), changed_ids}
     else
       false -> {:error, :conversation_not_found}
       error -> error
@@ -723,7 +735,7 @@ defmodule Zaq.Engine.Conversations do
     }
   end
 
-  defp seed_channel_context(_conversation, _person, _incoming, nil), do: :ok
+  defp seed_channel_context(_conversation, _person, _incoming, nil), do: {:ok, []}
 
   defp seed_channel_context(conversation, person, incoming, context) do
     with {:ok, message} <-
@@ -758,7 +770,7 @@ defmodule Zaq.Engine.Conversations do
                existing_message_id: message.id
              }
            ) do
-      :ok
+      {:ok, [message.id]}
     end
   end
 
@@ -1466,6 +1478,9 @@ defmodule Zaq.Engine.Conversations do
 
   Successful outcomes add one assistant message. Failed outcomes retain their trace and
   safe diagnostics on the user message without introducing an assistant turn into history.
+  Artifacts explicitly marked `optional: true` are diagnostic: invalid/oversized
+  payloads are omitted with a trace reason. Required artifacts and database writes
+  remain strict, and finalization identity/authorization is never bypassed.
   """
   @spec finalize_incoming(Ecto.UUID.t(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -1474,16 +1489,26 @@ defmodule Zaq.Engine.Conversations do
   def finalize_incoming(user_message_id, finalization_token, result, opts)
       when is_binary(user_message_id) and is_binary(finalization_token) and is_map(result) and
              is_list(opts) do
-    with {:ok, artifacts} <- prepare_trace_artifacts(result, opts) do
+    with {:ok, artifacts, omissions} <- prepare_trace_artifacts(result, opts, user_message_id) do
+      result = put_artifact_omissions(result, omissions)
+
       Repo.transaction(fn ->
         finalize_transaction(user_message_id, finalization_token, result, artifacts, opts)
       end)
       |> complete_finalization()
+      |> publish_finalized_answer(opts)
     end
   end
 
   def finalize_incoming(_user_message_id, _finalization_token, _result, _opts),
     do: {:error, :invalid_finalization}
+
+  defp publish_finalized_answer({:ok, %{assistant_message_id: id}} = result, opts)
+       when is_binary(id) do
+    ChannelHistoryUpdates.publish_result(result, [id], opts)
+  end
+
+  defp publish_finalized_answer(result, _opts), do: result
 
   defp complete_finalization({:ok, %{assistant_message: %Message{} = assistant} = finalized}) do
     after_message_insert(get_conversation(assistant.conversation_id), assistant)
@@ -1749,31 +1774,84 @@ defmodule Zaq.Engine.Conversations do
     }
   end
 
-  defp prepare_trace_artifacts(result, opts) when is_map(result) do
+  defp prepare_trace_artifacts(result, opts, message_id) when is_map(result) do
     result
     |> Map.get(:trace_artifacts, Map.get(result, "trace_artifacts", []))
-    |> normalize_trace_artifacts(artifact_max_bytes(opts))
+    |> normalize_trace_artifacts(artifact_max_bytes(opts), message_id)
   end
 
-  defp normalize_trace_artifacts(nil, _max_bytes), do: {:ok, []}
+  defp normalize_trace_artifacts(nil, _max_bytes, _message_id), do: {:ok, [], []}
 
-  defp normalize_trace_artifacts(artifacts, max_bytes) when is_list(artifacts) do
-    Enum.reduce_while(artifacts, {:ok, []}, fn artifact, {:ok, normalized} ->
-      with {:ok, artifact} <- normalize_trace_artifact(artifact),
-           true <- artifact.size <= max_bytes do
-        {:cont, {:ok, [artifact | normalized]}}
-      else
-        false -> {:halt, {:error, :trace_artifact_too_large}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+  defp normalize_trace_artifacts(artifacts, max_bytes, message_id) when is_list(artifacts) do
+    Enum.reduce_while(artifacts, {:ok, [], []}, fn artifact, acc ->
+      accumulate_trace_artifact(artifact, acc, max_bytes, message_id)
     end)
     |> case do
-      {:ok, artifacts} -> {:ok, Enum.reverse(artifacts)}
+      {:ok, artifacts, omissions} -> {:ok, Enum.reverse(artifacts), Enum.reverse(omissions)}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp normalize_trace_artifacts(_artifacts, _max_bytes), do: {:error, :invalid_trace_artifact}
+  defp normalize_trace_artifacts(_artifacts, _max_bytes, _message_id),
+    do: {:error, :invalid_trace_artifact}
+
+  defp accumulate_trace_artifact(artifact, {:ok, normalized, omissions}, max_bytes, message_id) do
+    case prepare_trace_artifact(artifact, max_bytes, message_id) do
+      {:ok, prepared} ->
+        {:cont, {:ok, [prepared | normalized], omissions}}
+
+      {:error, reason} ->
+        if optional_artifact?(artifact) do
+          omission = %{tool_call_id: map_get(artifact, "tool_call_id"), reason: to_string(reason)}
+          {:cont, {:ok, normalized, [omission | omissions]}}
+        else
+          {:halt, {:error, reason}}
+        end
+    end
+  end
+
+  defp prepare_trace_artifact(artifact, max_bytes, message_id) do
+    with {:ok, normalized} <- normalize_trace_artifact(artifact),
+         true <- normalized.size <= max_bytes do
+      # Reuse storage validation before opening the finalization transaction.
+      # The admitted input supplies a real message ID for payload validation;
+      # insertion still binds the artifact to its actual final trace owner.
+      if optional_artifact?(artifact) and
+           not MessageTraceArtifact.changeset(
+             %MessageTraceArtifact{message_id: message_id},
+             normalized,
+             max_bytes
+           ).valid? do
+        {:error, :invalid_trace_artifact}
+      else
+        {:ok, normalized}
+      end
+    else
+      false -> {:error, :trace_artifact_too_large}
+      error -> error
+    end
+  end
+
+  defp optional_artifact?(artifact),
+    do: is_map(artifact) and map_get(artifact, "optional") == true
+
+  defp put_artifact_omissions(result, []), do: result
+
+  defp put_artifact_omissions(result, omissions) do
+    by_call = Enum.group_by(omissions, & &1.tool_call_id, &%{"reason" => &1.reason})
+
+    trace =
+      result
+      |> assistant_trace()
+      |> Enum.map(fn entry ->
+        case Map.get(by_call, map_get(entry, "id"), []) do
+          [] -> entry
+          reasons -> Map.put(entry, "artifact_omissions", reasons)
+        end
+      end)
+
+    Map.put(result, :trace, trace)
+  end
 
   defp normalize_trace_artifact(artifact) when is_map(artifact) do
     content = map_get(artifact, "content")

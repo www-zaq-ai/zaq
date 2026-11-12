@@ -17,10 +17,24 @@ defmodule ZaqWeb.E2EController do
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
   alias Zaq.System, as: SystemContext
+  alias Zaq.TestSupport.OpenAIStub
   alias Zaq.UserPortal.Provisioner
 
   @e2e_enabled Application.compile_env(:zaq, :e2e, false)
   @zaq_router_e2e_api_key "e2e-zaq-router-key"
+  @decision_questions %{
+    "team" => %{
+      "type" => "choice",
+      "instructions" => "Which team?",
+      "criteria" => %{"billing" => "Payments", "support" => "Technical problems"}
+    },
+    "refund" => %{"type" => "boolean", "instructions" => "Is a refund requested?"},
+    "urgency" => %{
+      "type" => "score",
+      "instructions" => "Assess urgency",
+      "criteria" => ["Routine", "Critical"]
+    }
+  }
 
   # Final safety net — routes compile away in prod, but this guards at action level too.
   def action(conn, _) do
@@ -667,7 +681,10 @@ defmodule ZaqWeb.E2EController do
     system_content =
       messages |> Enum.find(%{}, &(Map.get(&1, "role") == "system")) |> Map.get("content", "")
 
-    tool_call = search_tool_call(conn.body_params, messages)
+    tool_call =
+      decision_tool_call(conn.body_params, messages, system_content) ||
+        search_tool_call(conn.body_params, messages)
+
     content = tool_call || fake_llm_content(messages, system_content)
 
     # Retrieval must finish to publish the pending conversation to BO. Hold the
@@ -693,6 +710,85 @@ defmodule ZaqWeb.E2EController do
         "usage" => %{"prompt_tokens" => 10, "completion_tokens" => 20, "total_tokens" => 30}
       })
     end
+  end
+
+  def fake_decisions(conn, _params) do
+    expected = %{
+      "model" => "typesafe/jev-1.14",
+      "state" => "E2E duplicate invoice",
+      "questions" => put_in(@decision_questions, ["refund", "type"], "noul")
+    }
+
+    if conn.body_params == expected and
+         get_req_header(conn, "authorization") == ["Bearer decision-e2e-key"] do
+      json(
+        conn,
+        OpenAIStub.decision_response(
+          %{
+            "team" => %{
+              "type" => "choice",
+              "choice" => "billing",
+              "probabilities" => %{"billing" => 0.9, "support" => 0.1}
+            },
+            "refund" => %{"type" => "noul", "noul" => 0.8},
+            "urgency" => %{
+              "type" => "score",
+              "score" => 0.25,
+              "probabilities" => %{"0" => 0.75, "1" => 0.25}
+            }
+          },
+          model: "typesafe/jev-1.14"
+        )
+      )
+    else
+      conn
+      |> put_status(:unprocessable_entity)
+      |> json(%{error: "unexpected_decision_fixture_request"})
+    end
+  end
+
+  defp decision_tool_call(request, messages, system_content) do
+    available? =
+      Enum.any?(
+        Map.get(request, "tools", []),
+        &(get_in(&1, ["function", "name"]) == "evaluate_decisions")
+      )
+
+    current = messages |> Enum.reverse() |> Enum.take_while(&(&1["role"] != "user"))
+
+    if String.contains?(system_content, "E2E_DECISION_FLOW") and available? and
+         not Enum.any?(current, &(&1["role"] == "tool")) do
+      %{
+        "tool_calls" => [
+          %{
+            "index" => 0,
+            "id" => "e2e-decision-call",
+            "type" => "function",
+            "function" => %{
+              "name" => "evaluate_decisions",
+              "arguments" =>
+                Jason.encode!(%{state: "E2E duplicate invoice", questions: @decision_questions})
+            }
+          }
+        ]
+      }
+    end
+  end
+
+  defp decision_tool_result(messages) do
+    messages
+    |> Enum.reverse()
+    |> Enum.take_while(&(&1["role"] != "user"))
+    |> Enum.find_value(fn
+      %{"role" => "tool", "content" => content} ->
+        case Jason.decode(content) do
+          {:ok, %{"ok" => true, "result" => %{"decisions" => answers}}} -> Jason.encode!(answers)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end)
   end
 
   defp search_tool_call(request, messages) do
@@ -755,6 +851,9 @@ defmodule ZaqWeb.E2EController do
       |> Map.get("content", "")
 
     cond do
+      String.contains?(system_content, "E2E_DECISION_FLOW") ->
+        "Decision result:\n```json\n#{decision_tool_result(messages) || "missing decision tool output"}\n```"
+
       retrieval_call?(system_content) ->
         terms = String.split(user_content, ~r/[^\p{L}\p{N}_-]+/u, trim: true)
 

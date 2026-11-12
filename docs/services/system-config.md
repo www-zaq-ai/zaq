@@ -46,7 +46,7 @@ AI model settings are configured in Back Office at `/bo/system-config` and
 persisted in `system_configs`.
 
 The **RAG** tab groups embeddings and chunking, image-to-text, Retrieval, re-ranking,
-and a saved-only decision model selection. Retrieval sits below Image to text and
+while Global owns the decision model selection. Retrieval sits below Image to text and
 contains the Knowledge-query translation credential/model selection. Retrieval tuning
 (maximum cosine distance and hybrid BM25/vector fusion weights) is under its collapsed
 **Advanced settings** and saves independently of embedding or translation changes.
@@ -57,9 +57,17 @@ continue to open RAG.
 Specialized selectors use saved AI provider credentials and filter their models
 by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
 modality for decision models. Changing credentials clears the model selection;
-incompatible submissions are rejected by System persistence for both BO and Engine callers. These selections
+incompatible catalog submissions are rejected by System persistence for both BO and Engine callers.
+Custom endpoints without a catalog accept explicitly supplied model IDs; changing
+credentials cannot implicitly carry a previous provider's model into a custom endpoint.
+All AI model configuration forms share `DesignSystem.AIModelSelector`, including
+manual model entry and catalog modalities. Missing modality metadata is displayed
+as unknown, not inferred from the model name. These selections
 are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
-`rag.decision.credential_id` and `rag.decision.model`. Re-ranking is active in
+`global.decision_model.credential_id` and `global.decision_model.model`. The decision
+pair is read and saved through `get_decision_model_config/0` and
+`save_decision_model_config/1`; legacy RAG decision APIs delegate to that namespace.
+Re-ranking is active in
 `SearchKnowledgeBase` for every search mode: the selected model ranks the merged
 authorized chunks before the global count/token limits. With both reranking
 fields unconfigured, results are unchanged. A partial/broken selection,
@@ -67,8 +75,38 @@ unsupported model, authentication failure, provider error or timeout fails the
 search rather than silently using unre-ranked results. Runtime authentication
 uses the existing System/Connect boundary and provider adapters; ReqLLM owns
 reranking inference and batching, without text-generation sampling options.
-No denied content is sent to the model. Decision inference remains inactive.
+Catalog rerank execution contracts retain the configured provider identity even
+when ReqLLM has no dedicated provider module. Endpoint paths come from the catalog;
+ZAQ does not rewrite provider-specific paths. Reranking child traces reuse
+`Zaq.Agent.ErrorMessage` diagnostic categories, retaining only fixed failure
+stages/reasons and typed HTTP status codes, never raw provider errors,
+response bodies or credential details. The outer search failure remains
+`knowledge_reranking_failed`.
+ZAQ Router declares the reranking `/rerank` and decision `/v1/systemone`
+execution contracts in its catalog overlay. Both delegate to ReqLLM's shared
+catalog gateway, preserving the configured gateway identity, endpoint,
+credentials and model ID. ReqLLM owns URL joining and wire encoding/decoding;
+ZAQ does not rewrite the model provider or implement endpoint routing.
+No denied content is sent to the model.
 Referenced AI credentials cannot be deleted until the selection is cleared.
+
+The global decision model is used by `EvaluateDecisions` from workflows and
+explicitly enabled agent tools. An unconfigured or unsupported model fails the
+operation; it never falls back to a conversational model. The deployed gateway
+must serve the declared decision route; catalog compatibility is not evidence of
+endpoint availability.
+
+`OperationModelConfig` validates all dedicated credential/model selections.
+Decision and reranking changesets accept only the pair; sampling parameters are
+accepted and persisted only for generation selections. Provider availability in
+the credential selector includes executable catalog contracts, not just native
+ReqLLM provider registrations, so providers such as Albert remain selectable.
+
+The decision migration copies the legacy `rag.decision.*` pair only when neither
+global decision key exists. Empty and partial selections are preserved; any existing
+global row takes precedence for the whole pair. Legacy rows remain inactive snapshots,
+not live configuration or credential references. Downgrades preserve global edits;
+rolling back to a release that reads legacy keys requires explicit reconciliation.
 
 Existing saved reranking selections become active on deployment. Verify the
 selected provider/model before rollout; clear the selection to disable reranking.
@@ -92,7 +130,10 @@ manual entry. Pair saves are atomic; operation and specialized RAG selections ar
 read in a single database snapshot. Referenced credentials cannot be deleted.
 
 The rollout snapshots configured legacy global pairs and sampling once, without
-overwriting existing dedicated settings. Fresh installations remain unconfigured.
+overwriting existing dedicated settings. Fresh installations remain unconfigured
+until explicitly configured or [portal provisioning](onboarding.md#provisioning-details-provisioner)
+initializes its router defaults for both operations. Portal retries preserve
+customized, partial, sampling-only and explicitly cleared settings.
 Subsequent global changes do not affect these operations. Unconfigured translation
 reports failed target languages while preserving simple-language searches; title
 generation returns its deterministic first-message fallback. Neither falls back to

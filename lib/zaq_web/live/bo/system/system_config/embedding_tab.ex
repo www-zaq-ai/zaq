@@ -2,12 +2,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.EmbeddingTab do
   @moduledoc "Embedding settings and the existing unlock/destructive-save confirmation flow."
   use ZaqWeb, :html
   alias ZaqWeb.Components.BOModal
-  alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
-  import ZaqWeb.Components.SearchableSelect
+  alias ZaqWeb.Components.DesignSystem.{AIModelSelector, Button, CardShell, Input}
 
   attr :form, :any, required: true
   attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
+  attr :model_catalogs, :map, default: %{}
   attr :locked, :boolean, default: false
   attr :unlock_modal, :boolean, default: false
   attr :model_changed, :boolean, default: false
@@ -62,45 +62,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.EmbeddingTab do
           phx-change="validate_embedding"
           class="space-y-5"
         >
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            <div>
-              <.searchable_select
-                id="embedding-credential-select"
-                name="embedding_config[credential_id]"
-                label="Provider / AI credential"
-                label_position="block"
-                value={to_string(@form[:credential_id].value || "")}
-                options={@credential_options}
-                empty_label="Select a credential..."
-              />
-              <.errors field={@form[:credential_id]} />
-            </div>
-            <div class="space-y-2">
-              <fieldset
-                disabled={@locked}
-                inert={@locked}
-                class={[@locked && "opacity-50 pointer-events-none"]}
-              >
-                <.searchable_select
-                  :if={@model_options != []}
-                  id="embedding-model-select"
-                  name="embedding_config[model]"
-                  label="Embedding model"
-                  label_position="block"
-                  value={@form[:model].value}
-                  options={@model_options}
-                />
-                <Input.input
-                  :if={@model_options == []}
-                  field={@form[:model]}
-                  label="Embedding model"
-                  disabled={@locked}
-                  phx-debounce="400"
-                />
-              </fieldset>
-              <.errors :if={@model_options != []} field={@form[:model]} />
-            </div>
-          </div>
+          <AIModelSelector.ai_model_selector
+            id_prefix="embedding"
+            form={@form}
+            options={@model_options}
+            credential_options={@credential_options}
+            model_catalogs={@model_catalogs}
+            manual_model={@model_options == []}
+            model_label="Embedding model"
+            model_disabled={@locked}
+          />
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input.input
               field={@form[:dimension]}
@@ -141,16 +112,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.EmbeddingTab do
         {render_slot(@advanced)}
       </div>
     </CardShell.card_shell>
-    """
-  end
-
-  attr :field, :any, required: true
-
-  defp errors(assigns) do
-    ~H"""
-    <p :for={error <- @field.errors} class="zaq-field-error zaq-text-caption">
-      {translate_error(error)}
-    </p>
     """
   end
 end

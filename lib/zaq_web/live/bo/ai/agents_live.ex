@@ -18,7 +18,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.NodeRouter
   alias Zaq.System
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
-  alias ZaqWeb.Components.DesignSystem.ModelModalities
   alias ZaqWeb.Components.Drawer
 
   @impl true

@@ -2,12 +2,12 @@ defmodule Storybook.Patterns.RAGConfiguration do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
-  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, OperationModelConfig, RAGModelConfig, RetrievalConfig}
+  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, OperationModelConfig, RetrievalConfig}
   alias ZaqWeb.Live.BO.System.SystemConfig.RAGTab
 
   def description,
     do:
-      "RAG settings: locked embeddings, advanced retrieval, image extraction and saved-only specialized models."
+      "RAG settings: locked embeddings, advanced retrieval, image extraction and re-ranking."
 
   def render(assigns) do
     assigns =
@@ -27,8 +27,8 @@ defmodule Storybook.Patterns.RAGConfiguration do
       |> assign(
         :model_forms,
         Map.new(
-          [:reranking, :decision],
-          &{&1, to_form(RAGModelConfig.changeset(%RAGModelConfig{}, %{}), as: :rag_model_config)}
+          [:reranking],
+          &{&1, to_form(OperationModelConfig.changeset(%OperationModelConfig{}, %{}, &1), as: :rag_model_config)}
         )
       )
 
@@ -44,7 +44,7 @@ defmodule Storybook.Patterns.RAGConfiguration do
       credential_options={[{"Example provider credential", "1"}]}
       embedding_model_options={[]}
       image_to_text_model_options={[]}
-      model_options={%{reranking: [], decision: []}}
+      model_options={%{reranking: []}}
       locked={true}
       unlock_modal={false}
       save_confirm_modal={false}

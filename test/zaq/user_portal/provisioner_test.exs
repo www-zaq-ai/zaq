@@ -2,12 +2,21 @@ defmodule Zaq.UserPortal.ProvisionerTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent
+  alias Zaq.Agent.Actions.RerankKnowledgeResults
   alias Zaq.Agent.Api, as: AgentApi
+  alias Zaq.Agent.ProviderSpec
+  alias Zaq.Agent.ZAQRouter
   alias Zaq.Engine.Api
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.System
   alias Zaq.UserPortal.Provisioner
+
+  defmodule HttpReranker do
+    def rerank(model, opts) do
+      ReqLLM.rerank(model, Keyword.put(opts, :req_http_options, plug: {Req.Test, __MODULE__}))
+    end
+  end
 
   defmodule EngineRouter do
     def dispatch(%Event{} = event) do
@@ -47,6 +56,28 @@ defmodule Zaq.UserPortal.ProvisionerTest do
   end
 
   describe "provision_with_key/1" do
+    test "initializes assistant context from catalog metadata and preserves customized limits on retry" do
+      snapshot = LLMDB.Store.snapshot()
+      previous_opts = LLMDB.Store.last_opts()
+      on_exit(fn -> LLMDB.Store.put!(snapshot, previous_opts) end)
+
+      opts = ZAQRouter.llmdb_opts()
+      custom = opts[:custom]
+      model_id = ZAQRouter.default_chat_model()
+      custom = put_in(custom, [:zaq_router, :models, model_id, :limits, :context], 98_765)
+      assert {:ok, _} = LLMDB.load(Keyword.put(opts, :custom, custom))
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-context"})
+      assert {:ok, agent} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert agent.model_max_context_tokens == 98_765
+
+      assert {:ok, _} = Agent.update_agent(agent, %{model_max_context_tokens: 12_345})
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-context-retry"})
+      assert {:ok, existing} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert existing.id == agent.id
+      assert existing.model_max_context_tokens == 12_345
+    end
+
     test "routes secret-bearing create and update mutations through Engine" do
       opts = [node_router_module: EngineRouter]
 
@@ -100,7 +131,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert updated.api_key == "sk-updated"
     end
 
-    test "creates a knowledge agent and global routing, and wires embedding and image configs" do
+    test "creates a knowledge agent and global routing, and wires model selections" do
       assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-config"})
 
       assert {:ok, agent} = Agent.get_agent_by_name("ZAQ Assistant")
@@ -116,13 +147,192 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert IncomingMessageRouting.get_rule(%{}).configured_agent_id == agent.id
 
       assert System.get_embedding_config().credential_id == credential.id
-      assert System.get_embedding_config().model == "nvidia/llama-nemotron-embed-vl-1b-v2"
-      assert System.get_embedding_config().dimension == 2048
+      assert System.get_embedding_config().model == "baai/bge-m3"
+      assert System.get_embedding_config().dimension == 1024
 
       assert System.get_image_to_text_config().credential_id == credential.id
 
       assert System.get_image_to_text_config().model ==
-               "nvidia/nemotron-nano-12b-v2-vl"
+               "deepseek/deepseek-v4.1-flash"
+
+      translation = System.get_operation_model_config(:translation)
+      assert translation.credential_id == credential.id
+      assert translation.model == "openai/gpt-oss-20b"
+      assert translation.temperature == 0.0
+      assert translation.top_p == 0.9
+
+      reranking = System.get_rag_model_config(:reranking)
+      assert reranking.credential_id == credential.id
+      assert reranking.model == "Qwen/Qwen3-Reranker-0.6B"
+      decision = System.get_rag_model_config(:decision)
+      assert decision.credential_id == credential.id
+      assert decision.model == "typesafe/jev-1.14"
+    end
+
+    test "initializes the Small model with the router credential and preserves it on retry" do
+      assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-small"})
+      small = System.get_operation_model_config(:small)
+      assert small.credential_id == credential.id
+      assert small.model == "openai/gpt-oss-20b"
+      assert small.temperature == 0.0
+      assert small.top_p == 0.9
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-small-retry"})
+      assert System.get_operation_model_config(:small) == small
+    end
+
+    test "preserves a customized Small model credential, model and sampling" do
+      credential = Zaq.SystemConfigFixtures.ai_credential_fixture(%{provider: "openai"})
+
+      assert {:ok, small} =
+               System.save_operation_model_config(:small, %{
+                 credential_id: credential.id,
+                 model: "gpt-4o",
+                 temperature: 0.4,
+                 top_p: 0.7
+               })
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-custom-small"})
+      assert System.get_operation_model_config(:small) == small
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-custom-retry"})
+      assert System.get_operation_model_config(:small) == small
+    end
+
+    test "preserves an explicitly cleared Small model selection on bootstrap and retry" do
+      assert {:ok, cleared} =
+               System.save_operation_model_config(:small, %{credential_id: nil, model: nil})
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-cleared-small"})
+      assert System.get_operation_model_config(:small) == cleared
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-cleared-retry"})
+      assert System.get_operation_model_config(:small) == cleared
+    end
+
+    for {field, value} <- [
+          {"credential_id", "42"},
+          {"model", "user-partial-model"},
+          {"temperature", "0.4"},
+          {"top_p", "0.7"}
+        ] do
+      test "preserves a Small model selection with only #{field} saved" do
+        assert {:ok, _} =
+                 System.set_config("global.small_model.#{unquote(field)}", unquote(value))
+
+        small = System.get_operation_model_config(:small)
+
+        assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-partial-small"})
+        assert System.get_operation_model_config(:small) == small
+      end
+    end
+
+    test "logs a failed Small model save and initializes it on a later retry" do
+      snapshot = LLMDB.Store.snapshot()
+      previous_opts = LLMDB.Store.last_opts()
+      on_exit(fn -> LLMDB.Store.put!(snapshot, previous_opts) end)
+
+      opts = ZAQRouter.llmdb_opts()
+
+      custom =
+        update_in(opts[:custom], [:zaq_router, :models], &Map.delete(&1, "openai/gpt-oss-20b"))
+
+      assert {:ok, _} = LLMDB.load(Keyword.put(opts, :custom, custom))
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-missing-model"})
+        end)
+
+      assert log =~ "ZAQ Router small config wiring failed"
+      refute System.model_config_initialized?(:small)
+      assert {:ok, _} = LLMDB.load(opts)
+
+      assert {:ok, credential} =
+               Provisioner.provision_with_key(%{litellm_api_key: "sk-retry-model"})
+
+      assert System.get_operation_model_config(:small).credential_id == credential.id
+      assert System.get_operation_model_config(:small).model == "openai/gpt-oss-20b"
+    end
+
+    test "retries preserve operation customizations and explicitly cleared selections" do
+      assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-first"})
+
+      assert {:ok, translation} =
+               System.save_operation_model_config(:translation, %{
+                 model: "openai/gpt-oss-120b",
+                 temperature: 0.3,
+                 top_p: 0.7
+               })
+
+      assert {:ok, cleared} =
+               System.save_rag_model_config(:reranking, %{credential_id: nil, model: nil})
+
+      decision = System.get_rag_model_config(:decision)
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-retry"})
+      assert System.get_operation_model_config(:translation) == translation
+      assert System.get_rag_model_config(:reranking) == cleared
+      assert System.get_rag_model_config(:decision) == decision
+      assert System.get_rag_model_config(:decision).credential_id == credential.id
+    end
+
+    test "bootstrap preserves partial operation choices and initializes other absent selections" do
+      assert {:ok, _} = System.set_config("rag.translation.model", "user-partial-model")
+      assert {:ok, _} = System.set_config("rag.reranking.model", "user-partial-reranker")
+
+      assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-partial"})
+      assert System.get_operation_model_config(:translation).model == "user-partial-model"
+      assert is_nil(System.get_operation_model_config(:translation).credential_id)
+      assert System.get_rag_model_config(:reranking).model == "user-partial-reranker"
+      assert is_nil(System.get_rag_model_config(:reranking).credential_id)
+      assert System.get_rag_model_config(:decision).credential_id == credential.id
+    end
+
+    test "provisioned reranking runs through the real router adapter and clearing it restores skip" do
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-reranking"})
+
+      Req.Test.expect(HttpReranker, fn conn ->
+        assert conn.request_path == "/rerank"
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer sk-reranking"]
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+        assert %{"model" => "Qwen/Qwen3-Reranker-0.6B", "documents" => ["one", "two"]} =
+                 Jason.decode!(body)
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(
+          200,
+          Jason.encode!(%{
+            results: [%{index: 1, relevance_score: 0.9}, %{index: 0, relevance_score: 0.2}]
+          })
+        )
+      end)
+
+      chunks = [%{"chunk_id" => 1, "content" => "one"}, %{"chunk_id" => 2, "content" => "two"}]
+      params = %{query: "question", chunks: chunks}
+
+      context = %{
+        reranking_config: System.get_rag_model_config(:reranking),
+        reranker: HttpReranker
+      }
+
+      assert {:ok, _, _} = ProviderSpec.operation_runtime(context.reranking_config, :reranking)
+
+      assert {:ok, %{chunks: ranked}} = Jido.Exec.run(RerankKnowledgeResults, params, context)
+      assert Enum.map(ranked, & &1["chunk_id"]) == [2, 1]
+
+      assert {:ok, cleared} =
+               System.save_rag_model_config(:reranking, %{credential_id: nil, model: nil})
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-reranking-retry"})
+      assert System.get_rag_model_config(:reranking) == cleared
+
+      assert {:ok, %{chunks: ^chunks}} =
+               Jido.Exec.run(RerankKnowledgeResults, params, %{
+                 context
+                 | reranking_config: cleared
+               })
+
+      Req.Test.verify!(HttpReranker)
     end
 
     test "does not overwrite existing configs on second call" do
@@ -235,6 +445,10 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert is_nil(IncomingMessageRouting.get_rule(%{}))
       assert is_nil(System.get_embedding_config().credential_id)
       assert is_nil(System.get_image_to_text_config().credential_id)
+      assert is_nil(System.get_operation_model_config(:translation).credential_id)
+      assert is_nil(System.get_rag_model_config(:reranking).credential_id)
+      assert is_nil(System.get_rag_model_config(:decision).credential_id)
+      refute System.model_config_initialized?(:small)
     end
 
     test "does not overwrite an existing credential or its key" do

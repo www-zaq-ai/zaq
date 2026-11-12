@@ -44,6 +44,7 @@ defmodule Zaq.Channels.ApiTest do
   defmodule StubCommunicationBridge do
     alias Zaq.Channels.Bridge
 
+    def bridge_for(:observation_mock), do: Zaq.Channels.PeopleAuthDeliveryMock
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
@@ -774,6 +775,101 @@ defmodule Zaq.Channels.ApiTest do
 
     assert_received {:attempted_final_delivery,
                      %Outgoing{body: "5 in Arabic is ٥ — pronounced khamsa (خمسة)."}}
+  end
+
+  describe "bridge-owned delivery observations" do
+    import Mox
+
+    setup :verify_on_exit!
+
+    test "forwards the selected bridge's evidence without changing its raw delivery error" do
+      outgoing = observation_outgoing()
+      response = {:error, {:custom_rejection, "PRIVATE_PROVIDER_BODY"}}
+      facts = %{outcome: :failed, reason: :rejected, provider_code: 42}
+
+      expect(Zaq.Channels.PeopleAuthDeliveryMock, :send_reply, fn sent, _connection ->
+        send(self(), {:sent_observation_message, sent})
+        response
+      end)
+
+      expect(Zaq.Channels.PeopleAuthDeliveryMock, :delivery_observation, fn sent, result ->
+        send(self(), {:classified_observation, sent, result})
+        facts
+      end)
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(self(), {:reported_observation, event})
+        event
+      end)
+
+      event = observation_event(outgoing)
+      assert Api.handle_event(event, :deliver_outgoing, nil).response == response
+      assert_received {:sent_observation_message, sent}
+      assert sent.provider == :observation_mock
+      assert_received {:classified_observation, ^outgoing, ^response}
+      assert_received {:reported_observation, reported}
+      assert reported.opts[:action] == :record_delivery_observation
+      assert reported.opts[:confidential]
+
+      assert reported.request ==
+               Map.merge(facts, %{
+                 user_message_id: "stored-input",
+                 assistant_message_id: "stored-answer",
+                 channel_config_id: nil
+               })
+
+      refute inspect(reported) =~ "PRIVATE_PROVIDER_BODY"
+    end
+
+    for failure <- [:raise, :throw, :exit] do
+      test "classification #{failure} never replaces or repeats the transport result" do
+        response = {:error, {:custom_rejection, "PRIVATE_PROVIDER_BODY"}}
+        expect(Zaq.Channels.PeopleAuthDeliveryMock, :send_reply, fn _, _ -> response end)
+
+        expect(Zaq.Channels.PeopleAuthDeliveryMock, :delivery_observation, fn _, _ ->
+          case unquote(failure) do
+            :raise -> raise "PRIVATE_PROVIDER_BODY"
+            :throw -> throw(:classification_unavailable)
+            :exit -> exit(:classification_unavailable)
+          end
+        end)
+
+        expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+          send(self(), {:reported_observation, event})
+          event
+        end)
+
+        assert Api.handle_event(observation_event(observation_outgoing()), :deliver_outgoing, nil).response ==
+                 response
+
+        assert_received {:reported_observation, reported}
+        assert reported.request.outcome == :unconfirmed
+        assert reported.request.reason == :unknown
+        refute inspect(reported) =~ "PRIVATE_PROVIDER_BODY"
+      end
+    end
+
+    defp observation_outgoing do
+      %Outgoing{
+        provider: :observation_mock,
+        channel_id: "room",
+        body: "Stored answer",
+        metadata: %{
+          user_message_id: "stored-input",
+          persisted_assistant_message_id: "stored-answer"
+        }
+      }
+    end
+
+    defp observation_event(outgoing) do
+      Event.new(outgoing, :channels,
+        opts: [
+          action: :deliver_outgoing,
+          bridge_module: StubCommunicationBridge,
+          delivery_node_router: Zaq.NodeRouterMock
+        ]
+      )
+    end
   end
 
   test "reply to one of two provider connectors uses its ingress routing context" do

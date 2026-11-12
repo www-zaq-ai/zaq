@@ -13,6 +13,9 @@ defmodule Zaq.Engine.Workflows do
 
   require Logger
 
+  alias Jido.AI.Observe
+  alias Jido.AI.Runtime.Event, as: RuntimeEvent
+  alias Zaq.Contracts.ActionInvocation
   alias Zaq.Engine.EventRegistry
 
   alias Zaq.Engine.Workflows.{
@@ -880,6 +883,14 @@ defmodule Zaq.Engine.Workflows do
   genuine unplanned crash — `kill -9`, OOM, host loss) or didn't finish before
   the process died anyway — both cases where the boot-sweep's own honest label
   is accurate by construction, not by inspecting a flag.
+
+  When the run registry is already gone (the root supervisor exited first, so
+  `prep_stop/1` runs after the engine tree and `Repo` have stopped), local
+  ownership cannot be determined: nothing is read from or written to the
+  database and `:ok` is returned, leaving those runs to that boot-sweep.
+
+  Options: `:reason`, `:message` (recorded on interrupted step rows) and
+  `:registry` (the run registry to read; defaults to `RunRegistry`).
   """
   @spec interrupt_in_flight_runs(keyword()) :: :ok
   def interrupt_in_flight_runs(opts \\ []) do
@@ -892,11 +903,17 @@ defmodule Zaq.Engine.Workflows do
         "The application was stopped for a restart or deploy while this run was executing."
       )
 
-    local_run_ids = locally_driven_run_ids()
+    # `:registry` names the node-local run registry (default `RunRegistry`).
+    # When it is gone — an abnormal shutdown already tore the engine tree down —
+    # local ownership cannot be determined, so nothing is enumerated or
+    # interrupted: the next boot's `StartupRecovery` sweep owns those runs.
+    registry = Keyword.get(opts, :registry, Zaq.Engine.Workflows.RunRegistry)
 
-    list_stale_runs()
-    |> Enum.filter(&MapSet.member?(local_run_ids, &1.id))
-    |> Enum.each(&interrupt_run(&1, reason: reason, message: message))
+    with {:ok, local_run_ids} <- locally_driven_run_ids(registry) do
+      list_stale_runs()
+      |> Enum.filter(&MapSet.member?(local_run_ids, &1.id))
+      |> Enum.each(&interrupt_run(&1, reason: reason, message: message))
+    end
 
     :ok
   end
@@ -904,11 +921,69 @@ defmodule Zaq.Engine.Workflows do
   # Run ids whose driving process is registered on *this* node. `RunRegistry` is
   # a node-local `:unique` Registry (see `Zaq.Engine.Supervisor`), so its keys
   # are exactly the runs this node drives — never a peer's.
-  defp locally_driven_run_ids do
-    Zaq.Engine.Workflows.RunRegistry
-    |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
-    |> MapSet.new()
+  #
+  # `Registry.select/2` raises `ArgumentError` once an ETS table it reads is gone.
+  # A table only disappears when its owner exits (the registry supervisor owns
+  # the metadata table; each partition owns its key/pid tables), unless someone
+  # deleted it by hand. A stopping registry loses a partition's tables *before*
+  # its supervisor exits and unregisters its name, and a suspended or slow
+  # supervisor can stay registered and alive indefinitely, so neither the name
+  # nor the supervisor says whether the registry is usable. Instead the owners
+  # are captured *before* selecting, from the registry's metadata table (plain
+  # ETS reads and `Process.alive?/1`; never a call into the registry processes,
+  # which could block on a suspended supervisor). If selecting fails and any
+  # captured owner is dead, the registry (or that generation of it) is gone:
+  # `:unavailable`. If every owner is alive the failure is a genuine fault and
+  # is re-raised.
+  defp locally_driven_run_ids(registry) do
+    case Process.whereis(registry) do
+      nil ->
+        :unavailable
+
+      pid ->
+        owners = [pid | registry_table_owners(registry)]
+
+        try do
+          {:ok, registry |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}]) |> MapSet.new()}
+        rescue
+          error in ArgumentError ->
+            if Enum.all?(owners, &Process.alive?/1),
+              do: reraise(error, __STACKTRACE__),
+              else: :unavailable
+        end
+    end
   end
+
+  # Pids owning the tables of a `Registry` (Elixir 1.20 layout): the metadata
+  # table named after the registry is owned by the registry supervisor; its
+  # `-1` row (single partition) or `{index, key_tid, {partition_pid, pid_tid}}`
+  # rows (several partitions) name the partition processes that own the key and
+  # pid tables. Any other shape yields no extra owners, so classification
+  # falls back to the supervisor pid alone.
+  defp registry_table_owners(registry) do
+    table_owner =
+      case :ets.info(registry, :owner) do
+        pid when is_pid(pid) -> [pid]
+        _ -> []
+      end
+
+    table_owner ++ Enum.flat_map(:ets.tab2list(registry), &registry_partition_pids/1)
+  rescue
+    ArgumentError -> []
+  end
+
+  defp registry_partition_pids({-1, info}) when tuple_size(info) == 5 do
+    case elem(info, 3) do
+      {pid, _pid_tid} when is_pid(pid) -> [pid]
+      _ -> []
+    end
+  end
+
+  defp registry_partition_pids({index, _key_tid, {pid, _pid_tid}})
+       when is_integer(index) and index >= 0 and is_pid(pid),
+       do: [pid]
+
+  defp registry_partition_pids(_row), do: []
 
   @doc """
   Bulk-fails any `StepRun` rows still `"running"` for `run_id`.
@@ -951,6 +1026,111 @@ defmodule Zaq.Engine.Workflows do
   # --- Step runs ---
 
   @doc """
+  Records one nested Action lifecycle event under its captured step-run root.
+
+  This internal, local execution-fact API is synchronous and idempotent by event
+  ID. A row lock protects concurrent appends; lifecycle state/results/logs are
+  untouched, including for late valid evidence. Only supported metadata enters
+  JSON; runtime objects are discarded and secrets redacted. Broadcasts occur
+  after commit and retain the existing step-snapshot contract. Presentation can
+  merge diagnostic events by ID without taking ownership of persistence.
+  """
+  @spec record_step_event(binary(), RuntimeEvent.t()) :: {:ok, StepRun.t()} | {:error, term()}
+  def record_step_event(step_id, %RuntimeEvent{} = event) when is_binary(step_id) do
+    if valid_step_event?(step_id, event) do
+      record_valid_step_event(step_id, event)
+    else
+      {:error, :invalid_trace_event}
+    end
+  end
+
+  def record_step_event(_step_id, _event), do: {:error, :invalid_trace_event}
+
+  defp record_valid_step_event(step_id, event) do
+    result =
+      Repo.transaction(fn ->
+        step = Repo.one(from s in StepRun, where: s.id == ^step_id, lock: "FOR UPDATE")
+        if is_nil(step), do: Repo.rollback(:step_not_found)
+        if event.request_id != step.workflow_run_id, do: Repo.rollback(:invalid_trace_event)
+
+        if Enum.any?(step.trace_events, &(&1["id"] == event.id)) do
+          {:duplicate, step}
+        else
+          evidence = step_event_evidence(event)
+
+          updated =
+            step
+            |> StepRun.changeset(%{trace_events: step.trace_events ++ [evidence]})
+            |> Repo.update!()
+
+          {:inserted, updated}
+        end
+      end)
+
+    case result do
+      {:ok, {:inserted, step}} -> broadcast_step({:ok, step})
+      {:ok, {:duplicate, step}} -> {:ok, step}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp valid_step_event?(step_id, event) do
+    root = "workflow_step:#{step_id}"
+    path = event.data[:invocation_path]
+
+    with true <- event.kind in [:tool_started, :tool_completed],
+         true <- is_binary(event.id) and event.id != "",
+         true <- event.data[:origin] == "zaq_action",
+         [^root, _segment | _rest] <- path,
+         true <- ActionInvocation.valid_path?(path, event.tool_call_id) do
+      event.data[:parent_id] == ActionInvocation.id(Enum.drop(path, -1))
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp step_event_evidence(event) do
+    data =
+      Map.take(event.data, [
+        :origin,
+        :invocation_path,
+        :parent_id,
+        :arguments,
+        :result,
+        :outcome,
+        :duration_ms
+      ])
+
+    event
+    |> Map.from_struct()
+    |> Map.take([:id, :kind, :at_ms, :request_id, :run_id, :tool_call_id, :tool_name])
+    |> Map.put(:data, data)
+    |> trace_json_value()
+    |> Observe.sanitize_transport_payload()
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
+  # Callback evidence already excludes artifact bytes. Reject unexpected typed
+  # runtime values instead of converting arbitrary structs or inspecting secrets.
+  defp trace_json_value(%_{}), do: nil
+
+  defp trace_json_value(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {k, trace_json_value(v)} end)
+
+  defp trace_json_value(tuple) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> trace_json_value()
+
+  defp trace_json_value(list) when is_list(list), do: Enum.map(list, &trace_json_value/1)
+
+  defp trace_json_value(value)
+       when is_pid(value) or is_reference(value) or is_function(value) or is_port(value), do: nil
+
+  defp trace_json_value(value), do: value
+
+  @doc """
   Creates a step run row with `status: running` before a step executes.
   This is the crash-safe cursor — on node restart, the agent queries these rows
   to resume from the correct step.
@@ -989,17 +1169,31 @@ defmodule Zaq.Engine.Workflows do
     |> broadcast_step()
   end
 
-  @doc "Marks a step run as failed, recording the error map, optional logs, and finished_at."
+  @doc """
+  Marks a step run as failed, recording the error map, optional logs, and finished_at.
+
+  The optional `:results` value retains diagnostic output supplied by a failed
+  Action. It does not complete the step or add the output to downstream cascade.
+  Without this option, existing results remain untouched.
+  """
   @spec fail_step_run(StepRun.t(), map(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
   def fail_step_run(%StepRun{} = step_run, errors, logs \\ [], opts \\ []) do
-    step_run
-    |> StepRun.changeset(%{
+    attrs = %{
       status: Keyword.get(opts, :status, "failed"),
       errors: errors,
       logs: logs,
       finished_at: DateTime.utc_now(:second)
-    })
+    }
+
+    attrs =
+      case Keyword.fetch(opts, :results) do
+        {:ok, results} -> Map.put(attrs, :results, results)
+        :error -> attrs
+      end
+
+    step_run
+    |> StepRun.changeset(attrs)
     |> Repo.update()
     |> broadcast_step()
   end
@@ -1692,10 +1886,11 @@ defmodule Zaq.Engine.Workflows do
 
   defp broadcast_run(result), do: result
 
-  defp broadcast_step({:ok, step_run} = result) do
+  defp broadcast_step({:ok, step_run}) do
+    step_run = Repo.reload!(step_run)
     normalized = %{step_run | logs: stringify_log_keys(step_run.logs)}
     dispatch_async("workflow_run:#{step_run.workflow_run_id}", {:step_updated, normalized})
-    result
+    {:ok, step_run}
   end
 
   defp broadcast_step(result), do: result

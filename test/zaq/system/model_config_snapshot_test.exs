@@ -11,7 +11,7 @@ defmodule Zaq.System.ModelConfigSnapshotTest do
            ~w(credential_id model temperature top_p)},
           {"rag.reranking", fn -> System.get_rag_model_config(:reranking) end,
            ~w(credential_id model)},
-          {"rag.decision", fn -> System.get_rag_model_config(:decision) end,
+          {"global.decision_model", fn -> System.get_decision_model_config() end,
            ~w(credential_id model)}
         ] do
       old = %{credential_id: 1, model: "old", temperature: 0.2, top_p: 0.7}

@@ -16,6 +16,9 @@ defmodule ZaqWeb.Components.ChatMessage do
   Tool-bearing bubbles reserve their available width even before answer text arrives.
   Status colors use semantic success/danger/neutral tokens; only running status
   gently pulses, respecting the viewer's reduced-motion preference.
+  Optional delivery states distinguish transport evidence from generation errors:
+  the answer stays visible, with semantic tone and a safe details control. Defaults
+  retain the sent-message design for other consumers.
 
   Usage:
 
@@ -38,7 +41,11 @@ defmodule ZaqWeb.Components.ChatMessage do
   use ZaqWeb, :verified_routes
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
+  import ZaqWeb.CoreComponents, only: [icon: 1]
+  alias Phoenix.LiveView.JS
   alias ZaqWeb.Components.AgentTracePanel
+  alias ZaqWeb.Components.BOModal
+  alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Helpers.Markdown
   alias ZaqWeb.Helpers.SizeFormat
 
@@ -149,6 +156,11 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :sources, :list, default: []
   attr :attachments, :list, default: []
   attr :is_error, :boolean, default: false
+
+  attr :delivery_state, :atom,
+    values: [nil, :failed, :unconfirmed, :history_updating],
+    default: nil
+
   attr :error_type, :atom, default: nil
   attr :source_click_event, :string, default: nil
   attr :source_click_target, :string, default: nil
@@ -192,10 +204,12 @@ defmodule ZaqWeb.Components.ChatMessage do
       ]}
       data-testid="chat-assistant-bubble"
       data-align={@align}
+      data-delivery-state={@delivery_state}
     >
       <div class={["flex min-w-0", if(@align == :right, do: "justify-end", else: "justify-start")]}>
         <div class={[
           "flex min-w-0 max-w-[82%] gap-4",
+          @delivery_state && "zaq-chat-delivery-column",
           @tool_steps != [] && "w-full",
           @align == :right && "flex-row-reverse"
         ]}>
@@ -207,7 +221,10 @@ defmodule ZaqWeb.Components.ChatMessage do
             />
           </div>
 
-          <div class="flex-1 min-w-0">
+          <div
+            class={["flex-1 min-w-0", @delivery_state && "zaq-chat-delivery"]}
+            data-delivery-tone={@delivery_state}
+          >
             <p :if={@author_name} class="zaq-text-caption mb-1">{@author_name}</p>
             <ol :if={@tool_steps != []} aria-label="Tool activity" class="zaq-layout-stack-tight mb-2">
               <li
@@ -341,9 +358,11 @@ defmodule ZaqWeb.Components.ChatMessage do
             <%!-- Meta row: timestamp + confidence bar + actions --%>
             <div class={[
               "flex items-center gap-2 mt-1.5",
+              @delivery_state && "flex-wrap",
               if(@align == :right, do: "justify-end mr-0.5", else: "justify-start ml-0.5")
             ]}>
               <span class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary);">
+                <span :if={@delivery_state}>Generated </span>
                 {format_time(@timestamp)}
               </span>
 
@@ -365,7 +384,12 @@ defmodule ZaqWeb.Components.ChatMessage do
               </div>
 
               <%!-- Actions slot (copy/feedback in chat, ratings in conversation detail) --%>
-              <div class="flex items-center gap-0.5">
+              <div class={["flex items-center gap-0.5", @delivery_state && "flex-wrap"]}>
+                <.delivery_status
+                  :if={@delivery_state && @msg_id}
+                  state={@delivery_state}
+                  message_id={@msg_id}
+                />
                 {render_slot(@actions)}
               </div>
             </div>
@@ -381,6 +405,68 @@ defmodule ZaqWeb.Components.ChatMessage do
     </div>
     """
   end
+
+  attr :state, :atom, required: true
+  attr :message_id, :string, required: true
+
+  def delivery_status(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="zaq-chat-delivery-status zaq-text-caption"
+      data-testid="delivery-status"
+      data-delivery-tone={@state}
+      aria-label={"#{delivery_label(@state)} — show details"}
+      phx-click={JS.push_focus() |> JS.push("open_delivery_info")}
+      phx-value-id={@message_id}
+    >
+      <.icon name={delivery_icon(@state)} class="zaq-icon-sm" />
+      {delivery_label(@state)}
+    </button>
+    """
+  end
+
+  attr :message, :map, required: true
+
+  def delivery_details(assigns) do
+    ~H"""
+    <BOModal.modal_shell
+      id="channel-delivery-details"
+      title={delivery_label(@message.delivery.state)}
+      cancel_event="close_delivery_info"
+      role="dialog"
+      aria-modal="true"
+      aria-label={delivery_label(@message.delivery.state)}
+      phx-remove={JS.pop_focus()}
+    >
+      <.focus_wrap
+        id="channel-delivery-details-focus"
+        phx-mounted={JS.focus_first(to: "#channel-delivery-details-focus")}
+        class="zaq-layout-stack"
+      >
+        <p class="zaq-text-body">{@message.delivery.reason}</p>
+        <p :if={@message.delivery[:provider_code]} class="zaq-text-caption">
+          Provider code {@message.delivery.provider_code}
+        </p>
+        <p class="zaq-text-caption">Generated {format_time(@message.inserted_at)}</p>
+        <p :if={@message.delivery[:observed_at]} class="zaq-text-caption">
+          Outcome recorded {@message.delivery.observed_at}
+        </p>
+        <DSButton.button variant={:secondary} phx-click="close_delivery_info">Close</DSButton.button>
+      </.focus_wrap>
+    </BOModal.modal_shell>
+    """
+  end
+
+  @doc "Names delivery presentation states without implying automatic resend."
+  def delivery_label(:failed), do: "Delivery failed"
+  def delivery_label(:unconfirmed), do: "Delivery unconfirmed"
+  def delivery_label(:history_updating), do: "Delivered — history updating"
+  def delivery_label(:delivered), do: "Delivery confirmed"
+
+  defp delivery_icon(:failed), do: "hero-exclamation-circle"
+  defp delivery_icon(:history_updating), do: "hero-check-circle"
+  defp delivery_icon(_state), do: "hero-question-mark-circle"
 
   defp tool_status_color("succeeded"), do: "--zaq-text-color-body-success"
   defp tool_status_color("failed"), do: "--zaq-text-color-body-danger"

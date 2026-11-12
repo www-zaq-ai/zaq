@@ -10,6 +10,38 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Live.BO.AI.WorkflowResultHelpers
 
+  @doc "Nested Action evidence beneath its existing step card, independent of agent-request traces."
+  attr :step, :map, required: true
+  attr :run_status, :string, default: nil
+  attr :expanded_trace_ids, :map, default: %{}
+
+  def step_action_traces(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :trace_info,
+        WorkflowResultHelpers.step_trace_info(assigns.step, assigns.run_status)
+      )
+
+    ~H"""
+    <section
+      :if={@trace_info.traces != []}
+      class="zaq-layout-stack"
+      data-testid={"workflow-action-traces-#{@step.id}"}
+    >
+      <h4 class="zaq-text-h5">Action invocations</h4>
+      <ZaqWeb.Components.AgentTracePanel.agent_trace_panel
+        message_info={@trace_info}
+        show_summary={false}
+        expanded_ids={Map.get(@expanded_trace_ids, @step.id, MapSet.new())}
+        toggle_event="toggle_step_trace_details"
+        testid={"step-action-trace-panel-#{@step.id}"}
+        phx-value-step_run_id={@step.id}
+      />
+    </section>
+    """
+  end
+
   @doc "Status pill for a workflow (draft/active/archived)."
   attr :status, :string, required: true
 
@@ -664,6 +696,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   attr :step_runs, :list, default: []
   attr :node_params, :map, default: %{}
   attr :now, :any, default: nil
+  attr :expanded_trace_ids, :map, default: %{}
+  attr :run_status, :string, default: nil
 
   def batch_step_card(assigns) do
     assigns =
@@ -935,7 +969,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
       </div>
 
       <%!-- Per-batch runs: each batch's StepRuns, grouped by index, with logs --%>
-      <.fork_run_list :if={@fork_groups != []} step={@step} groups={@fork_groups} now={@now} />
+      <.fork_run_list
+        :if={@fork_groups != []}
+        step={@step}
+        groups={@fork_groups}
+        now={@now}
+        expanded_trace_ids={@expanded_trace_ids}
+        run_status={@run_status}
+      />
     </div>
     """
   end
@@ -953,6 +994,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   attr :step_runs, :list, default: []
   attr :node_params, :map, default: %{}
   attr :now, :any, default: nil
+
+  attr :expanded_trace_ids, :map, default: %{}
+  attr :run_status, :string, default: nil
 
   def map_step_card(assigns) do
     results = assigns.step.results || %{}
@@ -1029,7 +1073,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
       </div>
 
       <%!-- Per-batch runs: every batch's StepRuns, grouped by index, with status + logs --%>
-      <.fork_run_list :if={@fork_groups != []} step={@step} groups={@fork_groups} now={@now} />
+      <.fork_run_list
+        :if={@fork_groups != []}
+        step={@step}
+        groups={@fork_groups}
+        now={@now}
+        expanded_trace_ids={@expanded_trace_ids}
+        run_status={@run_status}
+      />
     </div>
     """
   end
@@ -1043,6 +1094,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   attr :step, :map, required: true
   attr :groups, :list, required: true
   attr :now, :any, default: nil
+  attr :expanded_trace_ids, :map, default: %{}
+  attr :run_status, :string, default: nil
 
   @doc """
   Collapsible list of a fan-out (`Batch`/`map`) node's per-fork `StepRun` rows —
@@ -1101,6 +1154,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               <p :if={fork_error_reason(fork)} class="mt-1 font-mono text-[0.72rem] text-red-600">
                 {fork_error_reason(fork)}
               </p>
+              <.step_action_traces
+                step={fork}
+                run_status={@run_status}
+                expanded_trace_ids={@expanded_trace_ids}
+              />
             </div>
           </div>
         </div>

@@ -285,80 +285,22 @@
           </p>
         </div>
 
-        <div class="zaq-agent-model-settings">
-          <div class="min-w-0">
-            <label class="zaq-field-label-uppercase block mb-1">
-              Credential
-            </label>
-            <select
-              name="configured_agent[credential_id]"
-              class={[
-                "w-full zaq-control-select",
-                if(error_messages(@changeset, :credential_id) != [],
-                  do: "zaq-control-error",
-                  else: ""
-                )
-              ]}
-            >
-              <option value="">Select credential</option>
-              <option
-                :for={credential <- @credentials}
-                value={credential.id}
-                selected={to_string(@form[:credential_id].value) == to_string(credential.id)}
-              >
-                {credential.name} ({credential.provider})
-              </option>
-            </select>
-            <p
-              :for={msg <- error_messages(@changeset, :credential_id)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
-          </div>
-          <div class="min-w-0">
-            <label class="zaq-field-label-uppercase block mb-1">
-              Model
-            </label>
-            <.searchable_select
-              :if={@model_options != []}
-              id="configured-agent-model-select"
-              name="configured_agent[model]"
-              value={@form[:model].value}
-              options={@model_options}
-              placeholder="Search models..."
-              empty_label="Select a model..."
-              compact={true}
-            />
-            <input
-              :if={@model_options == []}
-              type="text"
-              name="configured_agent[model]"
-              value={@form[:model].value || ""}
-              class={[
-                "w-full zaq-control-text",
-                if(error_messages(@changeset, :model) != [],
-                  do: "zaq-control-error",
-                  else: ""
-                )
-              ]}
-            />
-            <p
-              :for={msg <- error_messages(@changeset, :model)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
-          </div>
-          <div class="zaq-agent-model-modalities">
-            <ModelModalities.model_modalities
-              id="agent-form-modalities"
-              modalities={@selected_model_modalities}
-              selected={@form[:model].value not in [nil, ""]}
-            />
-          </div>
+        <div>
+          <ZaqWeb.Components.DesignSystem.AIModelSelector.ai_model_selector
+            id_prefix="configured-agent"
+            form={@form}
+            credential_label="Credential"
+            native_credential={true}
+            credential_options={[
+              {"Select credential", ""}
+              | Enum.map(@credentials, &{"#{&1.name} (#{&1.provider})", &1.id})
+            ]}
+            options={@model_options}
+            manual_model={@model_options == []}
+            modalities={@selected_model_modalities}
+            modalities_id="agent-form-modalities"
+            compact={true}
+          />
           <div class="zaq-agent-model-warning">
             <div
               :if={@selected_model_tool_capability == :unsupported}
