@@ -103,8 +103,12 @@ defmodule Zaq.Channels.DiskBridgeTest do
     actor = %{person_id: 7}
     stub_response({:ok, entry(id)})
     assert {:ok, _} = DiskBridge.get_file(config(), %{"file_id" => id}, %{actor: actor})
+    assert_received {:dispatch, :storage, :describe_document, %{file_id: ^id}}
+    assert_received {:dispatch_actor, :storage, :describe_document, ^actor}
     assert_received {:dispatch_opts, :storage, :describe_document, describe_opts}
+    assert describe_opts[:action] == :describe_document
     assert describe_opts[:confidential] == true
+    refute describe_opts[:skip_permissions]
 
     stub_response({:ok, %{effective_permissions: []}})
     assert {:ok, _} = DiskBridge.list_permissions(config(), %{"file_id" => id}, %{actor: actor})

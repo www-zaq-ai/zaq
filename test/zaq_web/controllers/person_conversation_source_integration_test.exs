@@ -73,11 +73,13 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
     assert get_resp_header(result, "cache-control") == ["private, no-store"]
 
     assert_received {:node_router_event,
-                     %{opts: describe_opts, actor: actor, next_hop: %{destination: :storage}}}
+                     %{opts: materialize_opts, actor: actor, next_hop: %{destination: :storage}}}
 
-    assert describe_opts[:action] == :describe_document
+    assert materialize_opts[:action] == :materialize_document
     assert actor == ActorNormalizer.from_person_payload(nil, ctx.person)
-    refute describe_opts[:skip_permissions]
+    refute materialize_opts[:skip_permissions]
+    # Confidential metadata hops must not appear alongside the materialization hop.
+    refute_received {:node_router_event, %{next_hop: %{destination: :storage}}}
     refute_received {:node_router_event, %{next_hop: %{destination: :ingestion}}}
     :ok = Permissions.revoke(nil, ctx.grant)
     expect_hops(ctx, [:people_conversations, :data_source_get_file])
