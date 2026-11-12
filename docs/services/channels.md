@@ -656,19 +656,6 @@ mutation events keep their existing broadcast behavior. Ancestor `reference`
 is authoritative identity; returned ancestor Records use the same verified
 provider/config normalization as the source Record.
 
-`record_contexts/3` and the confidential `:data_source_record_contexts` event accept
-`source_refs` with the same `right` and trusted envelope. Results preserve input
-order and duplicate positions. A batch accepts at most 500 references, 64 ancestors
-per target and 1024 distinct ancestor identities across provider/config scopes.
-Any failure returns one error without partial contexts or inaccessible ancestor
-details. Actor identity remains required when permission bypass is explicit.
-
-Disk resolves each config group through one Storage `:document_contexts` request,
-which batches EntryCatalog ancestry and effective grants. Remote providers fetch
-each distinct target or ancestor once per request; resolved ancestor chains are
-shared within that request. There is no cross-request cache. Source references,
-rather than caller-supplied Records or ancestry, determine these fresh lookups.
-
 Disk filename searches honor the optional `path`: use a volume name, a canonical
 `volume/folder` path, or a catalog folder id to search that subtree recursively.
 An absent/empty path, `/`, or `.` searches all volumes of the selected disk

@@ -44,26 +44,6 @@ defmodule Zaq.Channels.Events do
     |> node_router(opts).dispatch()
   end
 
-  @doc "Builds a confidential batch source-context request containing references only."
-  @spec build_data_source_record_contexts_event([map()], :read | :update, keyword()) :: Event.t()
-  def build_data_source_record_contexts_event(source_refs, right, opts \\ []) do
-    Event.new(%{source_refs: source_refs, right: right}, :channels,
-      actor: Keyword.get(opts, :actor),
-      opts:
-        [action: :data_source_record_contexts, confidential: true] ++
-          Keyword.get(opts, :event_opts, [])
-    )
-  end
-
-  @doc "Dispatches a bounded batch context request through Channels."
-  @spec build_and_dispatch_data_source_record_contexts_event([map()], :read | :update, keyword()) ::
-          Event.t()
-  def build_and_dispatch_data_source_record_contexts_event(source_refs, right, opts \\ []) do
-    source_refs
-    |> build_data_source_record_contexts_event(right, opts)
-    |> node_router(opts).dispatch()
-  end
-
   @spec build_deliver_outgoing_event(Outgoing.t(), keyword()) :: Event.t()
   def build_deliver_outgoing_event(%Outgoing{} = outgoing, opts \\ []) do
     event_type = Keyword.get(opts, :type, :sync)
