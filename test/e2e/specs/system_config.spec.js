@@ -472,7 +472,6 @@ test.describe("System Config", () => {
 
     for (const boundary of ["0", "2"]) {
       test(`cosine distance boundary ${boundary} saves and persists`, async ({ page }) => {
-        await openRetrievalSettings(page)
         const field = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
         await field.fill(boundary)
         await field.press("Tab")
@@ -485,7 +484,6 @@ test.describe("System Config", () => {
 
     for (const invalid of ["-0.01", "2.01"]) {
       test(`cosine distance ${invalid} is rejected without changing persisted settings`, async ({ page }) => {
-        await openRetrievalSettings(page)
         const field = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
         const persisted = await field.evaluate(input => input.valueAsNumber)
         await field.fill(invalid)
@@ -962,7 +960,12 @@ test.describe("System Config", () => {
       await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#small-credential-select", credential.name)
       await waitForLiveViewSettled(page)
-      await page.locator('#small-model-form input[name="operation_model_config[model]"]').fill("e2e-fake")
+      const form = page.locator("#small-model-form")
+      const model = form.locator('input[name="operation_model_config[model]"]')
+      await model.fill("e2e-fake")
+      await model.press("Tab")
+      await waitForLiveViewSettled(page)
+      await expect(form.getByText("can't be blank", { exact: true })).toHaveCount(0)
       await expectFlashDuringAction(page, "Model settings saved.", () => page.getByRole("button", { name: "Save Small Model Settings" }).click())
     })
   })
