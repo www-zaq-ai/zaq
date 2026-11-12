@@ -33,6 +33,14 @@ BEGIN
     EXECUTE format('GRANT EXECUTE ON ALL ROUTINES IN SCHEMA %I TO %I', schema_name, inputs.owner_name);
   END LOOP;
 
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN
+    IF to_regnamespace('pdb') IS NULL THEN
+      RAISE EXCEPTION 'pg_search requires the pdb schema; explicit DBA maintenance required';
+    END IF;
+    -- Ordinary SELECTs need pdb USAGE, including for logins managed by the owner.
+    EXECUTE format('GRANT USAGE ON SCHEMA pdb TO %I WITH GRANT OPTION', inputs.owner_name);
+  END IF;
+
   -- Table-level REVOKE does not remove pre-existing column-level privileges.
   FOR column_grant IN
     SELECT n.nspname, c.relname, a.attname
