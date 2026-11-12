@@ -255,7 +255,7 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   defp document_rights(principal, _source) do
     rights = rights_for(principal)
 
-    if Enum.all?(rights, &(&1 in ~w(read write update delete edit move create))) do
+    if Enum.all?(rights, &(&1 in ~w(read write update delete edit manage move create))) do
       {:ok,
        rights
        |> Enum.reject(&(&1 in ["move", "create"]))

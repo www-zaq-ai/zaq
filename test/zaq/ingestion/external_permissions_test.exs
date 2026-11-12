@@ -108,6 +108,17 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
              )
 
     assert Permissions.can?(person, :update, doc)
+
+    assert :ok =
+             ExternalPermissions.apply(
+               source_snapshot(record, [person_permission(person, ["manage"])]),
+               [doc]
+             )
+
+    assert [grant] = permissions_for(doc)
+    assert grant.access_rights == ["manage"]
+    assert Permissions.can?(person, :manage, doc)
+    refute Permissions.can?(person, :update, doc)
   end
 
   test "canonical projection rejects mismatched and unverified source identity without touching grants" do
