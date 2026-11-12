@@ -5,7 +5,7 @@ defmodule ZaqWeb.Components.DesignSystem.LabelChips do
   alias ZaqWeb.Components.DesignSystem.LabelValue
 
   attr :labels, :list, default: []
-  attr :resource_id, :integer, required: true
+  attr :resource_id, :any, required: true
   attr :resource_type, :string, default: "document"
 
   def label_chips(assigns) do

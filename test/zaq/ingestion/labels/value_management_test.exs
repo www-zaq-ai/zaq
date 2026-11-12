@@ -207,7 +207,8 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
 
   property "bulk changes preserve every unselected assignment", ctx do
     check all(
-            indexes <- uniq_list_of(integer(0..2), min_length: 1, max_length: 3),
+            indexes <-
+              map(list_of(integer(0..2), min_length: 1, max_length: 3), &Enum.uniq/1),
             value <- member_of(["Unspecified", "Paris", "Tokyo", "London"]),
             max_runs: 12
           ) do

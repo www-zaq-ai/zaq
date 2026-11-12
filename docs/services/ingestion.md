@@ -584,13 +584,15 @@ Document upsert preserves the document ID and its assignments. Chunk deletion
 cascades assignments. The dynamic chunk-table reset clears assignments, detaches
 the foreign key, and restores it on table creation. While no chunk table exists,
 a database check forbids chunk assignments; fresh installations do not need an
-embedding model to migrate. The structural migration discards legacy label
-assignments rather than converting free-text values; unrelated resources remain intact.
+embedding model to migrate. A single migration creates typed label definitions and assignments directly;
+rollback removes these tables and preserves unrelated resources.
 
 Labels require no model configuration. `reset_automatic` returns an automatic
-assignment to pending; it does not execute a model. Folder inheritance, source
-browser entry points, model evaluation and inline chunk markers remain later
-delivery work tracked in Beadwork `zaq-kw0`.
+assignment to pending; it does not execute a model. The ingestion browser's list
+and grid views open the shared editor for files before content ingestion; Save
+refreshes their label chips without changing ingestion status. Folder inheritance,
+model evaluation and inline chunk markers remain later delivery work tracked in
+Beadwork `zaq-kw0`.
 
 ## What's Left
 

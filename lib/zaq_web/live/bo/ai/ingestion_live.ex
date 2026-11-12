@@ -162,6 +162,26 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("close_label_editor", _, socket),
     do: {:noreply, assign(socket, label_editor_resource: nil)}
 
+  def handle_event("open_label_editor", %{"type" => "source", "id" => path}, socket) do
+    with {:ok, record} <- data_source_record(socket, path),
+         false <- record_folder?(record) do
+      record = with_provider_attrs(record, socket)
+
+      resource = %{
+        type: "source",
+        source_ref: %{
+          provider: ExternalSource.provider(record),
+          config_id: ExternalSource.config_id(record),
+          record_id: ExternalSource.file_id(record)
+        }
+      }
+
+      {:noreply, assign(socket, label_editor_resource: resource)}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
   def handle_event(
         "remove_resource_label",
         %{"type" => "document", "id" => id, "label-id" => label_id},
@@ -2123,7 +2143,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         |> provider_record_status(doc, permission_counts, inherited_watch, socket)
         |> overlay_latest_job_status(source, latest_jobs_by_source)
 
-      status = Map.put(status, :label_projection, Map.get(label_projection, source))
+      projection =
+        Map.get(label_projection, source) ||
+          %{chips: [], resource_id: record_path(record), resource_type: "source"}
+
+      status = Map.put(status, :label_projection, projection)
 
       {record, Map.put(acc, record.name, status)}
     end)

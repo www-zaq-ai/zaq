@@ -1,10 +1,3 @@
-unless Code.ensure_loaded?(Zaq.Repo.Migrations.AlignTypedLabelAssignments) do
-  Code.require_file(
-    "../../../../priv/repo/migrations/20261111235739_align_typed_label_assignments.exs",
-    __DIR__
-  )
-end
-
 unless Code.ensure_loaded?(Zaq.Repo.Migrations.CreateResourceLabels) do
   Code.require_file(
     "../../../../priv/repo/migrations/20261103081329_create_resource_labels.exs",
@@ -18,10 +11,9 @@ defmodule Zaq.Ingestion.Labels.LifecycleTest do
   alias Zaq.Ingestion.{Chunk, Document, Labels}
   alias Zaq.Ingestion.Labels.Assignment
   alias Zaq.Ingestion.Labels.Label
-  alias Zaq.Repo.Migrations.{AlignTypedLabelAssignments, CreateResourceLabels}
+  alias Zaq.Repo.Migrations.CreateResourceLabels
 
-  @migration_version 20_261_111_235_739
-  @base_migration_version 20_261_103_081_329
+  @migration_version 20_261_103_081_329
   @migration_opts [log: false, migration_lock: false, skip_table_creation: true]
 
   setup do
@@ -219,7 +211,7 @@ defmodule Zaq.Ingestion.Labels.LifecycleTest do
              )
   end
 
-  test "schema transition discards old assignments and retains definitions and resources", ctx do
+  test "label schema rollback and recreation preserve unrelated resources", ctx do
     {:ok, _} =
       Document.upsert(%{source: ctx.document.source, content: "Retained document content"})
 
@@ -229,38 +221,28 @@ defmodule Zaq.Ingestion.Labels.LifecycleTest do
     permissions =
       Repo.query!("SELECT to_jsonb(row) FROM resource_permissions row ORDER BY id").rows
 
-    definition =
-      Repo.query!(
-        "SELECT name, description, normalized_name, lock_version, inserted_at, updated_at FROM labels WHERE id = $1",
-        [ctx.label.id]
-      ).rows
+    chunk = Repo.get!(Chunk, ctx.chunk.id)
 
     assert :ok = migrate(:down)
 
-    Repo.query!(
-      "INSERT INTO document_label_assignments (label_id, document_id, selected, value, inserted_at, updated_at) VALUES ($1, $2, true, 'Private old text', now(), now())",
-      [ctx.label.id, ctx.document.id]
-    )
-
-    Repo.query!(
-      "INSERT INTO chunk_label_assignments (label_id, chunk_id, selected, value, inserted_at, updated_at) VALUES ($1, $2, false, 'Old exclusion', now(), now())",
-      [ctx.label.id, ctx.chunk.id]
-    )
+    assert %{rows: [[nil, nil]]} =
+             Repo.query!("SELECT to_regclass('labels'), to_regclass('label_assignments')")
 
     assert :ok = migrate(:up)
     assert :already_up = migrate(:up)
     assert Repo.aggregate(Assignment, :count) == 0
+    assert Repo.aggregate(Label, :count) == 0
 
-    assert %{value_type: "boolean", value_config: %{}, assignment_type: "manual"} =
-             label = Repo.get!(Label, ctx.label.id)
+    {:ok, label} =
+      Labels.save_definition(
+        %{name: "Fresh Boolean", resources: ["document", "chunk"]},
+        ctx.actor
+      )
 
+    assert %{value_type: "boolean", value_config: %{}, assignment_type: "manual"} = label
     assert MapSet.new(label.resources) == MapSet.new(["document", "chunk"])
     assert Label.changeset(label, %{}).valid?
-
-    assert Repo.query!(
-             "SELECT name, description, normalized_name, lock_version, inserted_at, updated_at FROM labels WHERE id = $1",
-             [ctx.label.id]
-           ).rows == definition
+    assert Repo.get!(Chunk, ctx.chunk.id) == chunk
 
     assert Repo.get!(Document, ctx.document.id) == document
 
@@ -280,17 +262,17 @@ defmodule Zaq.Ingestion.Labels.LifecycleTest do
              )
 
     assert :ok = migrate(:down)
-    assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM document_label_assignments")
-    assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM chunk_label_assignments")
+
+    assert %{rows: [[nil, nil]]} =
+             Repo.query!("SELECT to_regclass('labels'), to_regclass('label_assignments')")
+
     assert :ok = migrate(:up)
     assert Repo.aggregate(Assignment, :count) == 0
   end
 
   test "fresh labeling schemas migrate without an embedding table", ctx do
     assert :ok = migrate(:down)
-    assert :ok = migrate(:down, CreateResourceLabels, @base_migration_version)
     assert :ok = Chunk.drop_table()
-    assert :ok = migrate(:up, CreateResourceLabels, @base_migration_version)
     assert :ok = migrate(:up)
     assert Repo.aggregate(Assignment, :count) == 0
     assert Repo.aggregate(Label, :count) == 0
@@ -309,6 +291,12 @@ defmodule Zaq.Ingestion.Labels.LifecycleTest do
     refute Chunk.table_exists?()
   end
 
-  defp migrate(direction, module \\ AlignTypedLabelAssignments, version \\ @migration_version),
-    do: apply(Ecto.Migrator, direction, [Repo, version, module, @migration_opts])
+  defp migrate(direction),
+    do:
+      apply(Ecto.Migrator, direction, [
+        Repo,
+        @migration_version,
+        CreateResourceLabels,
+        @migration_opts
+      ])
 end

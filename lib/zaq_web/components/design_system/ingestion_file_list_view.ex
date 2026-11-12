@@ -113,6 +113,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     </svg>
                     <span class="truncate zaq-link-underline">{entry.name}</span>
                     <span
+                      :if={entry_size_label(entry, @ingestion_map) != "—"}
                       class="zaq-text-body-sm shrink-0"
                       style="color: var(--zaq-text-color-body-tertiary)"
                     >
@@ -163,7 +164,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               <LabelChips.label_chips
                 :if={label_projection && !record_folder?(entry)}
                 labels={label_projection.chips}
-                resource_id={label_projection.document_id}
+                resource_id={
+                  Map.get(label_projection, :resource_id, Map.get(label_projection, :document_id))
+                }
+                resource_type={Map.get(label_projection, :resource_type, "document")}
               />
             </.table_cell>
             <.table_cell width="w-36">
