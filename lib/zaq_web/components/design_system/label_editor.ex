@@ -3,14 +3,12 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
   use Phoenix.Component
   import ZaqWeb.Components.DesignSystem.Button
   import ZaqWeb.Components.DesignSystem.Input
-  import ZaqWeb.Components.SearchableSelect
   alias ZaqWeb.Components.BOModal
   alias ZaqWeb.Components.DesignSystem.LabelValue
 
   attr :labels, :list, required: true
   attr :selected, :any, required: true
   attr :values, :map, default: %{}
-  attr :suggestions, :map, default: %{}
   attr :editable, :boolean, default: false
   attr :error, :string, default: nil
   attr :target, :any, default: nil
@@ -110,7 +108,6 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
             :for={label <- @active_labels}
             label={label}
             value={Map.get(@values, label.id, Map.get(label, :value))}
-            suggestions={Map.get(@suggestions, label.id, [])}
             editable={@editable}
             target={@target}
           />
@@ -178,7 +175,6 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
       >
         <input type="hidden" name="label_id" value={@label.id} />
         <LabelValue.value_input
-          :if={Map.has_key?(@label, :value_type)}
           id={"label-value-#{@label.id}"}
           definition={@label}
           value={@value}
@@ -186,37 +182,8 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
           editable={@editable}
           target={@target}
         />
-        <.searchable_select
-          :if={!Map.has_key?(@label, :value_type)}
-          id={"label-value-#{@label.id}"}
-          name="value"
-          value={@value}
-          options={value_options(@value, @suggestions)}
-          label={"Value for #{@label.name}"}
-          label_position="block"
-          placeholder="Search or enter a value"
-          empty_label="Choose or enter a value"
-          allow_create={@editable}
-          create_on_no_exact_match
-          clearable
-          on_create_event="create_label_value"
-          on_search="search_label_values"
-          target={@target}
-          event_context={%{label_id: to_string(@label.id)}}
-          maxlength={200}
-          disabled={!@editable}
-          compact
-        />
       </form>
     </div>
     """
-  end
-
-  defp value_options(value, suggestions) do
-    [value | suggestions]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.uniq()
-    |> Enum.map(&{&1, &1})
-    |> then(&[{"No value", ""} | &1])
   end
 end
