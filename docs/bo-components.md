@@ -166,13 +166,13 @@ scrollable usage table. Unused labels show “Not assigned”; errors appear sep
 above the list, while confirmation actions remain outside the scroll region.
 
 The Values / usage column opens `Components.LabelValueManager` inside the shared
-viewport-bounded modal. It lists searchable value groups, including Empty value,
+viewport-bounded modal. It lists searchable value groups, including pending values,
 and readable document/chunk usage. Choosing a value lists matching resources;
 read-only rows cannot be selected. Selection is limited to the visible 50-row page
-and resets on navigation or reload. A proposed replacement (blank to clear) is
+and resets on navigation or reload. A proposed typed replacement is
 reviewed with the selected count before Save. Errors retain the proposal and
-offer an explicit reload; saving refreshes the catalog counts. Clearing retains
-the label assignment. The component uses `LabelEvents` and the existing DSM
+offer an explicit reload; saving refreshes the catalog counts. Manual values are
+required; automatic assignments can remain pending. The component uses `LabelEvents` and the existing DSM
 table, input and button primitives, with no separate values catalog.
 
 `DesignSystem.LabelChips` composes existing table badges and editor controls.
@@ -185,15 +185,13 @@ versions. Parents handle `close_label_editor` and
 contract identical across entry points. Current ingestion list/grid rows supply
 document entry points; inline chunk entry points arrive in a later PR.
 
-Each selected label uses the shared `SearchableSelect` with suggestions from
-readable documents/chunks. Users can pick a saved value or add a new one; value
-changes remain staged until Save. Chips render `Name: Value`, falling back to the
-name for legacy assignments without values. Values are limited to 200 characters.
-The selector's optional `target` and `event_context` route search/create events
-to the owning LiveComponent and label. Existing consumers retain parent-LiveView
-routing. The label picker opts into creation when no exact option matches.
+`DesignSystem.LabelValue` supplies Boolean, bounded scale and configured-option
+controls shared by the editor and value manager. False and zero are values;
+manual assignments cannot be blank. Option selections use stable definition IDs,
+with display names rendered in chips. Changes remain staged until Save.
 
-Automatic controls are disabled in this delivery. Storybook's ingestion label
+Automatic assignments can remain pending or carry a manual override. Model evaluation is deferred.
+Storybook's ingestion label
 editor page provides the shared presentation fixture. Teams, Roles and Share
 components retain their existing behavior and styling.
 

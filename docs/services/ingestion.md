@@ -477,7 +477,7 @@ If a change touches one of these areas and no property test is added, document t
 
 ---
 
-## Manual category labels
+## Typed labels
 
 Source files use the same editor and mutation Events with
 `resource: %{type: "source", source_ref: %{provider: provider, config_id: config_id, record_id: id}}`.
@@ -506,19 +506,20 @@ existing person, team and Everyone read-grant semantics, field allowlists and
 response format. The tool contract is documented in the
 [Agent resource query guide](agent.md#resource-queries-zaqagenttoolsresourcesqueryresources-key-resourcesquery).
 
-`Zaq.Ingestion.Labels` owns category definitions and typed document/chunk
+`Zaq.Ingestion.Labels` owns typed definitions and document/chunk
 assignments. BO uses confidential Ingestion Events: `:list_labels`,
 `:save_label_definition`, `:get_resource_labels`, `:edit_resource_labels`, and
 `:document_label_chips`, `:label_deletion_preview`, and `:delete_label_definition`.
 Mutations execute validated Jido Actions and delegate
 to the same domain implementation used by direct consumers.
 
-Each assignment can also hold one free-text `value` (up to 200 characters), such
-as `Location: Paris`. Values are trimmed and NFC-normalized; blank values become
-nil. Existing assignments without values remain supported. An `add` edit can set
-or update `value` using the same expected assignment version; omitting `value`
-preserves it, while removing a label clears it. Value changes are part of the
-same atomic edit batch, rather than changes to the label definition.
+Values are native Booleans, scale numbers, or stable option IDs. Definitions own
+the allowed options or scale minimum, maximum and increment. Manual assignments
+require a valid value; false and zero are meaningful. Automatic assignments can
+remain pending without a value, or carry a manually supplied value. An `add` edit
+can set or update `value` using the expected assignment version; omitting `value`
+preserves it. Removing a label records an exclusion. Value changes belong to the
+same atomic edit batch, rather than changing the definition.
 
 `:label_value_suggestions` accepts `resource`, `label_id`, and `query` and returns
 up to 20 distinct saved values. It checks read access to the current resource and
@@ -531,58 +532,65 @@ the application receives at most 20 values instead of loading all candidates.
 
 The Labels catalog derives value usage from the same per-resource assignments.
 `:label_value_summaries` accepts up to 50 label IDs and returns distinct-value and
-resource counts, scoped to readable documents (including their chunks). Empty
-values count as one group. `:label_values` lists value groups and separate
+resource counts, scoped to readable documents (including their chunks). Pending
+assignments count as one group. `:label_values` lists value groups and separate
 document/chunk counts; `:label_value_resources` lists resources for an exact value,
 their expected assignment versions, and whether they can be edited. Both use
 offset pagination with 51 results for 50-row pages; value search is a literal
 substring. Removed assignments are excluded.
 
 `:update_label_values` executes the validated `UpdateLabelValues` Action with a
-label ID, 1–50 explicit typed resource/version pairs, and a replacement string.
-An empty string clears the value while retaining the label. The operation locks
+label ID, 1–50 explicit typed resource/version pairs, and a native replacement value.
+Manual values must remain valid; a nil automatic value returns to pending. The operation locks
 parent documents in ID order, rechecks read and update access, and delegates each
 change to the existing versioned assignment editor in one transaction. A stale,
 removed, unavailable, or unauthorized selection rolls back the whole batch.
 It cannot change unselected resources or revive excluded labels. There is no
-standalone option creation/deletion or global value rename; unused values cease
-to appear in usage. These BO operations are not exposed as agent tools.
+standalone usage-value catalog; options belong to the definition, and unused
+assignment values cease to appear in usage. These BO operations are not exposed as agent tools.
 
 Definitions contain a name (up to 80 characters), description (up to 4,000), and
-document/chunk targets. Names are trimmed, NFC-normalized and case-insensitively
+document/chunk resources, value type/configuration, assignment type and a 0–100
+percentage threshold. Names are trimmed, NFC-normalized and case-insensitively
 unique. Current admin or super-admin users manage definitions. Resource reads
-require document read permission; edits require update permission, including for
-chunks. Only a current super-admin record permits resource permission bypass.
+require document read permission; edits require update permission, and returning
+the editor projection also requires read permission. Chunks use their document's
+permissions. Only a current super-admin record permits resource permission bypass.
 Missing or password-blocked BO identity is rejected.
 
 Definition deletion requires manager authorization, the expected definition
 version, and confirmed counts of selected document/chunk assignments. The preview
 returns these counts; deletion locks the definition and rechecks them atomically.
-Changed usage returns a fresh preview for reconfirmation. Deletion removes targets
-and all assignments (including exclusions), preserving documents and chunks.
+Changed usage returns a fresh preview for reconfirmation. Deletion removes the
+definition and all assignments (including exclusions), preserving documents and chunks.
 Bulk consumers use `:labels_deletion_preview` with `ids`, then
 `:delete_label_definitions` with a `labels` list of the same confirmed deletion
 requests. Batches accept 1–50 distinct label IDs and lock them in ID order.
 Any missing, stale, or changed-usage label rolls back the entire transaction.
 
-Assignments live in separate FK-backed tables. `selected: true` is a manual
-inclusion; `false` is a retained manual exclusion. Each edit supplies its expected
+Assignments share `label_assignments`, keyed by resource type, resource ID and
+label ID, with document/chunk foreign keys. State is `assigned`, `pending` or
+`excluded`; origin distinguishes manual decisions from automatic configuration.
+Each edit supplies its expected
 assignment version (zero means absent), and definition edits supply the expected
 definition version. Add/remove batches are atomic; stale edits fail without
-partial writes. Removing an in-use target is rejected even if its assignments are
-exclusions. Manual assignment writes lock the parent document, sorted label
+partial writes. Removing an in-use resource or changing its value type is rejected,
+including retained exclusions. Configuration edits must preserve all assigned
+values; option display names may change without changing their IDs. Pending
+assignments prevent switching a definition to manual. Assignment writes lock the parent document, sorted label
 definitions, chunk when applicable, and assignment rows.
 
 Document upsert preserves the document ID and its assignments. Chunk deletion
 cascades assignments. The dynamic chunk-table reset clears assignments, detaches
 the foreign key, and restores it on table creation. While no chunk table exists,
 a database check forbids chunk assignments; fresh installations do not need an
-embedding model to migrate. Migration rollback removes label tables only.
+embedding model to migrate. The structural migration discards legacy label
+assignments rather than converting free-text values; unrelated resources remain intact.
 
-PR 1 supports manual labels without model configuration. Automatic settings and
-`reset_automatic` return `:automation_unavailable`; the UI disables them. Generic
-post-ingestion processing, model evaluation and inline chunk markers are later
-delivery stages tracked in Beadwork `zaq-kw0`.
+Labels require no model configuration. `reset_automatic` returns an automatic
+assignment to pending; it does not execute a model. Folder inheritance, source
+browser entry points, model evaluation and inline chunk markers remain later
+delivery work tracked in Beadwork `zaq-kw0`.
 
 ## What's Left
 

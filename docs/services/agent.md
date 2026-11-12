@@ -602,13 +602,13 @@ The existing read-only Action supports `describe`, get by ID, text search, exact
 filters, field selection, sorting and pagination over the resource allowlist in
 `Zaq.Agent.Tools.Resources.Registry`. It also supports these Ingestion resources:
 
-- `label`: category ID, name, description, resource types and timestamps. Search
+- `label`: definition ID, name, description, resource types and timestamps. Search
   matches name/description; an exact `name` filter is available. Ordinary callers
-  can discover only labels currently selected on at least one document they can
+  can discover only labels assigned or pending on at least one document they can
   read. Unassigned labels and labels only on unreadable documents are hidden.
 - `document`: indexed-document metadata (ID, title, source, content type and
-  timestamps), plus selected `labels` as `{id, name, value}` entries. Values are
-  per-document; valueless assignments return `value: null`. The label projection
+  timestamps), plus `labels` with ID, name, native value, state, value type and
+  value configuration. Pending assignments return `value: null`. The label projection
   is batched for the authorized result page. Search matches title/source, with
   exact source/content-type filters.
   Content, arbitrary metadata, watch errors and chunk data are not exposed.
@@ -616,14 +616,15 @@ filters, field selection, sorting and pagination over the resource allowlist in
 
 Document filters additionally accept `label_ids` (at most 100 positive integer
 IDs), `label_values` (at most 100 `{label_id, value}` pairs), and `label_match`
-(`any` by default, or `all`). Values match exactly and case-sensitively after the
-same trim/NFC normalization used on assignment writes. Null/blank values match
-valueless assignments. Duplicate normalized pairs do not affect matching.
+(`any` by default, or `all`). Value filters match concrete assigned Boolean,
+numeric or option-ID values. Numeric equivalents such as `1` and `1.0` match
+equally; duplicate equivalent pairs do not affect matching. Pending assignments
+match key-presence filters only; null or blank filters do not match them.
 When both ID and value filters are supplied, both groups must match, with
 `label_match` applied within each group. Duplicate IDs do not affect
 matching. An omitted ID list leaves results unfiltered by label; an empty list
 matches nothing. Unknown IDs cannot broaden results. Manual exclusions
-(`selected: false`) and chunk assignments never count as document labels.
+(`state: excluded`) and chunk assignments never count as document labels.
 `label_match` without either label filter, invalid modes, and malformed IDs/pairs return filter
 errors. Document get-by-ID also respects supplied search and label filters.
 
