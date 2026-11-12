@@ -5,15 +5,23 @@ unless Code.ensure_loaded?(Zaq.Repo.Migrations.AlignTypedLabelAssignments) do
   )
 end
 
+unless Code.ensure_loaded?(Zaq.Repo.Migrations.CreateResourceLabels) do
+  Code.require_file(
+    "../../../../priv/repo/migrations/20261103081329_create_resource_labels.exs",
+    __DIR__
+  )
+end
+
 defmodule Zaq.Ingestion.Labels.LifecycleTest do
   # Embedding setup/reset performs table DDL and must not race async document writers.
   use Zaq.DataCase, async: false
   alias Zaq.Ingestion.{Chunk, Document, Labels}
   alias Zaq.Ingestion.Labels.Assignment
   alias Zaq.Ingestion.Labels.Label
-  alias Zaq.Repo.Migrations.AlignTypedLabelAssignments
+  alias Zaq.Repo.Migrations.{AlignTypedLabelAssignments, CreateResourceLabels}
 
   @migration_version 20_261_111_235_739
+  @base_migration_version 20_261_103_081_329
   @migration_opts [log: false, migration_lock: false, skip_table_creation: true]
 
   setup do
@@ -211,151 +219,96 @@ defmodule Zaq.Ingestion.Labels.LifecycleTest do
              )
   end
 
-  test "legacy labels upgrade and roll back losslessly with stable options", ctx do
-    {:ok, preview} = Labels.deletion_preview(ctx.label.id, ctx.actor)
-
+  test "schema transition discards old assignments and retains definitions and resources", ctx do
     {:ok, _} =
-      Labels.delete_definition(
-        %{
-          id: ctx.label.id,
-          expected_version: preview.expected_version,
-          expected_usage: preview.usage
-        },
-        ctx.actor
-      )
+      Document.upsert(%{source: ctx.document.source, content: "Retained document content"})
+
+    {:ok, _} = Zaq.Permissions.grant_public(ctx.document)
+    document = Repo.get!(Document, ctx.document.id)
+
+    permissions =
+      Repo.query!("SELECT to_jsonb(row) FROM resource_permissions row ORDER BY id").rows
+
+    definition =
+      Repo.query!(
+        "SELECT name, description, normalized_name, lock_version, inserted_at, updated_at FROM labels WHERE id = $1",
+        [ctx.label.id]
+      ).rows
 
     assert :ok = migrate(:down)
 
-    legacy_ids = insert_legacy_labels()
-    [location, note, unused] = legacy_ids
-    {:ok, second} = Document.create(%{source: "legacy-second"})
-    {:ok, third} = Document.create(%{source: "legacy-third"})
+    Repo.query!(
+      "INSERT INTO document_label_assignments (label_id, document_id, selected, value, inserted_at, updated_at) VALUES ($1, $2, true, 'Private old text', now(), now())",
+      [ctx.label.id, ctx.document.id]
+    )
 
-    entries = [
-      {"document", ctx.document.id, location, true, "Paris"},
-      {"document", second.id, location, true, nil},
-      {"document", third.id, location, true, "Unspecified"},
-      {"document", ctx.document.id, note, true, "Café"},
-      {"document", second.id, note, false, "retained exclusion text"},
-      {"chunk", ctx.chunk.id, location, true, "Paris"},
-      {"chunk", ctx.chunk.id, note, true, "東京"}
-    ]
-
-    Enum.each(entries, &insert_legacy_assignment/1)
-    legacy = legacy_snapshot()
+    Repo.query!(
+      "INSERT INTO chunk_label_assignments (label_id, chunk_id, selected, value, inserted_at, updated_at) VALUES ($1, $2, false, 'Old exclusion', now(), now())",
+      [ctx.label.id, ctx.chunk.id]
+    )
 
     assert :ok = migrate(:up)
     assert :already_up = migrate(:up)
-    assert Repo.aggregate(Assignment, :count) == 7
-    labels = Repo.all(from l in Label, order_by: l.id)
-    assert Enum.all?(labels, &Label.changeset(&1, %{}).valid?)
-    assert Enum.all?(labels, &(&1.value_type == "options" and &1.lock_version == 4))
+    assert Repo.aggregate(Assignment, :count) == 0
 
-    assert Repo.get!(Label, unused).value_config == %{
-             "options" => [%{"id" => "legacy-unspecified", "label" => "Unspecified"}]
-           }
+    assert %{value_type: "boolean", value_config: %{}, assignment_type: "manual"} =
+             label = Repo.get!(Label, ctx.label.id)
 
-    options = Repo.get!(Label, location).value_config["options"]
-    assert %{"id" => "legacy-unspecified", "label" => "Unspecified (previously blank)"} in options
-    assert %{"id" => legacy_option_id("Unspecified"), "label" => "Unspecified"} in options
-    assert %{"id" => legacy_option_id("Paris"), "label" => "Paris"} in options
+    assert MapSet.new(label.resources) == MapSet.new(["document", "chunk"])
+    assert Label.changeset(label, %{}).valid?
 
-    for assignment <- Repo.all(Assignment) do
-      original = assignment.metadata["legacy"]
-      assert assignment.lock_version == original["lock_version"]
-      assert assignment.label_id == original["label_id"]
-      assert assignment.resource_id == to_string(original["resource_id"])
-      assert assignment.origin == :manual
+    assert Repo.query!(
+             "SELECT name, description, normalized_name, lock_version, inserted_at, updated_at FROM labels WHERE id = $1",
+             [ctx.label.id]
+           ).rows == definition
 
-      assert NaiveDateTime.to_iso8601(DateTime.to_naive(assignment.inserted_at)) ==
-               original["inserted_at"]
+    assert Repo.get!(Document, ctx.document.id) == document
 
-      assert NaiveDateTime.to_iso8601(DateTime.to_naive(assignment.updated_at)) ==
-               original["updated_at"]
+    assert Repo.query!("SELECT to_jsonb(row) FROM resource_permissions row ORDER BY id").rows ==
+             permissions
 
-      if original["selected"],
-        do: assert(assignment.value == legacy_option_id(original["value"])),
-        else: assert(assignment.state == :excluded and assignment.value == nil)
-    end
+    assert %{rows: [[nil, nil, nil]]} =
+             Repo.query!(
+               "SELECT to_regclass('document_label_assignments'), to_regclass('chunk_label_assignments'), to_regclass('label_targets')"
+             )
 
-    configs = Map.new(labels, &{&1.id, &1.value_config})
+    assert {:ok, _} =
+             Labels.edit_resource(
+               %{type: "document", id: document.id},
+               [%{label_id: label.id, operation: "add", value: false, expected_version: 0}],
+               ctx.actor
+             )
+
     assert :ok = migrate(:down)
-    assert legacy_snapshot() == legacy
+    assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM document_label_assignments")
+    assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM chunk_label_assignments")
     assert :ok = migrate(:up)
-    assert Map.new(Repo.all(Label), &{&1.id, &1.value_config}) == configs
+    assert Repo.aggregate(Assignment, :count) == 0
+  end
 
-    original =
-      Repo.get_by!(Assignment,
-        resource_type: "document",
-        resource_id: to_string(ctx.document.id),
-        label_id: location
-      )
+  test "fresh labeling schemas migrate without an embedding table", ctx do
+    assert :ok = migrate(:down)
+    assert :ok = migrate(:down, CreateResourceLabels, @base_migration_version)
+    assert :ok = Chunk.drop_table()
+    assert :ok = migrate(:up, CreateResourceLabels, @base_migration_version)
+    assert :ok = migrate(:up)
+    assert Repo.aggregate(Assignment, :count) == 0
+    assert Repo.aggregate(Label, :count) == 0
+
+    {:ok, label} =
+      Labels.save_definition(%{name: "Fresh Boolean", resources: ["document"]}, ctx.actor)
 
     assert {:ok, _} =
              Labels.edit_resource(
                %{type: "document", id: ctx.document.id},
-               [
-                 %{
-                   label_id: location,
-                   operation: "add",
-                   value: legacy_option_id("Paris"),
-                   expected_version: original.lock_version
-                 }
-               ],
+               [%{label_id: label.id, operation: "add", value: false, expected_version: 0}],
                ctx.actor
              )
 
-    assert_raise Postgrex.Error, ~r/rollback would lose new or edited assignments/, fn ->
-      migrate(:down)
-    end
+    assert Repo.get_by!(Assignment, label_id: label.id).value == false
+    refute Chunk.table_exists?()
   end
 
-  defp migrate(direction),
-    do:
-      apply(Ecto.Migrator, direction, [
-        Repo,
-        @migration_version,
-        AlignTypedLabelAssignments,
-        @migration_opts
-      ])
-
-  defp insert_legacy_labels do
-    for name <- ["Legacy location", "Legacy note", "Legacy unused"] do
-      %{rows: [[id]]} =
-        Repo.query!(
-          "INSERT INTO labels (name, normalized_name, description, lock_version, inserted_at, updated_at) VALUES ($1::varchar, lower($1::varchar), 'Retained description', 4, '2020-01-02 03:04:05.123456', '2021-02-03 04:05:06.654321') RETURNING id",
-          [name]
-        )
-
-      Repo.query!(
-        "INSERT INTO label_targets (label_id, resource_type) VALUES ($1, 'document'), ($1, 'chunk')",
-        [id]
-      )
-
-      id
-    end
-  end
-
-  defp insert_legacy_assignment({type, resource_id, label_id, selected, value}) do
-    {table, key} =
-      if type == "document",
-        do: {"document_label_assignments", "document_id"},
-        else: {"chunk_label_assignments", "chunk_id"}
-
-    Repo.query!(
-      "INSERT INTO #{table} (label_id, #{key}, selected, origin, lock_version, value, inserted_at, updated_at) VALUES ($1, $2, $3, 'manual', 5, $4, '2020-01-02 03:04:05.123456', '2021-02-03 04:05:06.654321')",
-      [label_id, resource_id, selected, value]
-    )
-  end
-
-  defp legacy_snapshot do
-    for table <- ["labels", "document_label_assignments", "chunk_label_assignments"],
-        into: %{},
-        do: {table, Repo.query!("SELECT to_jsonb(row) FROM #{table} row ORDER BY id").rows}
-  end
-
-  defp legacy_option_id(nil), do: "legacy-unspecified"
-
-  defp legacy_option_id(value),
-    do: "legacy-value-" <> Base.encode16(:crypto.hash(:sha256, value), case: :lower)
+  defp migrate(direction, module \\ AlignTypedLabelAssignments, version \\ @migration_version),
+    do: apply(Ecto.Migrator, direction, [Repo, version, module, @migration_opts])
 end
