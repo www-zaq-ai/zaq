@@ -472,7 +472,6 @@ test.describe("System Config", () => {
 
     for (const boundary of ["0", "2"]) {
       test(`cosine distance boundary ${boundary} saves and persists`, async ({ page }) => {
-        await openRetrievalSettings(page)
         const field = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
         await field.fill(boundary)
         await field.press("Tab")
@@ -485,7 +484,6 @@ test.describe("System Config", () => {
 
     for (const invalid of ["-0.01", "2.01"]) {
       test(`cosine distance ${invalid} is rejected without changing persisted settings`, async ({ page }) => {
-        await openRetrievalSettings(page)
         const field = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
         const persisted = await field.evaluate(input => input.valueAsNumber)
         await field.fill(invalid)
