@@ -65,8 +65,8 @@ defmodule Zaq.Permissions.ResourcePermission do
     |> validate_required([:resource_type, :resource_id, :access_rights, :source_key])
     |> validate_target_present()
     |> validate_subset(:access_rights, @valid_rights)
-    |> foreign_key_constraint(:person_id)
-    |> foreign_key_constraint(:team_id)
+    |> foreign_key_constraint(:person_id, name: :permissions_person_id_fkey, match: :suffix)
+    |> foreign_key_constraint(:team_id, name: :permissions_team_id_fkey, match: :suffix)
     |> unique_constraint([:resource_type, :resource_id, :person_id, :source_key],
       name: :uix_resource_perm_person
     )

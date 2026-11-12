@@ -220,13 +220,30 @@ defmodule Zaq.Permissions do
           {:ok, [ResourcePermission.t()]} | {:error, term()}
   def replace(resource, desired_grants, opts \\ []) when is_list(desired_grants) do
     if manual_grants?(desired_grants) do
-      Repo.transaction(fn ->
-        revoke_existing(resource, opts)
-        grant_desired(resource, desired_grants)
-      end)
+      replace_direct(resource, desired_grants, "manual", opts)
     else
       {:error, :invalid_grant_source}
     end
+  end
+
+  @doc "Replaces one server-owned source's direct grants, preserving manual and other sources."
+  @spec replace_source(resource(), String.t(), [map()], keyword()) ::
+          {:ok, [ResourcePermission.t()]} | {:error, term()}
+  def replace_source(resource, source_key, desired_grants, opts \\ []) do
+    if is_binary(source_key) and source_key not in ["", "manual"] and
+         is_list(desired_grants) and manual_grants?(desired_grants) do
+      replace_direct(resource, desired_grants, source_key, opts, true)
+    else
+      {:error, :invalid_grant_source}
+    end
+  end
+
+  defp replace_direct(resource, desired_grants, source_key, opts, keep_existing? \\ false) do
+    Repo.transaction(fn ->
+      keep = if keep_existing?, do: MapSet.new(desired_grants, &principal_key/1)
+      revoke_existing(resource, source_key, keep, opts)
+      grant_desired(resource, Enum.map(desired_grants, &Map.put(&1, :source_key, source_key)))
+    end)
   end
 
   @doc """
@@ -255,14 +272,24 @@ defmodule Zaq.Permissions do
     end)
   end
 
-  defp revoke_existing(resource, opts) do
-    Enum.each(Enum.filter(list(resource), &(&1.source_key == "manual")), fn permission ->
+  defp revoke_existing(resource, source_key, keep, opts) do
+    resource
+    |> list()
+    |> Enum.filter(
+      &(&1.source_key == source_key and
+          (is_nil(keep) or not MapSet.member?(keep, principal_key(&1))))
+    )
+    |> Enum.each(fn permission ->
       case revoke(resource, permission, opts) do
         :ok -> :ok
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
+
+  defp principal_key(%{person_id: id}) when not is_nil(id), do: {:person, to_string(id)}
+  defp principal_key(%{team_id: id}) when not is_nil(id), do: {:team, to_string(id)}
+  defp principal_key(_), do: nil
 
   defp grant_desired(resource, desired_grants) do
     Enum.map(desired_grants, fn attrs ->

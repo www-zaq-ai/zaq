@@ -159,6 +159,7 @@ defmodule Zaq.Ingestion.Api do
   defp dispatch_event(:list_document_sources, %Event{request: %{query: query}} = event, _context)
        when is_binary(query) do
     ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
+
     %{event | response: ingestion_module.list_document_sources(query)}
   end
 
@@ -255,6 +256,17 @@ defmodule Zaq.Ingestion.Api do
        when is_list(affected_file_ids) do
     ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
 
+    # Channels sets this server-owned option only after a completed source
+    # mutation. Request fields cannot authorize cached source-grant invalidation.
+    sync_context =
+      event
+      |> TrustedContext.from_event()
+      |> Map.from_struct()
+      |> Map.put(
+        :source_acl_mutation_committed,
+        Keyword.get(event.opts, :source_acl_mutation_committed) == true
+      )
+
     %{
       event
       | response:
@@ -262,7 +274,7 @@ defmodule Zaq.Ingestion.Api do
             provider,
             config_id,
             affected_file_ids,
-            TrustedContext.from_event(event)
+            sync_context
           )
     }
   end

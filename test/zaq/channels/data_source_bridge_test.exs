@@ -1140,6 +1140,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                      }}
 
     assert projection_opts[:action] == :sync_data_source_permission_projection
+    assert projection_opts[:source_acl_mutation_committed] == true
   end
 
   test "replace_permissions returns unsupported when callback not implemented" do
@@ -1216,6 +1217,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                      }}
 
     assert projection_opts[:action] == :sync_data_source_permission_projection
+    assert projection_opts[:source_acl_mutation_committed] == true
   end
 
   test "update_permissions returns unsupported when callback is absent" do

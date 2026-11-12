@@ -7,6 +7,23 @@ defmodule Zaq.Channels.Events do
   alias Zaq.{Event, NodeRouter}
   alias Zaq.Events.Helper
 
+  @doc "Dispatches a confidential source-permission snapshot query."
+  @spec build_and_dispatch_data_source_list_permissions_event(String.t(), map(), keyword()) ::
+          Event.t()
+  def build_and_dispatch_data_source_list_permissions_event(provider, params, opts \\ []) do
+    opts =
+      Keyword.update(
+        opts,
+        :event_opts,
+        [confidential: true],
+        &Keyword.put(&1, :confidential, true)
+      )
+
+    provider
+    |> build_data_source_event(params, :data_source_list_permissions, opts)
+    |> node_router(opts).dispatch()
+  end
+
   @doc "Builds an authorized metadata-only source record context request."
   @spec build_data_source_record_context_event(map(), :read | :update, keyword()) :: Event.t()
   def build_data_source_record_context_event(source_ref, right, opts \\ []) do

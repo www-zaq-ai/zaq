@@ -1495,7 +1495,11 @@ defmodule Zaq.Channels.DataSourceBridge do
             affected_file_ids: affected_file_ids
           },
           :sync_data_source_permission_projection,
-          TrustedContext.event_builder_opts(context)
+          # Only this post-success path attests a completed source ACL mutation.
+          # Ingestion must never infer this authority from request parameters.
+          TrustedContext.event_builder_opts(context,
+            event_opts: [source_acl_mutation_committed: true, confidential: true]
+          )
         )
         |> Map.get(:response)
 

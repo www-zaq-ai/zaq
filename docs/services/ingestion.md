@@ -51,6 +51,26 @@ Persisted source-record `materialization_context` contains only the actor. The `
 module is a runtime dependency and is never serialized into new job data. Router injection
 remains available for immediate operations such as folder expansion and materialization.
 
+Source ACL projection is owned by `Zaq.Ingestion.ExternalPermissions`. Verified
+source Records use `apply/2`; incremental permission changes use `refresh/3` to
+read a trusted Channels snapshot. Both reconcile the same `source:` plus canonical
+document-source key, preserving manual sharing and unrelated sources. An empty
+snapshot revokes only that source; a missing (`nil`) snapshot changes no grants.
+Projection uses authenticated normalized permission fields, not unsigned owner or
+raw payload metadata. External `edit` becomes document `update`; move/create do
+not imply update. A checked failure rolls back the projection, and ingestion
+does not complete or enqueue chunk work after that failure. Existing historical
+manual grants retain their ownership; this path does not guess their origin.
+
+After a successful authorized source ACL mutation, Channels marks its internal
+sync Event with the server-owned `:source_acl_mutation_committed` option. Ingestion
+reads that option only from Event opts, never request parameters. It processes all
+affected indexed documents even when an earlier refresh fails; a failed confirmed
+refresh clears only that document's source-owned projection and returns the first
+sync error. Standalone refresh failures do not invalidate grants. There is no
+distributed transaction or automatic retry: routing failure before Ingestion
+receives the post-mutation Event remains an existing handoff limitation.
+
 **Job queries**
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID
