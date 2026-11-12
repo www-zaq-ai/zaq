@@ -5,6 +5,7 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
   import ZaqWeb.Components.DesignSystem.Input
   import ZaqWeb.Components.SearchableSelect
   alias ZaqWeb.Components.BOModal
+  alias ZaqWeb.Components.DesignSystem.LabelValue
 
   attr :labels, :list, required: true
   attr :selected, :any, required: true
@@ -82,6 +83,9 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
                 class="zaq-text-body-sm zaq-label-description"
                 style="color: var(--zaq-text-color-body-tertiary)"
               >{label.description}</span>
+              <span :if={LabelValue.status_text(label) != ""} class="zaq-text-body-sm">
+                {LabelValue.status_text(label)}
+              </span>
             </button>
             <p :if={@available_labels == []} class="zaq-text-body-sm p-4" role="status">
               No matching labels.
@@ -89,7 +93,7 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
           </div>
         </form>
         <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
-          Choose a label, then select an existing value or enter a new one.
+          Choose a label, then set its value.
         </p>
         <p :if={!@editable} class="zaq-text-body-sm">You have read-only access to these labels.</p>
         <p
@@ -105,7 +109,7 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
           <.label_choice
             :for={label <- @active_labels}
             label={label}
-            value={Map.get(@values, label.id, "")}
+            value={Map.get(@values, label.id, Map.get(label, :value))}
             suggestions={Map.get(@suggestions, label.id, [])}
             editable={@editable}
             target={@target}
@@ -161,6 +165,9 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
             class="zaq-text-body-sm zaq-label-description"
             style="color: var(--zaq-text-color-body-tertiary)"
           >{@label.description}</span>
+          <span :if={LabelValue.status_text(@label) != ""} class="zaq-text-body-sm">
+            {LabelValue.status_text(@label)}
+          </span>
         </span>
       </div>
       <form
@@ -170,7 +177,17 @@ defmodule ZaqWeb.Components.DesignSystem.LabelEditor do
         phx-target={@target}
       >
         <input type="hidden" name="label_id" value={@label.id} />
+        <LabelValue.value_input
+          :if={Map.has_key?(@label, :value_type)}
+          id={"label-value-#{@label.id}"}
+          definition={@label}
+          value={@value}
+          label={"Value for #{@label.name}"}
+          editable={@editable}
+          target={@target}
+        />
         <.searchable_select
+          :if={!Map.has_key?(@label, :value_type)}
           id={"label-value-#{@label.id}"}
           name="value"
           value={@value}

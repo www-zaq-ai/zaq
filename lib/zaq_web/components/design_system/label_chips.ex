@@ -2,16 +2,19 @@ defmodule ZaqWeb.Components.DesignSystem.LabelChips do
   @moduledoc "Selected category chips and the shared resource-editor entry point."
   use Phoenix.Component
   import ZaqWeb.Components.DesignSystem.Table, only: [table_badge: 1]
+  alias ZaqWeb.Components.DesignSystem.LabelValue
 
   attr :labels, :list, default: []
   attr :resource_id, :integer, required: true
   attr :resource_type, :string, default: "document"
 
   def label_chips(assigns) do
+    labels = Enum.reject(assigns.labels, &(Map.get(&1, :state) == :excluded))
+
     assigns =
       assigns
-      |> assign(:visible_labels, Enum.take(assigns.labels, 2))
-      |> assign(:hidden_count, max(length(assigns.labels) - 2, 0))
+      |> assign(:visible_labels, Enum.take(labels, 2))
+      |> assign(:hidden_count, max(length(labels) - 2, 0))
 
     ~H"""
     <div
@@ -20,11 +23,13 @@ defmodule ZaqWeb.Components.DesignSystem.LabelChips do
     >
       <.table_badge
         :for={label <- @visible_labels}
-        status={display_label(label)}
+        status={LabelValue.display_label(label)}
         tone={:neutral}
         class="zaq-label-chip"
       >
-        <span class="truncate" title={display_label(label)}>{display_label(label)}</span>
+        <span class="truncate" title={LabelValue.display_label(label)}>{LabelValue.display_label(
+          label
+        )}</span>
         <button
           type="button"
           class="zaq-label-chip-remove"
@@ -58,9 +63,4 @@ defmodule ZaqWeb.Components.DesignSystem.LabelChips do
     </div>
     """
   end
-
-  defp display_label(%{name: name, value: value}) when is_binary(value) and value != "",
-    do: "#{name}: #{value}"
-
-  defp display_label(label), do: label.name
 end

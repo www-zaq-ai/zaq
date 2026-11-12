@@ -1,10 +1,174 @@
 defmodule ZaqWeb.Components.LabelEditorTest do
   use ZaqWeb.ConnCase, async: true
+  use ExUnitProperties
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   alias Zaq.Ingestion.{Document, Labels}
   alias Zaq.Ingestion.Labels.DocumentAssignment
   alias ZaqWeb.Components.DesignSystem.LabelChips
+  alias ZaqWeb.Components.DesignSystem.LabelEditor, as: Editor
+  alias ZaqWeb.Components.DesignSystem.LabelValue
+
+  describe "typed presentation" do
+    property "rendered scalar controls round-trip native values without losing false or zero" do
+      check all(
+              value <-
+                one_of([
+                  boolean(),
+                  integer(),
+                  string(:alphanumeric, min_length: 1, max_length: 80)
+                ]),
+              max_runs: 30
+            ) do
+        definition =
+          cond do
+            is_boolean(value) ->
+              %{value_type: "boolean", value_config: %{}}
+
+            is_integer(value) ->
+              %{
+                value_type: "scale",
+                value_config: %{"min" => value, "max" => value + 1, "increment" => 1}
+              }
+
+            true ->
+              %{
+                value_type: "options",
+                value_config: %{"options" => [%{"id" => value, "label" => "Display"}]}
+              }
+          end
+
+        html =
+          render_component(&LabelValue.value_input/1,
+            definition: definition,
+            id: "round-trip",
+            value: value
+          )
+
+        [wire_value] = query_html(html, ~s(input[name="value"])) |> LazyHTML.attribute("value")
+        assert LabelValue.parse_input(definition, wire_value) == {:ok, value}
+      end
+    end
+
+    test "Boolean false and scale zero render as values with definition-owned controls" do
+      boolean = %{id: 91, name: "Approved", value_type: "boolean", value_config: %{}}
+
+      html =
+        render_component(&LabelValue.value_input/1,
+          definition: boolean,
+          id: "typed-boolean",
+          value: false
+        )
+
+      assert html =~ ~s(value="false")
+      assert html =~ ~s(data-select-label)
+
+      assert query_html(html, "[data-select-label]") |> LazyHTML.text() |> String.trim() ==
+               "False"
+
+      assert Enum.empty?(query_html(html, "[data-select-create]"))
+
+      scale = %{
+        id: 92,
+        name: "Score",
+        value_type: "scale",
+        value_config: %{"min" => -2, "max" => 10, "increment" => 0.5}
+      }
+
+      html =
+        render_component(&LabelValue.value_input/1,
+          definition: scale,
+          id: "typed-scale",
+          value: 0,
+          editable: false
+        )
+
+      assert Enum.count(
+               query_html(
+                 html,
+                 ~s(input[type="number"][value="0"][min="-2"][max="10"][step="0.5"][disabled])
+               )
+             ) == 1
+
+      assert LabelValue.display_label(Map.put(boolean, :value, false)) == "Approved: False"
+      assert LabelValue.display_label(Map.put(scale, :value, 0)) == "Score: 0"
+    end
+
+    test "defined options retain stable IDs and format display labels without creation" do
+      definition = %{
+        id: 93,
+        name: "Office",
+        value_type: "options",
+        value_config: %{"options" => [%{"id" => "office-1", "label" => "Paris <HQ>"}]}
+      }
+
+      html =
+        render_component(&LabelValue.value_input/1,
+          definition: definition,
+          id: "typed-options",
+          value: "office-1"
+        )
+
+      assert Enum.count(query_html(html, ~s([data-select-value="office-1"]))) == 1
+      assert html =~ "Paris &lt;HQ&gt;"
+      assert Enum.empty?(query_html(html, "[data-select-create]"))
+      assert LabelValue.format_value(definition, "office-1") == "Paris <HQ>"
+      assert LabelValue.parse_input(definition, "office-1") == {:ok, "office-1"}
+      # Serialization does not duplicate the domain's option-membership validation.
+      assert LabelValue.parse_input(definition, "unknown") == {:ok, "unknown"}
+    end
+
+    test "typed editor and chips distinguish pending from assigned and excluded" do
+      pending = %{
+        id: 94,
+        name: "Review",
+        description: "Awaiting evaluation",
+        value_type: "boolean",
+        value_config: %{},
+        value: nil,
+        state: :pending
+      }
+
+      excluded = %{pending | id: 95, name: "Excluded label", state: :excluded}
+
+      html =
+        render_component(&Editor.label_editor/1,
+          labels: [pending, excluded],
+          selected: MapSet.new([94]),
+          editable: true,
+          query: "Excluded"
+        )
+
+      assert query_html(html, "#active-resource-labels") |> LazyHTML.text() =~ "Pending automatic"
+      assert query_html(html, "#available-resource-labels") |> LazyHTML.text() =~ "Excluded"
+      assert Enum.empty?(query_html(html, "[data-select-create]"))
+
+      html =
+        render_component(&LabelChips.label_chips/1,
+          labels: [pending, excluded],
+          resource_id: 1
+        )
+
+      assert html =~ "Review: Pending automatic"
+      refute html =~ "Excluded label"
+      assert LabelValue.display_label(excluded) == "Excluded label: Excluded"
+    end
+
+    test "HTML parsing preserves native false and zero and leaves semantics to Ingestion" do
+      assert LabelValue.parse_input(%{value_type: "boolean"}, "false") == {:ok, false}
+      assert LabelValue.parse_input(%{value_type: "boolean"}, "true") == {:ok, true}
+      assert LabelValue.parse_input(%{value_type: "boolean"}, "other") == :error
+      assert LabelValue.parse_input(%{value_type: "scale"}, "0") == {:ok, 0}
+      assert LabelValue.parse_input(%{value_type: "scale"}, "-0.5") == {:ok, -0.5}
+      assert LabelValue.parse_input(%{value_type: "scale"}, "1e2") == {:ok, 100.0}
+      assert LabelValue.parse_input(%{value_type: "scale"}, "1oops") == :error
+      assert LabelValue.parse_input(%{value_type: "scale"}, "") == {:ok, nil}
+      assert LabelValue.parse_input(%{value_type: "scale"}, "999") == {:ok, 999}
+    end
+  end
+
+  defp query_html(html, selector),
+    do: html |> LazyHTML.from_fragment() |> LazyHTML.query(selector)
 
   setup do
     user = super_admin_fixture(%{must_change_password: false}) |> Zaq.Repo.preload(:role)
