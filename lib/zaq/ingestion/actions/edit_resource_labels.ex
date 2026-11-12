@@ -10,6 +10,15 @@ defmodule Zaq.Ingestion.Actions.EditResourceLabels do
 
   @impl Jido.Action
   def run(params, context) do
-    {:ok, %{result: Labels.edit_resource(params.resource, params.edits, context[:actor])}}
+    {:ok,
+     %{
+       result:
+         Labels.edit_resource(
+           params.resource,
+           params.edits,
+           context[:actor],
+           context[:opts] || []
+         )
+     }}
   end
 end

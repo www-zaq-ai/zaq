@@ -13,7 +13,8 @@ defmodule Zaq.Ingestion.Labels do
     Assignment,
     AssignmentValue,
     Label,
-    ResourceLabels
+    ResourceLabels,
+    SourceLabels
   }
 
   alias Zaq.Repo
@@ -194,10 +195,21 @@ defmodule Zaq.Ingestion.Labels do
   end
 
   @spec resource_editor(map(), map() | nil) :: {:ok, map()} | {:error, term()}
-  defdelegate resource_editor(resource, actor), to: ResourceLabels, as: :editor
+  def resource_editor(resource, actor, opts \\ [])
+
+  def resource_editor(%{type: "source"} = resource, actor, opts),
+    do: SourceLabels.editor(resource, actor, opts)
+
+  def resource_editor(resource, actor, _opts), do: ResourceLabels.editor(resource, actor)
 
   @spec edit_resource(map(), list(), map() | nil) :: {:ok, map()} | {:error, term()}
-  defdelegate edit_resource(resource, edits, actor), to: ResourceLabels, as: :edit
+  def edit_resource(resource, edits, actor, opts \\ [])
+
+  def edit_resource(%{type: "source"} = resource, edits, actor, opts),
+    do: SourceLabels.edit(resource, edits, actor, opts)
+
+  def edit_resource(resource, edits, actor, opts),
+    do: ResourceLabels.edit(resource, edits, actor, Keyword.delete(opts, :source_context))
 
   @doc "Returns permitted existing assignment values for the value picker."
   defdelegate value_suggestions(resource, label_id, query, actor), to: ResourceLabels

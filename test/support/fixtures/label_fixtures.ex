@@ -28,8 +28,11 @@ defmodule Zaq.LabelFixtures do
     do: %{"options" => Enum.map(values, &%{"id" => &1, "label" => &1})}
 
   @doc "Dispatches a confidential Ingestion event with the supplied actor."
-  def label_event(action, request, actor) do
-    Event.new(request, :ingestion, actor: actor, opts: [action: action, confidential: true])
+  def label_event(action, request, actor, opts \\ []) do
+    Event.new(request, :ingestion,
+      actor: actor,
+      opts: Keyword.merge(opts, action: action, confidential: true)
+    )
     |> Api.handle_event(action, nil)
     |> Map.fetch!(:response)
   end

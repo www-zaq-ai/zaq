@@ -479,6 +479,22 @@ If a change touches one of these areas and no property test is added, document t
 
 ## Manual category labels
 
+Source files use the same editor and mutation Events with
+`resource: %{type: "source", source_ref: %{provider: provider, config_id: config_id, record_id: id}}`.
+Opening the editor reads current Channels metadata and permissions without creating
+a Document or refreshing its grants. Its projection includes the canonical source
+selector, `source_kind` and `document_id` (`nil` before the first Save or ingestion).
+Source read authority controls visibility; update authority controls editing.
+
+Save resolves source authority again and atomically ensures the canonical Document,
+applies the shared checked source ACL projection and saves versioned typed decisions.
+Existing content and metadata remain intact. Identity follows `ExternalSource.source/1`,
+the same key used by ingestion and provider browsing. No content conversion, chunks,
+ingestion jobs or model configuration are required. Folders are rejected by this
+file flow. Unwatched Documents and their assignments retain the existing Document
+deletion policy; a removed source denies further source-selector access, and actual
+Document deletion clears assignments through foreign keys.
+
 Agent metadata discovery reads use the confidential `:query_resources` Event.
 `Zaq.Ingestion.ResourceQuery` accepts only `document` and `label` resource keys,
 resolves server-owned descriptors and executes the complete query on Ingestion.

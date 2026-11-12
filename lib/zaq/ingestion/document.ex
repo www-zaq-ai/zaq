@@ -99,6 +99,9 @@ defmodule Zaq.Ingestion.Document do
 
       {:ok, %__MODULE__{} = doc} ->
         {:ok, doc}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 

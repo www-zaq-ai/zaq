@@ -525,6 +525,34 @@ defmodule Zaq.Ingestion.Labels.ResourceLabelsTest do
                Labels.resource_editor(%{type: "document", id: document.id}, actor)
 
       assert Labels.document_chips([document.source], actor) == {:ok, %{}}
+
+      manager = %{user_id: super_admin_fixture(%{must_change_password: false}).id}
+      {:ok, label} = label_definition(manager, %{resources: ["document"]})
+      resource = %{type: "document", id: document.id}
+
+      assert {:ok, _} =
+               Labels.edit_resource(
+                 resource,
+                 [%{label_id: label.id, operation: "add", value: false, expected_version: 0}],
+                 manager
+               )
+
+      edits = [%{label_id: label.id, operation: "add", value: true, expected_version: 1}]
+
+      assert {:ok, %{result: {:error, :forbidden}}} =
+               Jido.Exec.run(
+                 Zaq.Ingestion.Actions.EditResourceLabels,
+                 %{resource: resource, edits: edits},
+                 %{actor: actor}
+               )
+
+      assert %{value: false, lock_version: 1} =
+               Repo.get_by!(Assignment, document_id: document.id, label_id: label.id)
+
+      assert {:ok, :ok} = ResourceLabels.edit(resource, edits, actor, return_projection: false)
+
+      assert %{value: true, lock_version: 2} =
+               Repo.get_by!(Assignment, document_id: document.id, label_id: label.id)
     end
   end
 

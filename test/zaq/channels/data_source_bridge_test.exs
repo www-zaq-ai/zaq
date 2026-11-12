@@ -3,6 +3,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.People
+  alias Zaq.AccountsFixtures
+  alias Zaq.Channels.Api, as: ChannelsApi
   alias Zaq.Channels.{Bridge, DataSourceBridge, DiskBridge, EmailBridge}
   alias Zaq.CommunicationFixtures
   alias Zaq.Contracts.Record
@@ -11,8 +13,15 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
-  alias Zaq.Ingestion.ExternalSource
+  alias Zaq.Ingestion
+  alias Zaq.Ingestion.{Document, ExternalSource, IngestJob, RecordSource}
+  alias Zaq.Ingestion.Labels.Assignment
+  alias Zaq.LabelFixtures
+  alias Zaq.NodeRouterMock
+  alias Zaq.Permissions
   alias Zaq.Repo
+  alias Zaq.Storage
+  alias Zaq.Storage.{EntryCatalog, StorageEntry, VolumeConfig}
 
   defmodule ProjectionSyncRouter do
     def dispatch(%Event{} = event) do
@@ -325,6 +334,383 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       assert_received {:context_metadata, "near"}
       assert_received {:context_metadata, "root"}
       refute_received {:context_metadata, _}
+    end
+
+    test "source label open is read-only and Save ensures identity, ACL and typed values",
+         state do
+      {actor, label, resource} = source_label_fixture(state)
+      jobs = Repo.aggregate(IngestJob, :count)
+      background_jobs = Repo.aggregate(Oban.Job, :count)
+
+      assert {:ok, opened} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      assert opened.document_id == nil
+      assert opened.source_kind == :file
+      assert opened.resource.source_ref.config_id == to_string(state.reference.config_id)
+      assert opened.editable?
+
+      assert opened.labels |> Enum.find(&(&1.id == label.id)) |> Map.fetch!(:expected_version) ==
+               0
+
+      refute Repo.get_by(Document, source: source_label_key(state.reference))
+
+      assert_received {:source_label_context, event}
+      assert event.opts[:confidential]
+      assert event.opts[:skip_permissions] == false
+      refute Map.has_key?(event.actor, :skip_permissions)
+
+      request = %{
+        resource: resource,
+        edits: [%{label_id: label.id, operation: "add", value: false, expected_version: 0}]
+      }
+
+      assert {:ok, saved} = source_label_event(:edit_resource_labels, request, actor)
+      document = Document.get_by_source(source_label_key(state.reference))
+      assert saved.document_id == document.id
+      assert saved.resource == opened.resource
+      assert document.content == nil
+      assert document.metadata["provider_file_id"] == "file"
+
+      assert %{value: false, selected: true, expected_version: 1} =
+               Enum.find(saved.labels, &(&1.id == label.id))
+
+      assert [grant] = Permissions.list_direct(document)
+      assert grant.person_id == actor.person_id
+      assert grant.source_key == "source:" <> document.source
+      assert Enum.sort(grant.access_rights) == ["read", "update"]
+      assert Repo.aggregate(IngestJob, :count) == jobs
+      assert Repo.aggregate(Oban.Job, :count) == background_jobs
+
+      assert {:error, :stale} = source_label_event(:edit_resource_labels, request, actor)
+
+      assert {:ok, ingested} =
+               Document.upsert(%{
+                 source: document.source,
+                 content: "ingested content",
+                 metadata: %{"ingested" => true}
+               })
+
+      assert ingested.id == document.id
+
+      assert {:ok, reopened} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      assert reopened.document_id == document.id
+      assert Enum.find(reopened.labels, &(&1.id == label.id)).value == false
+      assert Document.get(document.id).content == "ingested content"
+      assert Document.get(document.id).metadata == %{"ingested" => true}
+    end
+
+    test "source label Save rechecks current rights and ignores actor bypass", state do
+      {actor, label, resource} = source_label_fixture(state)
+
+      request = %{
+        resource: resource,
+        edits: [%{label_id: label.id, operation: "add", value: true, expected_version: 0}]
+      }
+
+      assert {:ok, %{editable?: true}} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      records = Process.get(:context_records)
+      [permission] = records["file"].permissions
+      read_only = put_in(permission.attributes["access_rights"], ["read"])
+
+      Process.put(
+        :context_records,
+        Map.update!(records, "file", &%{&1 | permissions: [read_only]})
+      )
+
+      assert {:ok, %{editable?: false}} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      assert {:error, :unauthorized} = source_label_event(:edit_resource_labels, request, actor)
+      refute Document.get_by_source(source_label_key(state.reference))
+
+      Process.put(:context_records, Map.update!(records, "file", &%{&1 | permissions: []}))
+      assert {:error, :unauthorized} = source_label_event(:edit_resource_labels, request, actor)
+
+      assert {:error, :unauthorized} =
+               source_label_event(:get_resource_labels, %{resource: resource}, nil)
+
+      refute Document.get_by_source(source_label_key(state.reference))
+    end
+
+    test "invalid source label decisions roll identity and source grants back together", state do
+      {actor, label, resource} = source_label_fixture(state)
+
+      request = %{
+        resource: resource,
+        edits: [%{label_id: label.id, operation: "add", value: "invalid", expected_version: 0}]
+      }
+
+      assert {:error, :invalid_value} = source_label_event(:edit_resource_labels, request, actor)
+      refute Document.get_by_source(source_label_key(state.reference))
+
+      records = Process.get(:context_records)
+      [permission] = records["file"].permissions
+
+      unsupported =
+        put_in(permission.attributes["access_rights"], ["read", "edit", "unsupported"])
+
+      Process.put(
+        :context_records,
+        Map.update!(records, "file", &%{&1 | permissions: [unsupported]})
+      )
+
+      valid_request =
+        put_in(request.edits, [
+          %{label_id: label.id, operation: "add", value: true, expected_version: 0}
+        ])
+
+      assert {:error, {:permission_projection_failed, :unsupported_access_rights}} =
+               source_label_event(:edit_resource_labels, valid_request, actor)
+
+      refute Document.get_by_source(source_label_key(state.reference))
+      Process.put(:context_records, records)
+
+      {:ok, document} =
+        Document.create(%{
+          source: source_label_key(state.reference),
+          content: "preserved"
+        })
+
+      {:ok, _} =
+        Permissions.grant(document, %{
+          person_id: actor.person_id,
+          access_rights: ["read"],
+          source_key: "source:" <> document.source
+        })
+
+      assert {:ok, %{editable?: true}} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      assert [unchanged] = Permissions.list_direct(document)
+      assert unchanged.access_rights == ["read"]
+
+      assert {:error, :invalid_value} = source_label_event(:edit_resource_labels, request, actor)
+      assert [grant] = Permissions.list_direct(document)
+      assert grant.access_rights == ["read"]
+      assert Document.get(document.id).content == "preserved"
+      refute Repo.get_by(Assignment, document_id: document.id)
+    end
+
+    test "source labels reject unavailable records, folders and cross-config identities", state do
+      {actor, _label, resource} = source_label_fixture(state)
+      records = Process.get(:context_records)
+
+      Process.put(
+        :context_records,
+        Map.update!(records, "file", &%{&1 | lifecycle_state: :deleted})
+      )
+
+      assert {:error, :not_found} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      Process.put(:context_records, Map.update!(records, "file", &%{&1 | kind: :folder}))
+
+      assert {:error, :unsupported_resource_kind} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      Process.put(:context_records, records)
+      other = put_in(resource.source_ref.provider, "sharepoint")
+      assert {:error, _} = source_label_event(:get_resource_labels, %{resource: other}, actor)
+      refute Document.get_by_source(source_label_key(state.reference))
+    end
+
+    test "source ensure isolates identical provider record IDs by config and provider", state do
+      {actor, label, resource} = source_label_fixture(state)
+
+      configure_channels(%{
+        google_drive: %{bridge: ContextBridge},
+        sharepoint: %{bridge: ContextBridge}
+      })
+
+      other_config = insert_data_source_config(:google_drive)
+      other_provider = insert_data_source_config(:sharepoint)
+
+      resources = [
+        resource,
+        put_in(resource.source_ref.config_id, other_config.id),
+        %{
+          resource
+          | source_ref: %{provider: "sharepoint", config_id: other_provider.id, record_id: "file"}
+        }
+      ]
+
+      ids =
+        Enum.map(resources, fn selector ->
+          assert {:ok, saved} =
+                   source_label_event(
+                     :edit_resource_labels,
+                     %{
+                       resource: selector,
+                       edits: [
+                         %{label_id: label.id, operation: "add", value: true, expected_version: 0}
+                       ]
+                     },
+                     actor
+                   )
+
+          assert {:ok, reopened} =
+                   source_label_event(:get_resource_labels, %{resource: selector}, actor)
+
+          assert reopened.document_id == saved.document_id
+          saved.document_id
+        end)
+
+      assert length(Enum.uniq(ids)) == 3
+    end
+
+    test "source-only identities follow Document retention and deletion cleanup", state do
+      {actor, label, resource} = source_label_fixture(state)
+
+      assert {:ok, saved} =
+               source_label_event(
+                 :edit_resource_labels,
+                 %{
+                   resource: resource,
+                   edits: [
+                     %{label_id: label.id, operation: "add", value: true, expected_version: 0}
+                   ]
+                 },
+                 actor
+               )
+
+      document = Document.get(saved.document_id)
+
+      tombstone = %{
+        provider: resource.source_ref.provider,
+        config_id: to_string(resource.source_ref.config_id),
+        signals: [%{removed?: true, id: "file"}]
+      }
+
+      assert {:ok, %{removed: 0}} = Ingestion.process_data_source_changes(tombstone)
+      assert Document.get(document.id)
+
+      assert Repo.get_by(Assignment,
+               document_id: document.id,
+               label_id: label.id
+             )
+
+      Process.put(:context_records, %{})
+
+      assert {:error, :not_found} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      document |> Document.changeset(%{watch_status: "watched"}) |> Repo.update!()
+      assert {:ok, %{removed: 1}} = Ingestion.process_data_source_changes(tombstone)
+      refute Document.get(document.id)
+      refute Repo.get_by(Assignment, document_id: document.id)
+    end
+
+    test "source bypass derives from the current BO role instead of stale actor flags", state do
+      {_actor, label, resource} = source_label_fixture(state)
+      user = AccountsFixtures.super_admin_fixture(%{must_change_password: false})
+      actor = %{user_id: user.id, skip_permissions: true}
+
+      Process.put(
+        :context_records,
+        Map.new(state.records, fn {id, record} -> {id, %{record | permissions: []}} end)
+      )
+
+      request = %{
+        resource: resource,
+        edits: [%{label_id: label.id, operation: "add", value: false, expected_version: 0}]
+      }
+
+      assert {:ok, saved} = source_label_event(:edit_resource_labels, request, actor)
+      assert_received {:source_label_context, %{opts: opts}}
+      assert opts[:skip_permissions]
+
+      role = AccountsFixtures.role_fixture(%{name: "source-reader"})
+      {:ok, _} = Zaq.Accounts.update_user(user, %{role_id: role.id})
+
+      assert {:error, :unauthorized} =
+               source_label_event(:get_resource_labels, %{resource: resource}, actor)
+
+      assert Repo.get_by!(Assignment,
+               document_id: saved.document_id,
+               label_id: label.id
+             ).value == false
+    end
+
+    test "Disk source Save reuses the canonical ingestion identity and preserves local-path documents",
+         state do
+      {actor, label, _resource} = source_label_fixture(state)
+      configure_channels(%{disk: %{bridge: DiskBridge}})
+
+      root =
+        Path.join(System.tmp_dir!(), "source-label-disk-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(Path.join(root, "docs"))
+      File.write!(Path.join(root, "docs/file.md"), "source bytes")
+      previous = Application.get_env(:zaq, Zaq.Storage)
+
+      Application.put_env(:zaq, Zaq.Storage,
+        base_path: root,
+        volumes: %{"docs" => Path.join(root, "docs")}
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Storage, previous || [])
+        File.rm_rf!(root)
+      end)
+
+      config = insert_data_source_config(:disk)
+      {:ok, storage_opts} = VolumeConfig.opts_for_channel_config(config)
+      {:ok, file} = Storage.file_info("docs", "file.md", storage_opts)
+      root_entry = EntryCatalog.get_active("docs", "")
+
+      {:ok, _} =
+        Permissions.grant(%StorageEntry{id: root_entry.id}, %{
+          person_id: actor.person_id,
+          access_rights: ["read", "update"]
+        })
+
+      {:ok, local} =
+        Document.create(%{
+          source: "docs/file.md",
+          content: "historic local content"
+        })
+
+      reference = %{provider: "disk", config_id: config.id, record_id: file.id}
+      resource = %{type: "source", source_ref: reference}
+
+      {:ok, source_context} =
+        DataSourceBridge.record_context(reference, :read, %{
+          actor: Map.drop(actor, [:skip_permissions])
+        })
+
+      source = RecordSource.job_path(source_context.record)
+
+      {:ok, ingested} =
+        Document.create(%{
+          source: source,
+          content: "existing ingestion",
+          metadata: %{"existing" => true}
+        })
+
+      assert {:ok, saved} =
+               source_label_event(
+                 :edit_resource_labels,
+                 %{
+                   resource: resource,
+                   edits: [
+                     %{label_id: label.id, operation: "add", value: false, expected_version: 0}
+                   ]
+                 },
+                 actor
+               )
+
+      assert saved.document_id == ingested.id
+      assert Document.get(ingested.id).content == "existing ingestion"
+      assert Document.get(ingested.id).metadata == %{"existing" => true}
+      assert Document.get(local.id).content == "historic local content"
+      assert {:ok, statuses} = Ingestion.enrich_records([source_context.record])
+      assert statuses[source].document_id == ingested.id
+      assert File.read!(Path.join(root, "docs/file.md")) == "source bytes"
     end
 
     test "source context requires identity even with explicit bypass", state do
@@ -684,6 +1070,54 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   end
 
   defp actor_context(person), do: %{actor: %{person: %{id: person.id}}}
+
+  defp source_label_fixture(state) do
+    person = People.get_person(state.context.actor.person.id)
+    user = AccountsFixtures.staff_fixture(%{must_change_password: false})
+    actor = %{user_id: user.id, person_id: person.id, skip_permissions: true}
+    manager = AccountsFixtures.super_admin_fixture(%{must_change_password: false})
+
+    {:ok, label} =
+      LabelFixtures.label_definition(%{user_id: manager.id}, %{resources: ["document"]})
+
+    permission = %Record{
+      id: "canonical-source-access",
+      kind: :permission,
+      attributes: %{
+        "principal_type" => "email",
+        "principal_key" => person.email,
+        "email" => person.email,
+        "access_rights" => ["read", "edit"]
+      }
+    }
+
+    Process.put(
+      :context_records,
+      Map.new(state.records, fn {id, record} -> {id, %{record | permissions: [permission]}} end)
+    )
+
+    {actor, label, %{type: "source", source_ref: state.reference}}
+  end
+
+  defp source_label_event(action, request, actor) do
+    records = Process.get(:context_records)
+    owner = self()
+
+    Mox.stub(NodeRouterMock, :dispatch, fn event ->
+      Process.put(:context_records, records)
+      send(owner, {:source_label_context, event})
+      ChannelsApi.handle_event(event, event.opts[:action], nil)
+    end)
+
+    LabelFixtures.label_event(action, request, actor, node_router: NodeRouterMock)
+  end
+
+  defp source_label_key(reference),
+    do:
+      Enum.join(
+        ["data_source", reference.provider, reference.config_id, reference.record_id],
+        "/"
+      )
 
   defp use_record_returning_bridge do
     configure_channels(%{

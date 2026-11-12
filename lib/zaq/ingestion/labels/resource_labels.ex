@@ -8,7 +8,8 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
   """
   import Ecto.Query
   alias Zaq.Accounts.People
-  alias Zaq.Ingestion.{Chunk, Document}
+  alias Zaq.Contracts.SourceRecordContext
+  alias Zaq.Ingestion.{Chunk, Document, ExternalSource}
 
   alias Zaq.Ingestion.Labels.{
     Access,
@@ -60,14 +61,45 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
     end
   end
 
-  @spec editor(map(), map() | nil) :: {:ok, map()} | {:error, atom()}
-  def editor(resource, actor) do
+  @doc """
+  Returns typed decisions after BO authorization.
+
+  SourceLabels may supply an already-authorized `source_context` in internal opts;
+  it owns fresh source read authority and capability checks. The Labels facade
+  never accepts this option for ordinary document/chunk selectors or from request
+  fields. This path projects missing source identities without persisting them.
+  """
+  @spec editor(map(), map() | nil, keyword()) :: {:ok, map()} | {:error, atom()}
+  def editor(resource, actor, opts \\ []) do
+    source_context = Keyword.get(opts, :source_context)
+
     with {:ok, _} <- Access.user(actor),
-         {:ok, resource} <- resolve(resource),
-         :ok <- Access.resource(actor, resource.document, :read) do
-      {:ok, projection(resource, Access.resource(actor, resource.document, :update) == :ok)}
+         {:ok, resource} <- editor_resource(resource, source_context),
+         :ok <- editor_read_access(actor, resource, source_context) do
+      {:ok,
+       projection(
+         resource,
+         is_nil(source_context) and Access.resource(actor, resource.document, :update) == :ok
+       )}
     end
   end
+
+  defp editor_resource(%{type: "document"}, %SourceRecordContext{} = context) do
+    source = ExternalSource.source(context.record)
+
+    document =
+      Document.get_by_source(source) || %Document{source: source, title: context.record.name}
+
+    {:ok, %{type: "document", id: document.id, document: document, source_context: context}}
+  end
+
+  defp editor_resource(resource, nil), do: resolve(resource)
+  defp editor_resource(_, _), do: {:error, :invalid_resource}
+
+  defp editor_read_access(_actor, _resource, %SourceRecordContext{}), do: :ok
+
+  defp editor_read_access(actor, resource, nil),
+    do: Access.resource(actor, resource.document, :read)
 
   @doc """
   Applies versioned assignment edits atomically and returns the editor projection.
@@ -78,9 +110,12 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
   @spec edit(map(), list(), map() | nil) :: {:ok, map()} | {:error, term()}
   @spec edit(map(), list(), map() | nil, keyword()) :: {:ok, map() | :ok} | {:error, term()}
   def edit(resource, edits, actor, opts \\ []) do
+    return_projection? = Keyword.get(opts, :return_projection, true)
+
     with {:ok, _} <- Access.user(actor),
          {:ok, resource} <- resolve(resource),
          :ok <- Access.resource(actor, resource.document, :update),
+         :ok <- projection_read_access(actor, resource.document, return_projection?),
          :ok <- validate_edits(edits) do
       Repo.transaction(fn ->
         Repo.one(
@@ -92,12 +127,16 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
           Repo.rollback(:not_found)
 
         # Revalidate permissions after acquiring the serialization lock.
-        authorize_write!(actor, resource.document)
+        authorize_write!(actor, resource.document, return_projection?)
 
         definitions = lock_definitions!(edits)
         lock_chunk!(resource)
         Enum.each(edits, &apply_edit!(resource, &1, definitions, actor))
-        edit_result(resource, Keyword.get(opts, :return_projection, true))
+
+        edit_result(
+          Map.put(resource, :source_context, Keyword.get(opts, :source_context)),
+          return_projection?
+        )
       end)
     end
   end
@@ -105,9 +144,14 @@ defmodule Zaq.Ingestion.Labels.ResourceLabels do
   defp edit_result(resource, true), do: projection(resource, true)
   defp edit_result(_resource, false), do: :ok
 
-  defp authorize_write!(actor, document) do
-    case Access.resource(actor, document, :update) do
-      :ok -> :ok
+  defp projection_read_access(actor, document, true), do: Access.resource(actor, document, :read)
+  defp projection_read_access(_actor, _document, false), do: :ok
+
+  defp authorize_write!(actor, document, return_projection?) do
+    with :ok <- Access.resource(actor, document, :update),
+         :ok <- projection_read_access(actor, document, return_projection?) do
+      :ok
+    else
       {:error, reason} -> Repo.rollback(reason)
     end
   end

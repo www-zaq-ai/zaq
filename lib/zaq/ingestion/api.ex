@@ -65,7 +65,7 @@ defmodule Zaq.Ingestion.Api do
       end
 
     response =
-      case Jido.Exec.run(module, request, %{actor: event.actor}) do
+      case Jido.Exec.run(module, request, %{actor: event.actor, opts: event.opts}) do
         {:ok, %{result: result}} -> result
         {:error, _} = error -> error
       end
@@ -90,7 +90,7 @@ defmodule Zaq.Ingestion.Api do
          %Event{request: %{resource: resource}} = event,
          _context
        ) do
-    %{event | response: Labels.resource_editor(resource, event.actor)}
+    %{event | response: Labels.resource_editor(resource, event.actor, event.opts)}
   end
 
   defp dispatch_event(:label_value_summaries, %Event{request: %{ids: ids}} = event, _context) do
