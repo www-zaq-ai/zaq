@@ -20,101 +20,104 @@ defmodule Zaq.Agent.Tools.Resources.Registry do
         }
 
   @resources [
-    %{
-      key: "agent",
-      module: Zaq.Agent.ConfiguredAgent,
-      public?: true,
-      fields:
-        ~w(id name description job model enabled_tool_keys enabled_mcp_endpoint_ids enabled_skill_ids conversation_enabled strategy active inserted_at updated_at)a,
-      search_fields: ~w(name description job model)a,
-      filter_fields: ~w(active conversation_enabled strategy model credential_id)a,
-      sort_fields: ~w(id name model active inserted_at updated_at)a,
-      default_sort: :name,
-      max_limit: 100
-    },
-    %{
-      key: "mcp",
-      module: Zaq.Agent.MCP.Endpoint,
-      public?: true,
-      fields: ~w(id name type status timeout_ms predefined_id inserted_at updated_at)a,
-      search_fields: ~w(name type status predefined_id)a,
-      filter_fields: ~w(type status predefined_id)a,
-      sort_fields: ~w(id name type status inserted_at updated_at)a,
-      default_sort: :name,
-      max_limit: 100
-    },
-    %{
-      key: "skill",
-      module: Zaq.Agent.Skill,
-      public?: true,
-      fields:
-        ~w(id name description provided_tool_keys allowed_tools enabled_mcp_endpoint_ids resource_root tags active inserted_at updated_at)a,
-      search_fields: ~w(name description tags)a,
-      filter_fields: ~w(active provided_tool_keys allowed_tools enabled_mcp_endpoint_ids tags)a,
-      sort_fields: ~w(id name active inserted_at updated_at)a,
-      default_sort: :name,
-      max_limit: 100
-    },
-    %{
-      key: "user",
-      module: Zaq.Accounts.User,
-      public?: false,
-      fields:
-        ~w(id username email role_id must_change_password portal_consent inserted_at updated_at)a,
-      search_fields: ~w(username email portal_consent)a,
-      filter_fields: ~w(role_id must_change_password portal_consent)a,
-      sort_fields: ~w(id username email inserted_at updated_at)a,
-      default_sort: :username,
-      max_limit: 100
-    },
-    %{
-      key: "person",
-      module: Zaq.Accounts.Person,
-      public?: false,
-      fields:
-        ~w(id full_name email phone role status incomplete team_ids channels inserted_at updated_at)a,
-      search_fields: ~w(full_name email phone role status)a,
-      filter_fields: ~w(status role incomplete team_ids)a,
-      sort_fields: ~w(id full_name email status inserted_at updated_at)a,
-      default_sort: :full_name,
-      max_limit: 100
-    },
-    %{
-      key: "ai_provider",
-      module: Zaq.System.AIProviderCredential,
-      public?: false,
-      fields: ~w(id name provider endpoint sovereign description inserted_at updated_at)a,
-      search_fields: ~w(name provider endpoint description)a,
-      filter_fields: ~w(provider sovereign)a,
-      sort_fields: ~w(id name provider sovereign inserted_at updated_at)a,
-      default_sort: :name,
-      max_limit: 100
-    },
-    %{
-      key: "channel_config",
-      module: Zaq.Engine.ChannelConfig,
-      public?: false,
-      fields: ~w(id name provider kind url enabled retrieval_channels inserted_at updated_at)a,
-      search_fields: ~w(name provider kind url retrieval_channels)a,
-      filter_fields: ~w(provider kind enabled)a,
-      sort_fields: ~w(id name provider kind enabled inserted_at updated_at)a,
-      default_sort: :name,
-      max_limit: 100
-    },
-    %{
-      key: "incoming_message_routing_rule",
-      module: Zaq.Engine.IncomingMessageRoutingRule,
-      public?: false,
-      fields:
-        ~w(id person_id channel_config_id retrieval_channel_id configured_agent_id topic_id routing_mode inserted_at updated_at)a,
-      search_fields: ~w(person_id channel_config_id topic_id routing_mode)a,
-      filter_fields:
-        ~w(person_id channel_config_id retrieval_channel_id configured_agent_id topic_id routing_mode)a,
-      sort_fields: ~w(id inserted_at updated_at)a,
-      default_sort: :id,
-      max_limit: 100
-    }
-  ]
+               %{
+                 key: "agent",
+                 module: Zaq.Agent.ConfiguredAgent,
+                 public?: true,
+                 fields:
+                   ~w(id name description job model enabled_tool_keys enabled_mcp_endpoint_ids enabled_skill_ids conversation_enabled strategy active inserted_at updated_at)a,
+                 search_fields: ~w(name description job model)a,
+                 filter_fields: ~w(active conversation_enabled strategy model credential_id)a,
+                 sort_fields: ~w(id name model active inserted_at updated_at)a,
+                 default_sort: :name,
+                 max_limit: 100
+               },
+               %{
+                 key: "mcp",
+                 module: Zaq.Agent.MCP.Endpoint,
+                 public?: true,
+                 fields: ~w(id name type status timeout_ms predefined_id inserted_at updated_at)a,
+                 search_fields: ~w(name type status predefined_id)a,
+                 filter_fields: ~w(type status predefined_id)a,
+                 sort_fields: ~w(id name type status inserted_at updated_at)a,
+                 default_sort: :name,
+                 max_limit: 100
+               },
+               %{
+                 key: "skill",
+                 module: Zaq.Agent.Skill,
+                 public?: true,
+                 fields:
+                   ~w(id name description provided_tool_keys allowed_tools enabled_mcp_endpoint_ids resource_root tags active inserted_at updated_at)a,
+                 search_fields: ~w(name description tags)a,
+                 filter_fields:
+                   ~w(active provided_tool_keys allowed_tools enabled_mcp_endpoint_ids tags)a,
+                 sort_fields: ~w(id name active inserted_at updated_at)a,
+                 default_sort: :name,
+                 max_limit: 100
+               },
+               %{
+                 key: "user",
+                 module: Zaq.Accounts.User,
+                 public?: false,
+                 fields:
+                   ~w(id username email role_id must_change_password portal_consent inserted_at updated_at)a,
+                 search_fields: ~w(username email portal_consent)a,
+                 filter_fields: ~w(role_id must_change_password portal_consent)a,
+                 sort_fields: ~w(id username email inserted_at updated_at)a,
+                 default_sort: :username,
+                 max_limit: 100
+               },
+               %{
+                 key: "person",
+                 module: Zaq.Accounts.Person,
+                 public?: false,
+                 fields:
+                   ~w(id full_name email phone role status incomplete team_ids channels inserted_at updated_at)a,
+                 search_fields: ~w(full_name email phone role status)a,
+                 filter_fields: ~w(status role incomplete team_ids)a,
+                 sort_fields: ~w(id full_name email status inserted_at updated_at)a,
+                 default_sort: :full_name,
+                 max_limit: 100
+               },
+               %{
+                 key: "ai_provider",
+                 module: Zaq.System.AIProviderCredential,
+                 public?: false,
+                 fields:
+                   ~w(id name provider endpoint sovereign description inserted_at updated_at)a,
+                 search_fields: ~w(name provider endpoint description)a,
+                 filter_fields: ~w(provider sovereign)a,
+                 sort_fields: ~w(id name provider sovereign inserted_at updated_at)a,
+                 default_sort: :name,
+                 max_limit: 100
+               },
+               %{
+                 key: "channel_config",
+                 module: Zaq.Engine.ChannelConfig,
+                 public?: false,
+                 fields:
+                   ~w(id name provider kind url enabled retrieval_channels inserted_at updated_at)a,
+                 search_fields: ~w(name provider kind url retrieval_channels)a,
+                 filter_fields: ~w(provider kind enabled)a,
+                 sort_fields: ~w(id name provider kind enabled inserted_at updated_at)a,
+                 default_sort: :name,
+                 max_limit: 100
+               },
+               %{
+                 key: "incoming_message_routing_rule",
+                 module: Zaq.Engine.IncomingMessageRoutingRule,
+                 public?: false,
+                 fields:
+                   ~w(id person_id channel_config_id retrieval_channel_id configured_agent_id topic_id routing_mode inserted_at updated_at)a,
+                 search_fields: ~w(person_id channel_config_id topic_id routing_mode)a,
+                 filter_fields:
+                   ~w(person_id channel_config_id retrieval_channel_id configured_agent_id topic_id routing_mode)a,
+                 sort_fields: ~w(id inserted_at updated_at)a,
+                 default_sort: :id,
+                 max_limit: 100
+               }
+             ] ++ Zaq.Ingestion.ResourceQuery.descriptors()
 
   @spec all() :: [descriptor()]
   def all, do: @resources

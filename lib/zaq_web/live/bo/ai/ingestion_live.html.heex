@@ -8,6 +8,13 @@
   auto_dismiss={false}
 >
   <.ingestion_embedding_banner :if={not @embedding_ready} />
+  <.live_component
+    :if={@label_editor_resource}
+    module={ZaqWeb.Components.LabelEditor}
+    id="ingestion-label-editor"
+    resource={@label_editor_resource}
+    current_user={@current_user}
+  />
 
   <div :if={not @data_source_enabled?} class="space-y-6 min-w-0">
     <.no_data_source_enabled_empty_state />

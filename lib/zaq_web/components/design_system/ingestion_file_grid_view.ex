@@ -81,6 +81,15 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               watch_supported={@watch_supported}
               watch_disabled_reason={@watch_disabled_reason}
             />
+            <% label_projection = get_in(@ingestion_map, [entry.name, :label_projection]) %>
+            <ZaqWeb.Components.DesignSystem.LabelChips.label_chips
+              :if={label_projection}
+              labels={label_projection.chips}
+              resource_id={
+                Map.get(label_projection, :resource_id, Map.get(label_projection, :document_id))
+              }
+              resource_type={Map.get(label_projection, :resource_type, "document")}
+            />
           <% end %>
         </.grid_card>
       </:cards>
@@ -132,12 +141,11 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
         {@entry.name}
       </span>
       <span
+        :if={@folder_stats && @folder_stats.total_size > 0}
         class="zaq-text-caption mt-0.5 text-center"
         style="color: var(--zaq-text-color-body-tertiary)"
       >
-        {if @folder_stats && @folder_stats.total_size > 0,
-          do: SizeFormat.format_size(@folder_stats.total_size),
-          else: "—"}
+        {SizeFormat.format_size(@folder_stats.total_size)}
       </span>
       <span
         :if={@folder_stats && @folder_stats.file_count > 0}

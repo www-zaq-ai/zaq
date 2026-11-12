@@ -819,6 +819,15 @@ defmodule Zaq.NodeRouterTest do
 
       assert_receive {:node_router_event, ^event}
       refute_receive {:node_router_event, _}
+
+      confidential =
+        Event.new(%{file_id: Ecto.UUID.generate(), right: :read}, :storage,
+          actor: %{person_id: 7},
+          opts: [action: :document_ancestors, confidential: true]
+        )
+
+      assert NodeRouter.fire(confidential) == confidential
+      refute_receive {:node_router_event, _}
     end
 
     test "dispatch/1 still broadcasts when event name is nil" do

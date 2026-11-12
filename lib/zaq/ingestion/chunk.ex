@@ -215,11 +215,16 @@ defmodule Zaq.Ingestion.Chunk do
   def create_table(dimension) when is_integer(dimension) do
     ExtensionChecks.require!(Repo, :vector)
 
+    # The sequence outlives embedding resets so stale resource IDs cannot address
+    # replacement chunks. Detach ownership also upgrades existing bigserial tables.
+    EctoSQL.query!(Repo, "CREATE SEQUENCE IF NOT EXISTS chunks_id_seq", [])
+    EctoSQL.query!(Repo, "ALTER SEQUENCE chunks_id_seq OWNED BY NONE", [])
+
     EctoSQL.query!(
       Repo,
       """
       CREATE TABLE IF NOT EXISTS chunks (
-        id bigserial PRIMARY KEY,
+        id bigint PRIMARY KEY DEFAULT nextval('chunks_id_seq'),
         document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
         content text NOT NULL,
         chunk_index integer NOT NULL,
@@ -260,14 +265,62 @@ defmodule Zaq.Ingestion.Chunk do
 
     FTSBackend.setup_index(Repo, dimension)
 
+    restore_label_foreign_key()
+
     :ok
   end
 
   @doc "Drops the chunks table. No-op if it does not exist."
   def drop_table do
+    detach_chunk_labels()
+    EctoSQL.query!(Repo, "ALTER SEQUENCE IF EXISTS chunks_id_seq OWNED BY NONE", [])
     EctoSQL.query!(Repo, "DROP TABLE IF EXISTS chunks", [])
     EctoSQL.query!(Repo, "UPDATE documents SET content = NULL", [])
     :ok
+  end
+
+  # Embedding resets replace the chunk table. Clear decisions and detach its FK
+  # before dropping, then restore the FK when the replacement is ready.
+  defp detach_chunk_labels do
+    EctoSQL.query!(
+      Repo,
+      """
+      DO $$ BEGIN
+        IF to_regclass('label_assignments') IS NOT NULL THEN
+          DELETE FROM label_assignments WHERE resource_type = 'chunk';
+          ALTER TABLE label_assignments
+            DROP CONSTRAINT IF EXISTS label_assignments_chunk_id_fkey;
+          ALTER TABLE label_assignments
+            DROP CONSTRAINT IF EXISTS chunk_resource_available;
+          ALTER TABLE label_assignments
+            ADD CONSTRAINT chunk_resource_available CHECK (resource_type <> 'chunk');
+        END IF;
+      END $$
+      """,
+      []
+    )
+  end
+
+  defp restore_label_foreign_key do
+    EctoSQL.query!(
+      Repo,
+      """
+      DO $$ BEGIN
+        IF to_regclass('label_assignments') IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = to_regclass('label_assignments')
+            AND conname = 'label_assignments_chunk_id_fkey'
+        ) THEN
+          ALTER TABLE label_assignments
+            DROP CONSTRAINT IF EXISTS chunk_resource_available;
+          ALTER TABLE label_assignments
+            ADD CONSTRAINT label_assignments_chunk_id_fkey
+            FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE;
+        END IF;
+      END $$
+      """,
+      []
+    )
   end
 
   @doc """

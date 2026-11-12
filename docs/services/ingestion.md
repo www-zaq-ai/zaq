@@ -51,6 +51,26 @@ Persisted source-record `materialization_context` contains only the actor. The `
 module is a runtime dependency and is never serialized into new job data. Router injection
 remains available for immediate operations such as folder expansion and materialization.
 
+Source ACL projection is owned by `Zaq.Ingestion.ExternalPermissions`. Verified
+source Records use `apply/2`; incremental permission changes use `refresh/3` to
+read a trusted Channels snapshot. Both reconcile the same `source:` plus canonical
+document-source key, preserving manual sharing and unrelated sources. An empty
+snapshot revokes only that source; a missing (`nil`) snapshot changes no grants.
+Projection uses authenticated normalized permission fields, not unsigned owner or
+raw payload metadata. External `edit` becomes document `update`; move/create do
+not imply update. A checked failure rolls back the projection, and ingestion
+does not complete or enqueue chunk work after that failure. Existing historical
+manual grants retain their ownership; this path does not guess their origin.
+
+After a successful authorized source ACL mutation, Channels marks its internal
+sync Event with the server-owned `:source_acl_mutation_committed` option. Ingestion
+reads that option only from Event opts, never request parameters. It processes all
+affected indexed documents even when an earlier refresh fails; a failed confirmed
+refresh clears only that document's source-owned projection and returns the first
+sync error. Standalone refresh failures do not invalidate grants. There is no
+distributed transaction or automatic retry: routing failure before Ingestion
+receives the post-mutation Event remains an existing handoff limitation.
+
 **Job queries**
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID
@@ -456,6 +476,123 @@ Ingestion invariants that should be property-tested when affected:
 If a change touches one of these areas and no property test is added, document the reason in the PR.
 
 ---
+
+## Typed labels
+
+Source files use the same editor and mutation Events with
+`resource: %{type: "source", source_ref: %{provider: provider, config_id: config_id, record_id: id}}`.
+Opening the editor reads current Channels metadata and permissions without creating
+a Document or refreshing its grants. Its projection includes the canonical source
+selector, `source_kind` and `document_id` (`nil` before the first Save or ingestion).
+Source read authority controls visibility; update authority controls editing.
+
+Save resolves source authority again and atomically ensures the canonical Document,
+applies the shared checked source ACL projection and saves versioned typed decisions.
+Existing content and metadata remain intact. Identity follows `ExternalSource.source/1`,
+the same key used by ingestion and provider browsing. No content conversion, chunks,
+ingestion jobs or model configuration are required. Folders are rejected by this
+file flow. Unwatched Documents and their assignments retain the existing Document
+deletion policy; a removed source denies further source-selector access, and actual
+Document deletion clears assignments through foreign keys.
+
+Agent metadata discovery reads use the confidential `:query_resources` Event.
+`Zaq.Ingestion.ResourceQuery` accepts only `document` and `label` resource keys,
+resolves server-owned descriptors and executes the complete query on Ingestion.
+The request contains query parameters only; authorization uses the event actor
+and allowlisted identity/permission options. Request fields and actor fields
+cannot enable a permission bypass: only explicit `event.opts[:skip_permissions]`
+does so for this endpoint. Shared `Zaq.Resources.QuerySupport` preserves the
+existing person, team and Everyone read-grant semantics, field allowlists and
+response format. The tool contract is documented in the
+[Agent resource query guide](agent.md#resource-queries-zaqagenttoolsresourcesqueryresources-key-resourcesquery).
+
+`Zaq.Ingestion.Labels` owns typed definitions and document/chunk
+assignments. BO uses confidential Ingestion Events: `:list_labels`,
+`:save_label_definition`, `:get_resource_labels`, `:edit_resource_labels`, and
+`:document_label_chips`, `:label_deletion_preview`, and `:delete_label_definition`.
+Mutations execute validated Jido Actions and delegate
+to the same domain implementation used by direct consumers.
+
+Values are native Booleans, scale numbers, or stable option IDs. Definitions own
+the allowed options or scale minimum, maximum and increment. Manual assignments
+require a valid value; false and zero are meaningful. Automatic assignments can
+remain pending without a value, or carry a manually supplied value. An `add` edit
+can set or update `value` using the expected assignment version; omitting `value`
+preserves it. Removing a label records an exclusion. Value changes belong to the
+same atomic edit batch, rather than changing the definition.
+
+`:label_value_suggestions` accepts `resource`, `label_id`, and `query` and returns
+up to 20 distinct saved values. It checks read access to the current resource and
+only suggests selected document/chunk assignment values from documents the actor
+can read. Explicit super-admin bypass follows existing label policy. Suggestions
+are derived from assignments; there is no separate global value catalog.
+Permission filtering uses the Permissions-owned `grants_query/1` builder.
+Document/chunk values are combined, deduplicated, sorted, and limited in SQL;
+the application receives at most 20 values instead of loading all candidates.
+
+The Labels catalog derives value usage from the same per-resource assignments.
+`:label_value_summaries` accepts up to 50 label IDs and returns distinct-value and
+resource counts, scoped to readable documents (including their chunks). Pending
+assignments count as one group. `:label_values` lists value groups and separate
+document/chunk counts; `:label_value_resources` lists resources for an exact value,
+their expected assignment versions, and whether they can be edited. Both use
+offset pagination with 51 results for 50-row pages; value search is a literal
+substring. Removed assignments are excluded.
+
+`:update_label_values` executes the validated `UpdateLabelValues` Action with a
+label ID, 1–50 explicit typed resource/version pairs, and a native replacement value.
+Manual values must remain valid; a nil automatic value returns to pending. The operation locks
+parent documents in ID order, rechecks read and update access, and delegates each
+change to the existing versioned assignment editor in one transaction. A stale,
+removed, unavailable, or unauthorized selection rolls back the whole batch.
+It cannot change unselected resources or revive excluded labels. There is no
+standalone usage-value catalog; options belong to the definition, and unused
+assignment values cease to appear in usage. These BO operations are not exposed as agent tools.
+
+Definitions contain a name (up to 80 characters), description (up to 4,000), and
+document/chunk resources, value type/configuration, assignment type and a 0–100
+percentage threshold. Names are trimmed, NFC-normalized and case-insensitively
+unique. Current admin or super-admin users manage definitions. Resource reads
+require document read permission; edits require update permission, and returning
+the editor projection also requires read permission. Chunks use their document's
+permissions. Only a current super-admin record permits resource permission bypass.
+Missing or password-blocked BO identity is rejected.
+
+Definition deletion requires manager authorization, the expected definition
+version, and confirmed counts of selected document/chunk assignments. The preview
+returns these counts; deletion locks the definition and rechecks them atomically.
+Changed usage returns a fresh preview for reconfirmation. Deletion removes the
+definition and all assignments (including exclusions), preserving documents and chunks.
+Bulk consumers use `:labels_deletion_preview` with `ids`, then
+`:delete_label_definitions` with a `labels` list of the same confirmed deletion
+requests. Batches accept 1–50 distinct label IDs and lock them in ID order.
+Any missing, stale, or changed-usage label rolls back the entire transaction.
+
+Assignments share `label_assignments`, keyed by resource type, resource ID and
+label ID, with document/chunk foreign keys. State is `assigned`, `pending` or
+`excluded`; origin distinguishes manual decisions from automatic configuration.
+Each edit supplies its expected
+assignment version (zero means absent), and definition edits supply the expected
+definition version. Add/remove batches are atomic; stale edits fail without
+partial writes. Removing an in-use resource or changing its value type is rejected,
+including retained exclusions. Configuration edits must preserve all assigned
+values; option display names may change without changing their IDs. Pending
+assignments prevent switching a definition to manual. Assignment writes lock the parent document, sorted label
+definitions, chunk when applicable, and assignment rows.
+
+Document upsert preserves the document ID and its assignments. Chunk deletion
+cascades assignments. The dynamic chunk-table reset clears assignments, detaches
+the foreign key, and restores it on table creation. While no chunk table exists,
+a database check forbids chunk assignments; fresh installations do not need an
+embedding model to migrate. A single migration creates typed label definitions and assignments directly;
+rollback removes these tables and preserves unrelated resources.
+
+Labels require no model configuration. `reset_automatic` returns an automatic
+assignment to pending; it does not execute a model. The ingestion browser's list
+and grid views open the shared editor for files before content ingestion; Save
+refreshes their label chips without changing ingestion status. Folder inheritance,
+model evaluation and inline chunk markers remain later delivery work tracked in
+Beadwork `zaq-kw0`.
 
 ## What's Left
 

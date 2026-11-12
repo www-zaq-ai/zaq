@@ -70,6 +70,7 @@
   "/storybook/ingestion/ingestion_jobs_panel",
   "/storybook/ingestion/ingestion_progress",
   "/storybook/ingestion/ingestion_source_selector",
+  "/storybook/ingestion/label_editor",
   "/storybook/ingestion/modal_add_raw",
   "/storybook/ingestion/modal_delete",
   "/storybook/ingestion/modal_delete_selected",

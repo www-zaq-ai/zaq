@@ -79,6 +79,72 @@ defmodule Zaq.Storage do
     end
   end
 
+  @doc """
+  Returns readable catalog ancestors nearest-first without loading document bytes.
+
+  The target must allow the requested read/update right. Permission projections for
+  the entire chain are loaded together; missing/tombstoned ancestry, cycles and
+  chains beyond 64 ancestors fail without returning partial metadata.
+  """
+  @spec document_ancestors(String.t(), :read | :update, keyword()) ::
+          {:ok, [EntryCatalog.t()]} | {:error, term()}
+  def document_ancestors(file_id, right, opts \\ []) when right in [:read, :update] do
+    with {:ok, opts} <- disk_config_opts(%{}, opts),
+         {:ok, _uuid} <- Ecto.UUID.cast(file_id),
+         %EntryCatalog{} = entry <- entry_catalog(opts).by_id(file_id) || {:error, :not_found},
+         {:ok, _entry} <- file_info(entry.volume, entry.relative_path, opts),
+         ancestors = entry_catalog(opts).ancestors_many([entry.id]) |> Map.get(entry.id, []),
+         :ok <- complete_ancestor_chain(entry, ancestors),
+         :ok <- authorize_ancestor_chain([entry | ancestors], right, opts) do
+      {:ok, ancestors}
+    else
+      :error -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp complete_ancestor_chain(entry, ancestors) do
+    last = List.last(ancestors) || entry
+    ids = MapSet.new([entry.id | Enum.map(ancestors, & &1.id)])
+
+    cond do
+      last.parent_id == nil -> :ok
+      MapSet.member?(ids, last.parent_id) -> {:error, :ancestry_cycle}
+      length(ancestors) == 64 -> {:error, :ancestry_depth_exceeded}
+      true -> {:error, :incomplete_ancestry}
+    end
+  end
+
+  defp authorize_ancestor_chain([entry | ancestors] = chain, right, opts) do
+    if Keyword.get(opts, :skip_permissions, false) do
+      :ok
+    else
+      chains =
+        chain
+        |> Enum.with_index()
+        |> Map.new(fn {entry, index} ->
+          {entry.id, Enum.drop(chain, index + 1) |> Enum.map(&storage_resource(&1.id))}
+        end)
+
+      grants = effective_grants_by_id(chain, chains, opts)
+      permissions = permissions(opts)
+      person = person_from_opts(opts)
+      target_access = permissions.access(person, right)
+      read_access = permissions.access(person, :read)
+
+      cond do
+        not permissions.grants_allow?(Map.get(grants, entry.id, []), target_access) ->
+          {:error, :unauthorized}
+
+        Enum.all?(ancestors, &permissions.grants_allow?(Map.get(grants, &1.id, []), read_access)) ->
+          :ok
+
+        true ->
+          {:error, :incomplete_ancestry}
+      end
+    end
+  end
+
   @doc "Returns storage entries as a page-shaped map consumed by DiskBridge."
   @spec list_documents(map()) :: {:ok, map()} | {:error, term()}
   def list_documents(params \\ %{}, opts \\ []) when is_map(params) do
@@ -514,7 +580,7 @@ defmodule Zaq.Storage do
 
   defp effective_grants_by_id(entries, ancestors_by_id, opts) do
     chains =
-      Enum.map(entries, fn %Entry{id: id} ->
+      Enum.map(entries, fn %{id: id} ->
         {storage_resource(id), Map.get(ancestors_by_id, id, [])}
       end)
 

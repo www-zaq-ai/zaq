@@ -143,6 +143,58 @@ Use the ingestion design-system components rather than reimplementing watch badg
 - Provider watch errors open the LiveView retry/error modal; do not surface raw provider errors inline outside the shared status affordance.
 - Inherited watch state is display-only for descendants. Users should clear or retry the directly watched parent folder instead of toggling a child inherited row.
 
+### Manual label management
+
+`/bo/labels` follows Teams catalog and name/description form interactions using
+current design-system controls. The catalog uses streams and pages of 50 labels;
+typing and opening an already-loaded row use cached state. Definitions are saved
+through Ingestion Events rather than direct domain calls from BO.
+
+Managers can delete a definition using the table's trash icon or the edit modal's
+Delete label button. Both use `BOModal.confirm_dialog` with fresh document/chunk
+usage counts. Changed usage or definition revision requires reconfirmation.
+Cancel returns to unsaved edits; confirmed deletion preserves the resources.
+The catalog also uses ingestion-style row and select-all checkboxes. Selection
+is scoped to the current page and clears on search, pagination, or catalog reload.
+Delete selected previews usage per label and deletes the batch atomically;
+changed definitions or usage require reconfirming the entire batch.
+Selection changes refresh streamed rows from the cached page so row checkboxes
+stay synchronized with the header. Managers open editing by clicking a row or
+the keyboard-accessible label name. Trash actions appear on row hover/focus.
+Bulk confirmation uses the modal's optional `details` slot for a bounded,
+scrollable usage table. Unused labels show “Not assigned”; errors appear separately
+above the list, while confirmation actions remain outside the scroll region.
+
+The Values / usage column opens `Components.LabelValueManager` inside the shared
+viewport-bounded modal. It lists searchable value groups, including pending values,
+and readable document/chunk usage. Choosing a value lists matching resources;
+read-only rows cannot be selected. Selection is limited to the visible 50-row page
+and resets on navigation or reload. A proposed typed replacement is
+reviewed with the selected count before Save. Errors retain the proposal and
+offer an explicit reload; saving refreshes the catalog counts. Manual values are
+required; automatic assignments can remain pending. The component uses `LabelEvents` and the existing DSM
+table, input and button primitives, with no separate values catalog.
+
+`DesignSystem.LabelChips` composes existing table badges and editor controls.
+`DesignSystem.LabelEditor` composes `BOModal.form_dialog`, inputs and buttons with
+the Share modal's staging/Save/Cancel interaction. `Components.LabelEditor` owns
+the reusable LiveComponent state for typed document/chunk resources: changes are
+local until Save, failures preserve staging, and Reload explicitly refreshes
+versions. Parents handle `close_label_editor` and
+`{:resource_labels_saved, resource}`. A LiveComponent keeps this state and event
+contract identical across entry points. Current ingestion list/grid rows supply
+document entry points; inline chunk entry points arrive in a later PR.
+
+`DesignSystem.LabelValue` supplies Boolean, bounded scale and configured-option
+controls shared by the editor and value manager. False and zero are values;
+manual assignments cannot be blank. Option selections use stable definition IDs,
+with display names rendered in chips. Changes remain staged until Save.
+
+Automatic assignments can remain pending or carry a manual override. Model evaluation is deferred.
+Storybook's ingestion label
+editor page provides the shared presentation fixture. Teams, Roles and Share
+components retain their existing behavior and styling.
+
 ### Core components — legacy for non-BO or gradual migration
 
 Auto-imported via `use ZaqWeb, :html` — **`core_components.ex`**. Prefer **`DesignSystem.*`** for new BO work.

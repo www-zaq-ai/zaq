@@ -64,6 +64,16 @@ defmodule ZaqWeb.Live.BO.AuthHookTest do
 
     assert continued_socket.assigns.current_user.id == user.id
   end
+end
+
+defmodule ZaqWeb.Live.BO.AuthHookBroadcastTest do
+  # This test deliberately publishes on the application-wide add-on topic.
+  use ZaqWeb.ConnCase, async: false
+
+  import Zaq.AccountsFixtures
+  import Phoenix.LiveViewTest
+
+  alias Zaq.Accounts
 
   describe "addons pubsub updates" do
     setup %{conn: conn} do

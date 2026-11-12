@@ -77,6 +77,55 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   defp entry_page(entries), do: %{entries: entries, scanned: length(entries)}
 
+  test "record ancestry checks the target update right through Storage and maps stable folder ids" do
+    id = Ecto.UUID.generate()
+    parent_id = Ecto.UUID.generate()
+    actor = %{person_id: 7}
+    stub_response({:ok, [%{id: parent_id, parent_id: nil}]})
+
+    assert {:ok, [%Record{id: ^parent_id, kind: :folder}]} =
+             DiskBridge.record_ancestors(config(), %{file_id: id, right: :update}, %{actor: actor})
+
+    assert_received {:dispatch, :storage, :document_ancestors, %{file_id: ^id, right: :update}}
+    assert_received {:dispatch_actor, :storage, :document_ancestors, ^actor}
+    assert_received {:dispatch_opts, :storage, :document_ancestors, opts}
+    assert opts[:config_id] == 42
+    assert opts[:confidential] == true
+
+    stub_response({:error, :unauthorized})
+
+    assert {:error, :unauthorized} =
+             DiskBridge.record_ancestors(config(), %{file_id: id, right: :update}, %{actor: actor})
+  end
+
+  test "source context metadata hops are confidential while mutations preserve their event contract" do
+    id = Ecto.UUID.generate()
+    actor = %{person_id: 7}
+    stub_response({:ok, entry(id)})
+    assert {:ok, _} = DiskBridge.get_file(config(), %{"file_id" => id}, %{actor: actor})
+    assert_received {:dispatch, :storage, :describe_document, %{file_id: ^id}}
+    assert_received {:dispatch_actor, :storage, :describe_document, ^actor}
+    assert_received {:dispatch_opts, :storage, :describe_document, describe_opts}
+    assert describe_opts[:action] == :describe_document
+    assert describe_opts[:confidential] == true
+    refute describe_opts[:skip_permissions]
+
+    stub_response({:ok, %{effective_permissions: []}})
+    assert {:ok, _} = DiskBridge.list_permissions(config(), %{"file_id" => id}, %{actor: actor})
+    assert_received {:dispatch_opts, :storage, :list_document_grants, grants_opts}
+    assert grants_opts[:confidential] == true
+
+    stub_response({:ok, %{entry: entry(id)}})
+
+    assert {:ok, _} =
+             DiskBridge.update_file(config(), %{"file_id" => id, "name" => "renamed.md"}, %{
+               actor: actor
+             })
+
+    assert_received {:dispatch_opts, :storage, :update_document, mutation_opts}
+    refute Keyword.has_key?(mutation_opts, :confidential)
+  end
+
   defp grant(id, attrs \\ %{}) do
     Map.merge(
       %{id: id, type: "person", target_id: "7", name: "Ada", access_rights: ["read"]},
