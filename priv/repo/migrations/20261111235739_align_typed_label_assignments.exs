@@ -2,30 +2,7 @@ defmodule Zaq.Repo.Migrations.AlignTypedLabelAssignments do
   use Ecto.Migration
 
   def up do
-    # Each saved legacy text becomes an immutable option identity. Nil is a
-    # separate choice; no text is interpreted as a Boolean or a numeric scale.
-    execute("""
-    LOCK TABLE labels, label_targets, document_label_assignments, chunk_label_assignments
-      IN ACCESS EXCLUSIVE MODE;
-    """)
-
-    execute("""
-    DO $$ BEGIN
-      IF EXISTS (SELECT 1 FROM labels l WHERE NOT EXISTS (SELECT 1 FROM label_targets t WHERE t.label_id = l.id))
-        OR EXISTS (SELECT 1 FROM label_targets WHERE automatic) THEN
-        RAISE EXCEPTION 'Legacy labels require valid manual document/chunk targets before typed migration';
-      END IF;
-      IF EXISTS (
-        SELECT 1 FROM (
-          SELECT value FROM document_label_assignments WHERE selected
-          UNION ALL SELECT value FROM chunk_label_assignments WHERE selected
-        ) a WHERE value IS NOT NULL AND (length(value) > 200 OR btrim(value) = '')
-      ) THEN
-        RAISE EXCEPTION 'Legacy label values contain blank or overlong raw text; repair explicitly before typed migration';
-      END IF;
-    END $$;
-    """)
-
+    # Development label assignments are discarded; definitions retain their names.
     alter table(:labels) do
       add :value_type, :string, null: false, default: "boolean"
       add :value_config, :map, null: false, default: %{}
@@ -116,31 +93,10 @@ defmodule Zaq.Repo.Migrations.AlignTypedLabelAssignments do
     create index(:label_assignments, [:chunk_id], where: "chunk_id IS NOT NULL")
 
     execute("""
-    WITH legacy_values AS (
-      SELECT label_id, value FROM document_label_assignments WHERE selected
-      UNION SELECT label_id, value FROM chunk_label_assignments WHERE selected
-    ), configs AS (#{legacy_configs_sql()})
-    UPDATE labels l SET
-      value_type = 'options',
-      value_config = coalesce((SELECT config FROM configs c WHERE c.label_id = l.id), #{unspecified_config_sql()}),
-      resources = (SELECT array_agg(t.resource_type ORDER BY t.resource_type) FROM label_targets t WHERE t.label_id = l.id);
+    UPDATE labels l SET resources = coalesce(
+      (SELECT array_agg(t.resource_type ORDER BY t.resource_type)
+       FROM label_targets t WHERE t.label_id = l.id), resources);
     """)
-
-    for {table, type, key} <- legacy_assignment_tables() do
-      execute("""
-      INSERT INTO label_assignments
-        (label_id, resource_type, resource_id, value, state, origin, metadata, lock_version, inserted_at, updated_at)
-      SELECT label_id, '#{type}', #{key}::text,
-        CASE WHEN selected THEN jsonb_build_object('value', #{legacy_option_id_sql("value")}) END,
-        CASE WHEN selected THEN 'assigned' ELSE 'excluded' END, origin,
-        jsonb_build_object('legacy', jsonb_build_object(
-          'table', '#{table}', 'id', id, 'label_id', label_id, 'resource_id', #{key},
-          'value', value, 'selected', selected, 'origin', origin, 'lock_version', lock_version,
-          'inserted_at', inserted_at, 'updated_at', updated_at)),
-        lock_version, inserted_at, updated_at
-      FROM #{table};
-      """)
-    end
 
     drop table(:document_label_assignments)
     drop table(:chunk_label_assignments)
@@ -148,46 +104,8 @@ defmodule Zaq.Repo.Migrations.AlignTypedLabelAssignments do
   end
 
   def down do
-    # Only unchanged migrated decisions can be represented in the previous
-    # schema. Refuse rollback before DDL when newer typed state would be lost.
-    execute("LOCK TABLE labels, label_assignments IN ACCESS EXCLUSIVE MODE")
-
-    execute("""
-    DO $$ BEGIN
-      IF EXISTS (SELECT 1 FROM label_assignments a WHERE NOT coalesce(
-        a.metadata - 'legacy' = '{}'::jsonb AND
-        a.metadata->'legacy'->>'table' = CASE a.resource_type WHEN 'document' THEN 'document_label_assignments' WHEN 'chunk' THEN 'chunk_label_assignments' END AND
-        a.metadata->'legacy'->>'id' ~ '^[1-9][0-9]*$' AND
-        a.metadata->'legacy'->>'label_id' = a.label_id::text AND
-        a.metadata->'legacy'->>'resource_id' = a.resource_id AND
-        a.metadata->'legacy'->>'origin' = a.origin AND a.origin = 'manual' AND
-        a.metadata->'legacy'->>'lock_version' = a.lock_version::text AND
-        a.metadata->'legacy'->'inserted_at' = to_jsonb(a.inserted_at) AND
-        a.metadata->'legacy'->'updated_at' = to_jsonb(a.updated_at) AND
-        a.state = CASE WHEN (a.metadata->'legacy'->>'selected')::boolean THEN 'assigned' ELSE 'excluded' END AND
-        a.value IS NOT DISTINCT FROM CASE WHEN a.state = 'assigned' THEN
-          jsonb_build_object('value', #{legacy_option_id_sql("a.metadata->'legacy'->>'value'")}) END,
-        false)) THEN
-        RAISE EXCEPTION 'Typed label rollback would lose new or edited assignments; export or explicitly migrate them first';
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    DO $$ BEGIN
-      IF EXISTS (
-        WITH legacy_values AS (
-          SELECT DISTINCT label_id, metadata->'legacy'->>'value' AS value
-          FROM label_assignments WHERE (metadata->'legacy'->>'selected')::boolean
-        ), configs AS (#{legacy_configs_sql()})
-        SELECT 1 FROM labels l
-        WHERE l.value_type <> 'options' OR l.assignment_type <> 'manual' OR l.threshold <> 80
-          OR l.value_config IS DISTINCT FROM coalesce((SELECT config FROM configs c WHERE c.label_id = l.id), #{unspecified_config_sql()})
-      ) THEN
-        RAISE EXCEPTION 'Typed label rollback would lose new definition configuration; export or explicitly migrate it first';
-      END IF;
-    END $$;
-    """)
+    # Rollback restores empty assignment tables; it does not convert typed values.
+    drop table(:label_assignments)
 
     for name <- [:label_value_type, :label_assignment_type, :label_threshold, :label_resources],
         do: drop(constraint(:labels, name))
@@ -243,22 +161,6 @@ defmodule Zaq.Repo.Migrations.AlignTypedLabelAssignments do
     END $$;
     """)
 
-    for {table, type, key} <- legacy_assignment_tables() do
-      execute("""
-      INSERT INTO #{table} (id, label_id, #{key}, selected, origin, lock_version, value, inserted_at, updated_at)
-      SELECT (metadata->'legacy'->>'id')::bigint, label_id, resource_id::bigint,
-        (metadata->'legacy'->>'selected')::boolean, origin, lock_version,
-        metadata->'legacy'->>'value', inserted_at, updated_at
-      FROM label_assignments WHERE resource_type = '#{type}';
-      """)
-
-      execute("""
-      SELECT setval(pg_get_serial_sequence('#{table}', 'id'), greatest(coalesce(max(id), 0), 1), max(id) IS NOT NULL) FROM #{table};
-      """)
-    end
-
-    drop table(:label_assignments)
-
     alter table(:labels) do
       remove :value_type
       remove :value_config
@@ -266,30 +168,5 @@ defmodule Zaq.Repo.Migrations.AlignTypedLabelAssignments do
       remove :assignment_type
       remove :threshold
     end
-  end
-
-  defp legacy_assignment_tables,
-    do: [
-      {:document_label_assignments, "document", :document_id},
-      {:chunk_label_assignments, "chunk", :chunk_id}
-    ]
-
-  defp legacy_option_id_sql(value),
-    do:
-      "CASE WHEN #{value} IS NULL THEN 'legacy-unspecified' ELSE 'legacy-value-' || encode(sha256(convert_to(#{value}, 'UTF8')), 'hex') END"
-
-  defp unspecified_config_sql,
-    do: ~s('{"options":[{"id":"legacy-unspecified","label":"Unspecified"}]}'::jsonb)
-
-  defp legacy_configs_sql do
-    """
-    SELECT v.label_id, jsonb_build_object('options', jsonb_agg(jsonb_build_object(
-      'id', #{legacy_option_id_sql("v.value")},
-      'label', CASE WHEN v.value IS NULL AND EXISTS (
-        SELECT 1 FROM legacy_values other WHERE other.label_id = v.label_id AND other.value = 'Unspecified'
-      ) THEN 'Unspecified (previously blank)' ELSE coalesce(v.value, 'Unspecified') END
-    ) ORDER BY v.value NULLS FIRST)) AS config
-    FROM legacy_values v GROUP BY v.label_id
-    """
   end
 end

@@ -82,6 +82,18 @@ defmodule Zaq.Storage.EntryCatalogTest do
 
     assert nested_id == nested.id
     assert EntryCatalog.get_active(volume, "old/file.pdf") == nil
+
+    assert Enum.map(EntryCatalog.ancestors(child.id), & &1.id) ==
+             [folder.id, EntryCatalog.get_active(volume, "").id]
+  end
+
+  test "ancestor traversal terminates at a cycle without repeating catalog rows" do
+    {:ok, root} = EntryCatalog.ensure("cyclic", "", :directory)
+    {:ok, folder} = EntryCatalog.ensure("cyclic", "folder", :directory)
+    {:ok, file} = EntryCatalog.ensure("cyclic", "folder/file.md", :file)
+    root |> EntryCatalog.changeset(%{parent_id: folder.id}) |> Repo.update!()
+
+    assert Enum.map(EntryCatalog.ancestors(file.id), & &1.id) == [folder.id, root.id]
   end
 
   test "ensuring an empty path creates the canonical volume root" do
