@@ -40,7 +40,11 @@ defmodule ZaqWeb.Live.BO.LabelEvents do
   def error_message(:target_in_use),
     do: "This resource type still has label assignments and cannot be removed."
 
-  def error_message(:invalid_value), do: "Label values must be text of at most 200 characters."
+  def error_message(:invalid_value),
+    do: "Choose a value that matches this label's type and configured choices."
+
+  def error_message(:definition_in_use),
+    do: "This change would invalidate existing label assignments."
 
   def error_message(:invalid_targets), do: "Choose at least one resource type."
   def error_message(:automation_unavailable), do: "Automatic labeling is not available yet."

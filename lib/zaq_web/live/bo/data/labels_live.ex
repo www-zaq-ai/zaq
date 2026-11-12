@@ -6,8 +6,10 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.Checkbox, as: DSCheckbox
   alias ZaqWeb.Components.DesignSystem.Input, as: DSInput
+  alias ZaqWeb.Components.DesignSystem.LabelValue
   alias ZaqWeb.Components.DesignSystem.Table
   alias ZaqWeb.Live.BO.LabelEvents
+  import ZaqWeb.Components.SearchableSelect, only: [searchable_select: 1]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -59,14 +61,7 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
         {:noreply, socket}
 
       label ->
-        types = Enum.map(label.targets, & &1.resource_type)
-
-        params = %{
-          "name" => label.name,
-          "description" => label.description,
-          "document" => "document" in types,
-          "chunk" => "chunk" in types
-        }
+        params = definition_form(label)
 
         {:noreply,
          assign(socket,
@@ -98,12 +93,37 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
 
   def handle_event("validate_label", %{"label" => params}, socket) do
     # Validation uses only the cached form, never a read during typing.
+    params = Map.merge(socket.assigns.form.params, params)
     {:noreply, assign(socket, form: to_form(params, as: :label), modal_error: nil)}
   end
 
+  def handle_event(event, _, %{assigns: %{form: nil}} = socket)
+      when event in ["add_label_option", "remove_label_option"],
+      do: {:noreply, socket}
+
+  def handle_event("add_label_option", _, socket) do
+    params = socket.assigns.form.params
+    options = option_rows(params) ++ [new_option()]
+
+    {:noreply,
+     assign(socket,
+       form: to_form(Map.put(params, "options", indexed_options(options)), as: :label)
+     )}
+  end
+
+  def handle_event("remove_label_option", %{"id" => id}, socket) do
+    params = socket.assigns.form.params
+    options = Enum.reject(option_rows(params), &(&1["id"] == id))
+
+    {:noreply,
+     assign(socket,
+       form: to_form(Map.put(params, "options", indexed_options(options)), as: :label)
+     )}
+  end
+
   def handle_event("save_label", %{"label" => params}, socket) do
-    types = Enum.filter(["document", "chunk"], &(params[&1] in [true, "true"]))
-    attrs = %{name: params["name"], description: params["description"], targets: types}
+    params = Map.merge(socket.assigns.form.params, params)
+    attrs = definition_attrs(params)
 
     attrs =
       case socket.assigns.selected_label do
@@ -345,7 +365,98 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
     end
   end
 
-  defp default_form, do: %{"name" => "", "description" => "", "document" => true, "chunk" => true}
+  defp default_form do
+    %{
+      "name" => "",
+      "description" => "",
+      "document" => true,
+      "chunk" => true,
+      "value_type" => "boolean",
+      "assignment_type" => "manual",
+      "threshold" => 80,
+      "scale_min" => 0,
+      "scale_max" => 10,
+      "scale_increment" => 1,
+      "options" => indexed_options([new_option()])
+    }
+  end
+
+  defp definition_form(label) do
+    Map.merge(default_form(), %{
+      "name" => label.name,
+      "description" => label.description,
+      "document" => "document" in label.resources,
+      "chunk" => "chunk" in label.resources,
+      "value_type" => label.value_type,
+      "assignment_type" => label.assignment_type,
+      "threshold" => label.threshold,
+      "scale_min" => Map.get(label.value_config, "min", 0),
+      "scale_max" => Map.get(label.value_config, "max", 10),
+      "scale_increment" => Map.get(label.value_config, "increment", 1),
+      "options" => indexed_options(Map.get(label.value_config, "options", [new_option()]))
+    })
+  end
+
+  defp definition_attrs(params) do
+    config =
+      case params["value_type"] do
+        "scale" ->
+          %{
+            "min" => number_input(params["scale_min"]),
+            "max" => number_input(params["scale_max"]),
+            "increment" => number_input(params["scale_increment"])
+          }
+
+        "options" ->
+          %{"options" => option_rows(params)}
+
+        _ ->
+          %{}
+      end
+
+    %{
+      name: params["name"],
+      description: params["description"],
+      resources: Enum.filter(["document", "chunk"], &(params[&1] in [true, "true"])),
+      value_type: params["value_type"],
+      value_config: config,
+      assignment_type: params["assignment_type"],
+      threshold: params["threshold"]
+    }
+  end
+
+  defp number_input(value) do
+    case LabelValue.parse_input(%{value_type: "scale"}, value) do
+      {:ok, number} -> number
+      :error -> value
+    end
+  end
+
+  defp new_option, do: %{"id" => Ecto.UUID.generate(), "label" => ""}
+
+  defp indexed_options(options),
+    do:
+      options
+      |> Enum.with_index()
+      |> Map.new(fn {option, index} -> {to_string(index), option} end)
+
+  defp option_rows(params) do
+    params
+    |> Map.get("options", %{})
+    |> Enum.sort_by(fn {index, _} ->
+      case Integer.parse(index) do
+        {number, ""} -> number
+        _ -> index
+      end
+    end)
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp definition_errors(form),
+    do:
+      Enum.map_join(form.errors, ". ", fn {_field, error} ->
+        ZaqWeb.CoreComponents.translate_error(error)
+      end)
 
   @impl true
   def render(assigns) do
@@ -474,6 +585,12 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
                     <Table.table_text label={label.name} class="zaq-label-description" />
                   </button>
                   <Table.table_text :if={!@manager?} label={label.name} class="zaq-label-description" />
+                  <span class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
+                    {String.capitalize(label.value_type)} · {String.capitalize(label.assignment_type)}
+                    <%= if label.assignment_type == "automatic" do %>
+                      · {label.threshold}%
+                    <% end %>
+                  </span>
                 </Table.table_cell>
                 <Table.table_cell>
                   <Table.table_text
@@ -501,7 +618,7 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
                 </Table.table_cell>
                 <Table.table_cell nowrap>
                   <Table.table_text
-                    label={Enum.map_join(label.targets, ", ", &String.capitalize(&1.resource_type))}
+                    label={Enum.map_join(label.resources, ", ", &String.capitalize/1)}
                     tone={:tertiary}
                   />
                 </Table.table_cell>
@@ -561,6 +678,14 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
         >
           {@modal_error}
         </p>
+        <p
+          :if={@form.errors != []}
+          role="alert"
+          class="zaq-text-body-sm"
+          style="color: var(--zaq-text-color-body-danger)"
+        >
+          {definition_errors(@form)}
+        </p>
         <DSInput.input field={@form[:name]} label="Name" required maxlength="80" />
         <DSInput.input
           field={@form[:description]}
@@ -570,6 +695,79 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
           rows="3"
           hint="Describe what this label represents."
         />
+        <.searchable_select
+          id="label-value-type"
+          name="label[value_type]"
+          label="Value type"
+          label_position="block"
+          value={@form[:value_type].value}
+          options={[{"Boolean", "boolean"}, {"Scale", "scale"}, {"Defined options", "options"}]}
+          searchable={false}
+        />
+        <div :if={@form[:value_type].value == "scale"} class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <DSInput.input field={@form[:scale_min]} type="number" step="any" label="Minimum" required />
+          <DSInput.input field={@form[:scale_max]} type="number" step="any" label="Maximum" required />
+          <DSInput.input
+            field={@form[:scale_increment]}
+            type="number"
+            step="any"
+            label="Increment"
+            required
+          />
+        </div>
+        <fieldset :if={@form[:value_type].value == "options"} class="zaq-layout-stack-tight">
+          <legend class="zaq-text-body-sm">Defined options</legend>
+          <div
+            :for={{option, index} <- Enum.with_index(option_rows(@form.params))}
+            class="flex items-end gap-2"
+          >
+            <input type="hidden" name={"label[options][#{index}][id]"} value={option["id"]} />
+            <DSInput.input
+              id={"label-option-name-#{index}"}
+              name={"label[options][#{index}][label]"}
+              label={"Option #{index + 1}"}
+              value={option["label"]}
+              maxlength="200"
+              required
+            />
+            <DSButton.button
+              type="button"
+              variant={:tertiary}
+              icon="hero-trash"
+              icon_only
+              phx-click="remove_label_option"
+              phx-value-id={option["id"]}
+              aria-label={"Remove option #{index + 1}"}
+            />
+          </div>
+          <DSButton.button
+            type="button"
+            variant={:tertiary}
+            phx-click="add_label_option"
+            id="add-label-option"
+          >Add option</DSButton.button>
+        </fieldset>
+        <.searchable_select
+          id="label-assignment-type"
+          name="label[assignment_type]"
+          label="Assignment type"
+          label_position="block"
+          value={@form[:assignment_type].value}
+          options={[{"Manual", "manual"}, {"Automatic", "automatic"}]}
+          searchable={false}
+        />
+        <DSInput.input
+          field={@form[:threshold]}
+          type="number"
+          label="Confidence threshold (%)"
+          min="0"
+          max="100"
+          step="1"
+          required
+        />
+        <p :if={@form[:assignment_type].value == "automatic"} class="zaq-text-body-sm">
+          Automatic assignments remain pending until evaluation is available.
+        </p>
         <fieldset class="zaq-layout-stack">
           <legend class="zaq-text-body-sm mb-2" style="color: var(--zaq-text-color-body-default)">
             Apply this label to
