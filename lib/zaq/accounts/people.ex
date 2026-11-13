@@ -325,30 +325,36 @@ defmodule Zaq.Accounts.People do
   Records the direct-message delivery reference carried by a verified message from
   this channel. A stored reference is replaced only by one from a later message, so
   a replayed older message cannot restore a stale reference. Without a message time,
-  only a missing reference is filled.
+  only a missing reference is filled. Returns `{:error, :not_found}` when the channel
+  no longer exists.
   """
   @spec refresh_dm_channel(PersonChannel.t(), String.t(), DateTime.t() | nil) ::
           {:ok, :refreshed | :unchanged} | {:error, term()}
   def refresh_dm_channel(%PersonChannel{id: id}, dm_channel_id, observed_at)
       when is_binary(dm_channel_id) do
     Repo.transaction(fn ->
-      channel = Repo.one!(from c in PersonChannel, where: c.id == ^id, lock: "FOR UPDATE")
-
-      if newer_dm_channel?(channel, observed_at) do
-        channel
-        |> PersonChannel.dm_channel_changeset(%{
-          dm_channel_id: dm_channel_id,
-          dm_channel_observed_at: observed_at,
-          last_interaction_at: DateTime.utc_now()
-        })
-        |> Repo.update()
-        |> linked!()
-
-        :refreshed
-      else
-        :unchanged
+      case Repo.one(from c in PersonChannel, where: c.id == ^id, lock: "FOR UPDATE") do
+        nil -> Repo.rollback(:not_found)
+        channel -> refresh_locked_dm_channel(channel, dm_channel_id, observed_at)
       end
     end)
+  end
+
+  defp refresh_locked_dm_channel(channel, dm_channel_id, observed_at) do
+    if newer_dm_channel?(channel, observed_at) do
+      channel
+      |> PersonChannel.dm_channel_changeset(%{
+        dm_channel_id: dm_channel_id,
+        dm_channel_observed_at: observed_at,
+        last_interaction_at: DateTime.utc_now()
+      })
+      |> Repo.update()
+      |> linked!()
+
+      :refreshed
+    else
+      :unchanged
+    end
   end
 
   defp newer_dm_channel?(%PersonChannel{dm_channel_id: nil}, _observed_at), do: true
