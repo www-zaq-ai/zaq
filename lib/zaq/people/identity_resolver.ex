@@ -310,8 +310,8 @@ defmodule Zaq.People.IdentityResolver do
 
   defp touch_channel(channel, dm_channel_id, sent_at) when is_binary(dm_channel_id) do
     case People.refresh_dm_channel(channel, dm_channel_id, sent_at) do
-      {:ok, :refreshed} -> :ok
-      _ -> People.record_interaction(channel)
+      {:ok, :unchanged} -> People.record_interaction(channel)
+      _refreshed_or_missing -> :ok
     end
   end
 
