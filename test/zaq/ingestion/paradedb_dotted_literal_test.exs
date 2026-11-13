@@ -11,7 +11,8 @@ defmodule Zaq.Ingestion.ParadeDBDottedLiteralTest do
   version retrieval on ParadeDB (the Native counterpart lives in
   `bm25_fusion_validation_test.exs` §5).
   """
-  use Zaq.DataCase, async: true
+  # Chunk DDL and the FTS backend cache are shared across test processes.
+  use Zaq.DataCase, async: true, group: :ingestion_chunk_schema
 
   alias Zaq.Ingestion.{Chunk, Document, FTSBackend}
   alias Zaq.Ingestion.FTSBackend.ParadeDB

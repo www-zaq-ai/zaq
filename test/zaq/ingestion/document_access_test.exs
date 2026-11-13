@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.DocumentAccessTest do
-  use Zaq.DataCase, async: true
+  # Chunk DDL locks shared tables until the sandbox transaction rolls back.
+  use Zaq.DataCase, async: true, group: :ingestion_chunk_schema
   use ExUnitProperties
 
   alias Zaq.Accounts.People
