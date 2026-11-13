@@ -92,12 +92,8 @@ defmodule ZaqWeb.Live.BO.System.PersonRouting do
   def routing_values(_), do: %{}
 
   defp rule_entry(rule) do
-    value =
-      if rule.routing_mode == :none,
-        do: AgentRouting.none_value(),
-        else: AgentRouting.select_value(rule.configured_agent_id)
-
-    {{rule.channel_config_id, rule.retrieval_channel_id, rule.topic_id}, value}
+    {{rule.channel_config_id, rule.retrieval_channel_id, rule.topic_id},
+     AgentRouting.rule_select_value(rule)}
   end
 
   def cached_value(values, config_id \\ nil, retrieval_id \\ nil, topic_id \\ nil),
@@ -115,16 +111,5 @@ defmodule ZaqWeb.Live.BO.System.PersonRouting do
       cached_value(values, config_id, retrieval_id, topic_id)
   end
 
-  defp rule_value(scope) do
-    case EngineDispatch.dispatch(:get_incoming_message_routing_rules, %{scopes: [scope]}) do
-      {:ok, [%{rule: %{routing_mode: :none}}]} ->
-        AgentRouting.none_value()
-
-      {:ok, [%{rule: %{routing_mode: :agent, configured_agent_id: id}}]} ->
-        AgentRouting.select_value(id)
-
-      _ ->
-        ""
-    end
-  end
+  defp rule_value(scope), do: AgentRoutingOptions.scope_rule_value(scope)
 end
