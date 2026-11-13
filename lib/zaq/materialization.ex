@@ -5,9 +5,11 @@ defmodule Zaq.Materialization do
 
   alias Zaq.Contracts.Record
   alias Zaq.MapUtils
-  alias Zaq.Materialization.{Handle, Registry}
+  alias Zaq.Materialization.{Handle, Registry, Sink}
 
   @max_nested_materializations 3
+  @default_max_bytes 50 * 1024 * 1024
+  @default_max_file_bytes 2 * 1024 * 1024 * 1024
   @document_mime_options ["document_mime_type", "export_mime_type"]
 
   @spec issue(String.t(), map(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -16,6 +18,17 @@ defmodule Zaq.Materialization do
   @doc "Returns the shared request-time MIME option names for document materializers."
   def document_mime_options, do: @document_mime_options
 
+  @doc """
+  Redeems a handle into a record that carries its full content in memory.
+
+  This is the bounded bytes API for consumers that need the bytes themselves (model tool
+  results, previews). Producers stream into a memory sink capped by
+  `config :zaq, :materialization_max_bytes` (default 50 MiB), so acquisition stops at the cap
+  instead of buffering an unbounded body. Consumers that only need a file should use
+  `materialize_file/5`.
+
+  Options: `:max_bytes` overrides the configured cap for one call.
+  """
   @spec materialize(String.t(), map(), String.t(), map()) :: {:ok, map()} | {:error, String.t()}
   def materialize(
         handle,
@@ -24,8 +37,233 @@ defmodule Zaq.Materialization do
         options \\ %{}
       )
       when is_binary(handle) and is_map(context) and is_map(options) do
-    materialize_handle(handle, context, error_prefix, 0, options)
+    max_bytes = Map.get(context, :materialization_max_bytes) || max_bytes()
+
+    with_sink([mode: :memory, max_bytes: max_bytes], error_prefix, fn sink ->
+      context = Map.put(context, :materialization_sink, sink)
+
+      with {:ok, %{record: record} = payload} <-
+             materialize_handle(handle, context, error_prefix, 0, options),
+           :ok <- check_inline_content(record, max_bytes, error_prefix),
+           {:ok, record} <- adopt_memory(record, sink, error_prefix) do
+        {:ok, %{payload | record: record}}
+      else
+        {:error, reason} -> {:error, sink_failure(sink, reason, error_prefix)}
+      end
+    end)
   end
+
+  @doc """
+  Redeems a handle into a file on the calling node.
+
+  The producer streams chunks into a consumer-owned `Zaq.Materialization.Sink` (also across
+  nested handles and role/node hops), so the body is never held in memory. Returns the record
+  without content plus `file: %{path, size, binary?, sink}`. Until the caller confirms with
+  `complete_file/1` (once it has adopted the file) or gives it up with `discard_file/1`, the
+  sink keeps monitoring the calling process and removes the file if that process exits, so a
+  finished file is never without an owner. After `complete_file/1` the caller owns `path` and
+  must remove it. `file` is `nil` when the producer cannot stream and returned
+  `content` (rows, inline text/Base64) instead; that content stays in `record.content` for the
+  caller's existing handling, after a post-hoc size check against the quota.
+
+  Options:
+
+    * `:dir` — directory for the partial file (required)
+    * `:own_dir` — the directory was made for this call alone: cleanup before `complete_file/1`
+      removes all of it, so a file renamed within it is covered too (default `false`)
+    * `:max_bytes` — quota; default `config :zaq, :materialization_max_file_bytes` (2 GiB).
+      A resource guard, not a substitute for streaming.
+  """
+  @spec materialize_file(String.t(), map(), String.t(), map(), keyword()) ::
+          {:ok, %{record: Record.t(), file: map() | nil}} | {:error, String.t()}
+  def materialize_file(
+        handle,
+        context \\ %{},
+        error_prefix \\ "Materialization failed",
+        options \\ %{},
+        file_opts
+      )
+      when is_binary(handle) and is_map(context) and is_map(options) and is_list(file_opts) do
+    max_bytes = Keyword.get(file_opts, :max_bytes) || max_file_bytes()
+
+    with_sink(
+      [
+        mode: :file,
+        max_bytes: max_bytes,
+        dir: Keyword.get(file_opts, :dir),
+        own_dir: Keyword.get(file_opts, :own_dir, false)
+      ],
+      error_prefix,
+      fn sink ->
+        context = Map.put(context, :materialization_sink, sink)
+
+        with {:ok, %{record: record}} <-
+               materialize_handle(handle, context, error_prefix, 0, options),
+             {:ok, record, file} <- adopt_file(record, sink, error_prefix) do
+          {:ok, %{record: record, file: file && Map.put(file, :sink, sink)}}
+        else
+          {:error, reason} -> {:error, sink_failure(sink, reason, error_prefix)}
+        end
+      end
+    )
+  end
+
+  @doc """
+  Confirms that the caller has adopted the file returned by `materialize_file/5`.
+
+  Returns `{:error, :file_removed}` when the file was already cleaned up (the owner exited or
+  the file was discarded); the path must then not be used.
+  """
+  @spec complete_file(map() | nil) :: :ok | {:error, :file_removed}
+  def complete_file(%{sink: sink}) when is_pid(sink) do
+    case Sink.release(sink) do
+      :ok -> :ok
+      {:error, _} -> {:error, :file_removed}
+    end
+  end
+
+  def complete_file(_file), do: :ok
+
+  @doc "Gives up a file returned by `materialize_file/5` and removes it. Idempotent."
+  @spec discard_file(map() | nil) :: :ok
+  def discard_file(%{sink: sink}) when is_pid(sink), do: Sink.discard(sink)
+  def discard_file(_file), do: :ok
+
+  @doc "Configured cap for the in-memory bytes API."
+  @spec max_bytes() :: pos_integer()
+  def max_bytes, do: Application.get_env(:zaq, :materialization_max_bytes, @default_max_bytes)
+
+  @doc "Configured default quota for file materialization."
+  @spec max_file_bytes() :: pos_integer()
+  def max_file_bytes,
+    do: Application.get_env(:zaq, :materialization_max_file_bytes, @default_max_file_bytes)
+
+  # Opens the sink and discards it on any error or exit. Only a finished file the caller was
+  # handed (`file.sink`) keeps its sink alive, until `complete_file/1` or `discard_file/1`.
+  defp with_sink(sink_opts, error_prefix, fun) do
+    case Sink.open(sink_opts) do
+      {:ok, sink} ->
+        try do
+          fun.(sink)
+        catch
+          kind, reason ->
+            Sink.discard(sink)
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        else
+          {:ok, %{file: %{sink: ^sink}}} = handed_over ->
+            handed_over
+
+          result ->
+            Sink.discard(sink)
+            result
+        end
+
+      {:error, _reason} ->
+        {:error, "#{error_prefix}: invalid materialization quota"}
+    end
+  end
+
+  # Quota failures surface identically however the producer wrapped them.
+  defp sink_failure(sink, reason, error_prefix) do
+    case Sink.stats(sink) do
+      %{failure: {:materialization_limit, max}} ->
+        "#{error_prefix}: materialization size limit exceeded (#{max} bytes)"
+
+      _ ->
+        if is_binary(reason), do: reason, else: "#{error_prefix}: #{format_reason(reason)}"
+    end
+  end
+
+  # Producers that ignore the sink return their bytes inline; enforce the cap post hoc.
+  defp check_inline_content(%Record{content: content, attributes: attrs}, max, prefix)
+       when is_binary(content) do
+    if inline_size(content, attrs) > max,
+      do: {:error, "#{prefix}: materialization size limit exceeded (#{max} bytes)"},
+      else: :ok
+  end
+
+  defp check_inline_content(_record, _max, _prefix), do: :ok
+
+  defp inline_size(content, attrs) do
+    if encoding_from_attrs(attrs) == "base64" do
+      size = byte_size(content)
+
+      padding =
+        cond do
+          rem(size, 4) != 0 -> 0
+          String.ends_with?(content, "==") -> 2
+          String.ends_with?(content, "=") -> 1
+          true -> 0
+        end
+
+      div(size * 3, 4) - padding
+    else
+      byte_size(content)
+    end
+  end
+
+  # Streamed bodies leave `content: nil` and the bytes in the sink.
+  defp adopt_memory(%Record{content: nil} = record, sink, prefix) do
+    case Sink.stats(sink) do
+      %{started?: true} ->
+        case Sink.finish(sink) do
+          {:ok, %{binary: binary, text?: text?}} ->
+            base64? = encoding_from_attrs(record.attributes) == "base64" or not text?
+            {:ok, put_streamed_content(record, binary, base64?)}
+
+          {:error, reason} ->
+            {:error, "#{prefix}: #{format_reason(reason)}"}
+        end
+
+      _ ->
+        {:ok, record}
+    end
+  end
+
+  defp adopt_memory(record, _sink, _prefix), do: {:ok, record}
+
+  defp put_streamed_content(record, binary, true) do
+    %{record | content: Base.encode64(binary), attributes: put_attr(record, "encoding", "base64")}
+  end
+
+  defp put_streamed_content(record, binary, false) do
+    %{record | content: binary, attributes: Map.delete(record.attributes || %{}, "encoding")}
+  end
+
+  defp adopt_file(%Record{content: nil} = record, sink, prefix) do
+    case Sink.stats(sink) do
+      %{started?: true} ->
+        case Sink.finish(sink) do
+          {:ok, %{path: path, size: size, text?: text?}} ->
+            binary? = encoding_from_attrs(record.attributes) == "base64" or not text?
+            attrs = Map.delete(record.attributes || %{}, "encoding")
+
+            {:ok, %{record | attributes: attrs}, %{path: path, size: size, binary?: binary?}}
+
+          {:error, reason} ->
+            {:error, "#{prefix}: #{format_reason(reason)}"}
+        end
+
+      _ ->
+        {:ok, record, nil}
+    end
+  end
+
+  # Producers that cannot stream return their bytes inline: they stay in `record.content`
+  # for the consumer's existing handling, after a post-hoc check against the quota.
+  defp adopt_file(%Record{content: content} = record, sink, prefix) when is_binary(content) do
+    max = Sink.quota(sink)
+
+    case check_inline_content(record, max, prefix) do
+      :ok -> {:ok, record, nil}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp adopt_file(record, _sink, _prefix), do: {:ok, record, nil}
+
+  defp put_attr(%Record{attributes: attrs}, key, value),
+    do: Map.put(attrs || %{}, key, value)
 
   defp materialize_handle(_handle, _context, error_prefix, depth, _options)
        when depth >= @max_nested_materializations do

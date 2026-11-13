@@ -54,13 +54,18 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
     with {:ok, request} <- validate_locator(locator) do
       request
       |> Events.build_and_dispatch_materialize_document_event(
-        TrustedContext.event_builder_opts(context)
+        TrustedContext.event_builder_opts(context, event_opts: sink_opts(context))
       )
       |> Map.fetch!(:response)
     end
   end
 
   def do_materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
+
+  defp sink_opts(%{materialization_sink: sink}) when is_pid(sink),
+    do: [materialization_sink: sink]
+
+  defp sink_opts(_context), do: []
 
   # The source is the whole locator: anything else a tampered handle carries is ignored
   # rather than forwarded to ingestion.
