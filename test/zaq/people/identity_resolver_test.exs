@@ -9,8 +9,14 @@ defmodule Zaq.People.IdentityResolverTest do
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.People.IdentityResolver
 
-  alias Zaq.People.IdentityResolverTest.ErrorRouter
-  alias Zaq.People.IdentityResolverTest.RaiseRouter
+  alias Zaq.Engine.Notifications
+
+  alias Zaq.People.IdentityResolverTest.{
+    DeliveredBridge,
+    ErrorRouter,
+    RaiseRouter,
+    TeamsNotificationConfig
+  }
 
   defp incoming(overrides) do
     message =
@@ -282,6 +288,68 @@ defmodule Zaq.People.IdentityResolverTest do
                  dm_channel_id: ^reference
                }
              ] = People.list_person_channels(person.id)
+    end
+
+    test "refreshes a known person's Teams delivery reference from a later message only" do
+      config = connector_fixture("teams")
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Teams Person",
+          email: "teams-person@example.com",
+          phone: "+15550000005"
+        })
+
+      {:ok, _channel} =
+        People.add_channel(%{
+          "person_id" => person.id,
+          "platform" => "microsoft_teams",
+          "channel_config_id" => config.id,
+          "channel_identifier" => "aad-user-5"
+        })
+
+      personal_message = fn reference, sent_at ->
+        incoming(%{
+          provider: :teams,
+          author_id: "aad-user-5",
+          channel_id: "a:personal-5",
+          is_dm: true,
+          routing_context: %RoutingContext{
+            channel_config_id: config.id,
+            identity_platform: "microsoft_teams",
+            provider_sent_at: sent_at,
+            attributes: %{"delivery_external_room_id" => reference}
+          }
+        })
+      end
+
+      stored_reference = fn ->
+        person.id
+        |> People.list_person_channels()
+        |> Enum.find(&(&1.platform == "microsoft_teams"))
+        |> Map.fetch!(:dm_channel_id)
+      end
+
+      for {reference, sent_at, expected} <- [
+            {"teamsref:v1:first", ~U[2026-11-13 10:00:00Z], "teamsref:v1:first"},
+            {"teamsref:v1:second", ~U[2026-11-13 10:05:00Z], "teamsref:v1:second"},
+            {"teamsref:v1:first", ~U[2026-11-13 10:00:00Z], "teamsref:v1:second"},
+            {"teamsref:v1:untimed", nil, "teamsref:v1:second"}
+          ] do
+        assert {:ok, %{id: person_id}} =
+                 IdentityResolver.resolve(personal_message.(reference, sent_at),
+                   channels_router: RaiseRouter
+                 )
+
+        assert person_id == person.id
+        assert stored_reference.() == expected
+      end
+
+      assert {:ok, %{status: :sent, channel_identifier: "teamsref:v1:second"}} =
+               Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                 config: TeamsNotificationConfig,
+                 channels_event_opts: [bridge_module: DeliveredBridge]
+               )
     end
 
     test "rejects an invalid connector id before author lookup" do
@@ -812,5 +880,20 @@ defmodule Zaq.People.IdentityResolverTest do
     def fetch_profile(_platform, _author_id), do: raise("fetch_profile should not be called")
 
     def open_dm_channel(_platform, _author_id), do: raise("open_dm_channel should not be called")
+  end
+
+  defmodule TeamsNotificationConfig do
+    def get(:zaq, :channels, _default), do: %{teams: %{bridge: Zaq.Channels.JidoChatBridge}}
+  end
+
+  defmodule DeliveredBridge do
+    alias Zaq.Channels.Bridge
+
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+    def fetch_connection_details_for_config(_config), do: %{}
+    def fetch_channel_config(provider), do: Bridge.fetch_channel_config(provider)
+    def fetch_channel_config(provider, id), do: Bridge.fetch_channel_config(provider, id)
+    def send_reply(_outgoing, _connection_details), do: :ok
   end
 end

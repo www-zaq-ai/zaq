@@ -321,6 +321,43 @@ defmodule Zaq.Accounts.People do
     |> Repo.update()
   end
 
+  @doc """
+  Records the direct-message delivery reference carried by a verified message from
+  this channel. A stored reference is replaced only by one from a later message, so
+  a replayed older message cannot restore a stale reference. Without a message time,
+  only a missing reference is filled.
+  """
+  @spec refresh_dm_channel(PersonChannel.t(), String.t(), DateTime.t() | nil) ::
+          {:ok, :refreshed | :unchanged} | {:error, term()}
+  def refresh_dm_channel(%PersonChannel{id: id}, dm_channel_id, observed_at)
+      when is_binary(dm_channel_id) do
+    Repo.transaction(fn ->
+      channel = Repo.one!(from c in PersonChannel, where: c.id == ^id, lock: "FOR UPDATE")
+
+      if newer_dm_channel?(channel, observed_at) do
+        channel
+        |> PersonChannel.dm_channel_changeset(%{
+          dm_channel_id: dm_channel_id,
+          dm_channel_observed_at: observed_at,
+          last_interaction_at: DateTime.utc_now()
+        })
+        |> Repo.update()
+        |> linked!()
+
+        :refreshed
+      else
+        :unchanged
+      end
+    end)
+  end
+
+  defp newer_dm_channel?(%PersonChannel{dm_channel_id: nil}, _observed_at), do: true
+  defp newer_dm_channel?(_channel, nil), do: false
+  defp newer_dm_channel?(%PersonChannel{dm_channel_observed_at: nil}, _observed_at), do: true
+
+  defp newer_dm_channel?(%PersonChannel{dm_channel_observed_at: stored}, observed_at),
+    do: DateTime.after?(observed_at, stored)
+
   @doc "Updates editable channel fields without changing ownership; defaults activity to now."
   @spec update_channel(PersonChannel.t(), map()) ::
           {:ok, PersonChannel.t()} | {:error, Ecto.Changeset.t()}

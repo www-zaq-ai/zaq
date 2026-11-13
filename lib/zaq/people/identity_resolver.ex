@@ -204,7 +204,8 @@ defmodule Zaq.People.IdentityResolver do
     case match_author(platform, channel_id, config_id) do
       {:ok, %{incomplete: false} = person} ->
         channel = find_channel(person, platform, channel_id, config_id)
-        touch_channel(channel, canonical["dm_channel_id"])
+        sent_at = incoming.routing_context.provider_sent_at
+        touch_channel(channel, canonical["dm_channel_id"], sent_at)
         maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
 
@@ -305,16 +306,16 @@ defmodule Zaq.People.IdentityResolver do
     end
   end
 
-  defp touch_channel(nil, _dm_channel_id), do: :ok
+  defp touch_channel(nil, _dm_channel_id, _sent_at), do: :ok
 
-  defp touch_channel(channel, dm_channel_id)
-       when is_binary(dm_channel_id) and not is_nil(dm_channel_id) do
-    if is_nil(channel.dm_channel_id),
-      do: People.update_channel(channel, %{dm_channel_id: dm_channel_id}),
-      else: People.record_interaction(channel)
+  defp touch_channel(channel, dm_channel_id, sent_at) when is_binary(dm_channel_id) do
+    case People.refresh_dm_channel(channel, dm_channel_id, sent_at) do
+      {:ok, :refreshed} -> :ok
+      _ -> People.record_interaction(channel)
+    end
   end
 
-  defp touch_channel(channel, _dm_channel_id), do: People.record_interaction(channel)
+  defp touch_channel(channel, _dm_channel_id, _sent_at), do: People.record_interaction(channel)
 
   defp maybe_backfill_dm_channel(nil, _platform, _incoming, _opts), do: :ok
   defp maybe_backfill_dm_channel(_channel, _platform, %{is_dm: true}, _opts), do: :ok
