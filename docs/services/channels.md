@@ -585,10 +585,12 @@ calls `EmailBridge.materialize_record/3`, which delegates to
 `ImapAdapter.download_attachment/2`. The 100 MiB default byte limit is
 configurable through `:message_trace_artifact_max_bytes`; declared sizes above
 that limit are rejected before provider fetch and downloaded bytes are checked
-again before returning content. An attachment without a valid declared size is
-refused, except on Teams, which never declares one; ZAQ passes its limit to the
-Teams adapter as `max_media_bytes`, and the adapter stops the download once the
-file passes it.
+again before returning content. An attachment without a declared size is fetched
+only through an adapter that exports `fetch_bounded_media/3`: ZAQ passes its limit,
+the adapter stops the download once the file passes it, and ZAQ still checks the
+returned bytes. Adapters without it refuse such attachments with
+`:unknown_media_size`. The Teams adapter, whose attachments never declare a size,
+exports it.
 
 ---
 
@@ -1007,7 +1009,7 @@ Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_rep
 3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`.
 4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).
 
-Teams cannot post to a plain conversation ID, so `to_internal/2` keeps the adapter's `teamsref:v1:` delivery reference in `routing_context.attributes["delivery_external_room_id"]`. Create, edit and upsert use it as the adapter room ID, and `channel_id` stays the conversation identity. In a channel, the reference's conversation is the thread, so the reply lands in the original thread. The reference holds routing data and no secret. Other providers carry no such attribute and keep posting to `channel_id`. Teams has no typing indicator yet, because typing events carry only the provider and `channel_id`.
+When an adapter sets `delivery_external_room_id` on its `Jido.Chat.Incoming`, `to_internal/2` keeps it in `routing_context.attributes["delivery_external_room_id"]` for any provider. Create, edit and upsert use it as the adapter room ID, and fall back to `channel_id` when it is absent; `channel_id` stays the conversation identity. `routing_context.identity_platform` comes from `ProviderCatalog.person_platform/1`. Teams sets its `teamsref:v1:` reference because it cannot post to a plain conversation ID; in a channel, the reference's conversation is the thread, so the reply lands in the original thread. Discord sets the thread's channel for thread messages. The reference holds routing data and no secret. Teams has no typing indicator yet, because typing events carry only the provider and `channel_id`.
 
 ### Microsoft Teams
 
@@ -1018,7 +1020,7 @@ Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microso
 - **Verification:** the adapter's `JwtVerifier` checks the Bot Connector token's signature, issuer, audience (the App ID), expiry and `serviceUrl`. A failed check returns 401 and nothing reaches the Engine. `conversationUpdate`, `installationUpdate`, `event` and `typing` activities return 200 without processing.
 - **Answers:** personal chats are always answered. Group chats and channels follow the central mention policy, so ZAQ answers an @mention and only records other messages. Every channel message carries a thread ID, so a first @mention is admitted through `explicit_bot_mention?/2`.
 - **Credentials:** the client secret is in `token`. App ID and Tenant ID are in `settings["jido_chat"]`, trimmed on save. `url` stays empty because the adapter builds the token URL from the tenant.
-- **Connection test:** `test_connection/2` requests a Bot Connector token and sends no message.
+- **Connection test:** `test_connection/2` calls the configured adapter's `verify_credentials/1`, which requests a Bot Connector token and sends no message. The bridge holds no Microsoft OAuth logic; adapters without `verify_credentials/1` keep the test-message check.
 - **Reaction ratings:** Teams sends reaction types as words. `like` and `heart` rate 5, `sad` and `angry` rate 1, and `laugh` and `surprised` are ignored. In a channel, the adapter reports the channel as the reaction's room, so the rating finds the message under its source scope.
 - **Notifications:** a personal chat stores its `delivery_external_room_id` reference as the person's `dm_channel_id`, which notifications target. `People.refresh_dm_channel/3` replaces a stored reference only with one from a later message, ordered by the message's provider time in `dm_channel_observed_at`, so a replayed older message cannot restore a stale reference. `Channels.Api` maps the `microsoft_teams` person platform to the `teams` connector. A person who has never messaged the bot has no reference, so their notification falls back to their next channel.
 - **Edits and deletions:** the adapter parses `messageUpdate` (an edit or an undelete) as `:message_updated` and `messageDelete` as `:message_deleted`. `JidoChatBridge.handle_message_revision/3` finds the stored message by the same source identity as capture and sends the change to Engine with the `:revise_incoming_message` action. An edit never starts a new answer. See [message revisions](engine.md#provider-edits-and-deletions) for what Engine stores.

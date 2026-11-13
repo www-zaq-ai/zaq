@@ -62,6 +62,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule BoundedFetchMediaAdapter do
+    def fetch_media(reference, opts) do
+      send(self(), {:fetch_media_result, reference, opts})
+      {:ok, <<0, 1, 2, 3>>}
+    end
+
+    def fetch_bounded_media(reference, max_bytes, opts) do
+      send(self(), {:fetch_bounded_media, reference, max_bytes, opts})
+      {:ok, <<0, 1, 2, 3>>}
+    end
+  end
+
   defmodule MediaMaterializationConfig do
     def get(:zaq, :channels, _default, _opts) do
       %{mattermost: %{bridge: JidoChatBridge, adapter: Process.get(:fetch_media_adapter)}}
@@ -326,6 +338,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defmodule StubAdapterTestConnection do
+    def send_message(channel_id, message, opts) do
+      send(self(), {:adapter_send_message, channel_id, message, opts})
+      {:ok, :sent}
+    end
+  end
+
+  defmodule StubCredentialAdapter do
+    def verify_credentials(opts) do
+      send(self(), {:verify_credentials, opts})
+      :ok
+    end
+
     def send_message(channel_id, message, opts) do
       send(self(), {:adapter_send_message, channel_id, message, opts})
       {:ok, :sent}
@@ -1123,24 +1147,27 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert Enum.sort(opts) == [
                app_id: "app-1",
                app_password: "client-secret",
-               app_tenant_id: "tenant-1",
-               max_media_bytes: 100 * 1024 * 1024
+               app_tenant_id: "tenant-1"
              ]
     end
 
-    test "downloads a Teams file of unknown size and records its real size" do
-      previous = Application.get_env(:zaq, :channels, %{})
+    test "fetches media of unknown size through an adapter's bounded fetch" do
+      put_fetch_media_adapter(BoundedFetchMediaAdapter)
+      put_fetch_media_limit(10)
 
-      Application.put_env(:zaq, :channels, %{
-        teams: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
-      })
+      config = %{provider: "mattermost"}
+      details = %{url: "url", token: "token", config: MediaMaterializationConfig}
 
-      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+      assert {:ok, %{record: %Record{content: <<0, 1, 2, 3>>, size: 4}}} =
+               JidoChatBridge.materialize_record(config, %{"reference" => "x"}, details)
 
-      config = %{provider: "teams"}
-      details = %{url: "", token: "client-secret"}
+      assert_received {:fetch_bounded_media, "x", 10, opts}
+      assert Enum.sort(opts) == [token: "token", url: "url"]
+      refute_received {:fetch_media_result, _reference, _opts}
 
-      assert {:ok, %{record: %Record{size: 4}}} =
+      put_fetch_media_limit(3)
+
+      assert {:error, :media_too_large} =
                JidoChatBridge.materialize_record(config, %{"reference" => "x"}, details)
 
       assert {:error, :unknown_media_size} =
@@ -1149,6 +1176,25 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  %{"reference" => "x", "size" => "3"},
                  details
                )
+    end
+
+    test "rejects media of unknown size when the adapter has no bounded fetch, even for Teams" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        teams: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :unknown_media_size} =
+               JidoChatBridge.materialize_record(
+                 %{provider: "teams"},
+                 %{"reference" => "x"},
+                 %{url: "", token: "client-secret"}
+               )
+
+      refute_received {:fetch_media_result, _reference, _opts}
     end
   end
 
@@ -2713,6 +2759,60 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  describe "normalized delivery facts" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: StubAdapterThreadPostWithUpdate}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+    end
+
+    test "any adapter's delivery reference carries replies and edits, else the conversation" do
+      connection = %{url: "https://mm.example.com", token: "tok"}
+
+      referenced =
+        delivery_incoming(%{delivery_external_room_id: "delivery-1"})
+        |> JidoChatBridge.to_internal(%{provider: "mattermost", id: 1})
+
+      assert referenced.channel_id == "room-1"
+      assert referenced.routing_context.identity_platform == "mattermost"
+
+      assert referenced.routing_context.attributes == %{
+               "delivery_external_room_id" => "delivery-1"
+             }
+
+      assert {:ok, %{action: :created}} =
+               referenced
+               |> Outgoing.from_pipeline_result(%{answer: "the answer"})
+               |> JidoChatBridge.do_send_reply(connection)
+
+      assert_received {:adapter_send_message, "delivery-1", "the answer", _opts}
+
+      assert {:ok, %{action: :updated}} =
+               referenced
+               |> Outgoing.from_pipeline_result(%{answer: "edited", message_id: "post-123"})
+               |> JidoChatBridge.do_send_reply(connection)
+
+      assert_received {:adapter_edit_message, "delivery-1", "post-123", "edited", _opts}
+
+      plain =
+        delivery_incoming(%{})
+        |> JidoChatBridge.to_internal(%{provider: "mattermost", id: 1})
+
+      assert plain.routing_context.attributes == %{}
+
+      assert {:ok, %{action: :created}} =
+               plain
+               |> Outgoing.from_pipeline_result(%{answer: "the answer"})
+               |> JidoChatBridge.do_send_reply(connection)
+
+      assert_received {:adapter_send_message, "room-1", "the answer", _opts}
+    end
+  end
+
   describe "Teams webhook" do
     setup do
       Process.register(self(), :bridge_test_observer)
@@ -3674,6 +3774,24 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert {:error, "AADSTS7000215: Invalid client secret"} =
                JidoChatBridge.test_connection(teams_connection_config(), "")
+    end
+
+    test "test_connection/2 uses the configured adapter's credential check" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        teams: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubCredentialAdapter}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, :credentials_valid} =
+               JidoChatBridge.test_connection(teams_connection_config(), "")
+
+      assert_received {:verify_credentials, opts}
+      assert opts[:app_id] == "app-1"
+      assert opts[:app_tenant_id] == "tenant-1"
+      refute_received {:adapter_send_message, _channel_id, _message, _opts}
     end
 
     test "test_connection/2 reports a missing Teams credential" do
@@ -6399,6 +6517,20 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     assert URI.decode(path) == "/amer/v3/conversations/#{conversation_id}#{path_suffix}"
     assert {"authorization", "Bearer bot-token"} in headers
     Jason.decode!(body)
+  end
+
+  defp delivery_incoming(attrs) do
+    ChatIncoming.new(
+      Map.merge(
+        %{
+          external_room_id: "room-1",
+          external_message_id: "message-1",
+          text: "hello",
+          author: Author.new(%{user_id: "user-1", user_name: "alice"})
+        },
+        attrs
+      )
+    )
   end
 
   defp start_teams_runtime(config) do
