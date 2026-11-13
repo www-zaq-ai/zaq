@@ -204,7 +204,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   defmodule HistoryNodeRouter do
     def dispatch(event) do
-      if event.opts[:action] == :route_incoming_message,
+      action = event.opts[:action]
+
+      (Process.whereis(:bridge_test_observer) || self())
+      |> send({:engine_dispatch, action, event.request})
+
+      if action == :route_incoming_message,
         do: StubNodeRouter.dispatch(event),
         else: RealAllActionsNodeRouter.dispatch(event)
     end
@@ -2866,6 +2871,51 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert Repo.aggregate(from(m in Message, where: m.source_provider == "teams"), :count) == 1
       refute_receive {:pipeline_run, _content, _opts}, 200
+    end
+
+    test "captures equal message IDs from two chats and suppresses each chat's replay",
+         context do
+      Application.put_env(:zaq, :chat_bridge_node_router_module, HistoryNodeRouter)
+
+      config =
+        insert_channel_config(%{
+          provider: "teams",
+          url: "",
+          token: "client-secret",
+          settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+        })
+
+      runtime = start_teams_runtime(config)
+      headers = teams_auth_headers(context.signing_key)
+
+      [first, second] =
+        for {chat_id, text} <- [
+              {"19:group-a@thread.v2", "from A"},
+              {"19:group-b@thread.v2", "from B"}
+            ] do
+          %{"id" => chat_id, "conversationType" => "groupChat"}
+          |> teams_activity()
+          |> Map.merge(%{"id" => "1", "text" => text})
+        end
+
+      for activity <- [first, second, first, second] do
+        assert {:ok, %{response: %{status: 200}}} = post_teams_webhook(runtime, activity, headers)
+      end
+
+      assert_received {:engine_dispatch, :receive_incoming_message, %{content: "from A"}}
+      assert_received {:engine_dispatch, :receive_incoming_message, %{content: "from B"}}
+      refute_received {:engine_dispatch, :receive_incoming_message, _request}
+
+      stored =
+        Repo.all(
+          from m in Message,
+            where: m.source_provider == "teams" and m.external_message_id == "1",
+            order_by: m.content,
+            select: {m.content, m.source_account_key}
+        )
+
+      assert [{"from A", first_scope}, {"from B", second_scope}] = stored
+      assert first_scope != second_scope
     end
 
     test "acknowledges a conversationUpdate without running the pipeline", context do

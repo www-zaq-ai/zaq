@@ -1014,6 +1014,7 @@ Teams cannot post to a plain conversation ID, so `to_internal/2` keeps the adapt
 Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microsoft Teams](../guides/teams-channel-setup.md).
 
 - **Ingress:** Azure posts to the connector-scoped endpoint `/channels/webhook/conversation/teams/:config_id`. Teams has no subscription API, so the endpoint is configured in Azure, and `JidoChatBridge` treats the adapter's `:unsupported` ingress result as success.
+- **Replays:** Teams message IDs are unique only within a conversation, and one connector runtime serves every conversation. `Jido.Chat` therefore drops a repeated message ID only when it comes from the same room; an equal ID from another conversation is still captured.
 - **Verification:** the adapter's `JwtVerifier` checks the Bot Connector token's signature, issuer, audience (the App ID), expiry and `serviceUrl`. A failed check returns 401 and nothing reaches the Engine. `conversationUpdate`, `installationUpdate`, `event` and `typing` activities return 200 without processing.
 - **Answers:** personal chats are always answered. Group chats and channels follow the central mention policy, so ZAQ answers an @mention and only records other messages. Every channel message carries a thread ID, so a first @mention is admitted through `explicit_bot_mention?/2`.
 - **Credentials:** the client secret is in `token`. App ID and Tenant ID are in `settings["jido_chat"]`, trimmed on save. `url` stays empty because the adapter builds the token URL from the tenant.
