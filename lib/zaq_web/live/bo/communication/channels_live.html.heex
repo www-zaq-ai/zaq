@@ -1347,6 +1347,62 @@
         </label>
       </div>
 
+      <details
+        :if={
+          get_in(@capabilities_snapshot, [:resolved, :configurable_max_file_size]) == :native ||
+            get_in(@capabilities_snapshot, [:resolved, :file]) == :native
+        }
+        id="channel-advanced-settings"
+        phx-mounted={JS.ignore_attributes("open")}
+        class="mb-6 rounded-xl border p-4"
+        style="background: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default)"
+      >
+        <summary class="zaq-text-body-sm cursor-pointer">Advanced settings</summary>
+        <div
+          :if={
+            get_in(@capabilities_snapshot, [:resolved, :configurable_max_file_size]) == :native
+          }
+          class="mt-4"
+        >
+          <ZaqWeb.Components.DesignSystem.Input.input
+            id="channel-max-file-size"
+            name="form[settings][max_file_size]"
+            label="Maximum file size (bytes)"
+            type="number"
+            min="1"
+            step="1"
+            value={
+              Map.get(Ecto.Changeset.get_field(@changeset, :settings) || %{}, "max_file_size")
+            }
+            aria-describedby="channel-max-file-size-help"
+          />
+          <p
+            id="channel-max-file-size-help"
+            class="zaq-text-body-sm mt-2"
+            style="color: var(--zaq-text-color-body-secondary)"
+          >
+            Match this value to the maximum file size accepted by your channel provider.
+            For example, 5 MB is 5000000 bytes. Leaving it blank keeps the limit unconfigured.
+          </p>
+        </div>
+        <ZaqWeb.Components.DesignSystem.Switch.switch
+          :if={get_in(@capabilities_snapshot, [:resolved, :file]) == :native}
+          id="channel-send-on-file-failure"
+          name="form[settings][send_on_file_failure]"
+          layout={:setting_row}
+          label="Send message if files fail"
+          description="Send the message with the files that succeed and log failures. Turn this off to stop final delivery if a file cannot be prepared or uploaded. Previously streamed text may remain visible."
+          value={
+            Map.get(
+              Ecto.Changeset.get_field(@changeset, :settings) || %{},
+              "send_on_file_failure",
+              true
+            )
+          }
+          class="mt-4"
+        />
+      </details>
+
       <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
         <p
           :for={err <- @modal_errors}

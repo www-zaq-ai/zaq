@@ -9,6 +9,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Media
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.RetrievalChannel
@@ -431,6 +432,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   defmodule StubAdapterCapabilitiesMedia do
     def capabilities, do: %{send_file: :native}
+  end
+
+  defmodule StubAdapterAttachmentSettings do
+    def capabilities do
+      %{
+        send_file: :native,
+        configurable_max_file_size: :native,
+        attachment_failure_policy: :fallback
+      }
+    end
   end
 
   defmodule StubAdapterCapabilitiesStreaming do
@@ -2792,6 +2803,44 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   describe "capability_snapshot/1" do
+    test "exposes attachment settings declared by the Mattermost adapter" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: Jido.Chat.Mattermost.Adapter,
+          ingress_mode: :websocket
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:mattermost)
+      assert snapshot.resolved[:file] == :native
+      assert snapshot.resolved[:configurable_max_file_size] == :native
+      assert snapshot.resolved[:attachment_failure_policy] == :native
+    end
+
+    test "forwards adapter attachment settings through the production bridge snapshot" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterAttachmentSettings,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:mattermost)
+      assert snapshot.resolved[:file] == :native
+      assert snapshot.resolved[:configurable_max_file_size] == :native
+      assert snapshot.resolved[:attachment_failure_policy] == :fallback
+    end
+
     test "resolves required capabilities and filters absent keys" do
       previous = Application.get_env(:zaq, :channels, %{})
 

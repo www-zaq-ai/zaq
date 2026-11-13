@@ -8,14 +8,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System.EmailConfig
-  alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.EmailConnectorSelection, as: ConnectorSelection
 
   @smtp_provider "email:smtp"
-  alias Zaq.ConnectorConfig.SmtpSettings, as: SmtpHelpers
-  alias Zaq.Utils.ParseUtils
 
   @impl true
   def mount(_params, _session, socket) do
@@ -48,31 +45,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
         {:noreply, put_flash(socket, :error, "Connector not found.")}
 
       selected ->
-        socket = assign(socket, :selected_config_id, selected.id)
-        config = current_email_config(socket)
-        changeset = EmailConfig.changeset(config, %{})
-
-        {:noreply,
-         socket
-         |> assign(:form, to_form(changeset))
-         |> assign(:email_enabled, config.enabled)
-         |> assign(:smtp_warnings, smtp_warnings(changeset))
-         |> assign(:save_status, :idle)
-         |> assign(:test_status, :idle)}
+        select_connector(socket, selected.id)
     end
   end
 
   def handle_event("new_connector", _params, socket) do
-    socket = assign(socket, :selected_config_id, :new)
-    changeset = EmailConfig.changeset(current_email_config(socket), %{})
-
-    {:noreply,
-     socket
-     |> assign(:form, to_form(changeset))
-     |> assign(:email_enabled, false)
-     |> assign(:smtp_warnings, smtp_warnings(changeset))
-     |> assign(:save_status, :idle)
-     |> assign(:test_status, :idle)}
+    select_connector(socket, :new)
   end
 
   @impl true
@@ -362,26 +340,29 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   defp maybe_add_warning(warnings, true, id, message),
     do: warnings ++ [%{id: id, message: message}]
 
-  defp selected_channel(socket),
-    do: ConnectorSelection.selected_channel(socket, @smtp_provider)
+  defp current_email_config(socket), do: socket.assigns.connector_form_config
 
-  defp current_email_config(socket) do
-    channel = selected_channel(socket)
-    settings = if channel, do: channel.settings || %{}, else: %{}
+  defp select_connector(socket, selected_id) do
+    case email_settings(socket, :snapshot, %{
+           provider: @smtp_provider,
+           selected_config_id: selected_id
+         }) do
+      {:ok, snapshot} ->
+        config = snapshot.form_config
+        changeset = EmailConfig.changeset(config, %{})
 
-    %EmailConfig{
-      enabled: if(channel, do: channel.enabled, else: false),
-      relay: map_get(settings, "relay"),
-      port: parse_int(map_get(settings, "port"), 587),
-      transport_mode: map_get(settings, "transport_mode") || "starttls",
-      tls: map_get(settings, "tls") || "enabled",
-      tls_verify: map_get(settings, "tls_verify") || "verify_peer",
-      ca_cert_path: blank_to_nil(map_get(settings, "ca_cert_path")),
-      username: map_get(settings, "username"),
-      password: decrypt_password_value(map_get(settings, "password")),
-      from_email: map_get(settings, "from_email") || "noreply@zaq.local",
-      from_name: map_get(settings, "from_name") || "ZAQ"
-    }
+        {:noreply,
+         socket
+         |> ConnectorSelection.refresh(snapshot)
+         |> assign(:form, to_form(changeset))
+         |> assign(:email_enabled, config.enabled)
+         |> assign(:smtp_warnings, smtp_warnings(changeset))
+         |> assign(:save_status, :idle)
+         |> assign(:test_status, :idle)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load SMTP connector.")}
+    end
   end
 
   defp save_email_settings(_socket, %Ecto.Changeset{valid?: false} = changeset),
@@ -423,19 +404,4 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
        do: %{channel_config_id: id}
 
   defp test_routing_context(_socket), do: nil
-
-  defp decrypt_password_value(value) do
-    case EncryptedString.decrypt(value) do
-      {:ok, decrypted} -> decrypted
-      {:error, _reason} -> nil
-    end
-  end
-
-  defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
-
-  defp blank_to_nil(value) do
-    if blank?(value), do: nil, else: value
-  end
-
-  defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
 end
