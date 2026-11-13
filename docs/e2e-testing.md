@@ -85,8 +85,9 @@ two distinct signed Records and nonempty PNGs with valid dimensions in a unique
 folder beneath the configured Disk volume. Temporary capture files must be gone.
 Each incoming message waits
 for Jido's actual terminal state before the next one. Selector waits replace
-timed sleeps. A unique browser session is closed on success and again during
-cleanup so failed assertions do not leave that session running.
+timed sleeps. A unique browser session is closed through the agent on success.
+Teardown closes it only when the asserted tool close did not complete, so failed
+assertions do not leave a session running or race a second close against daemon exit.
 
 ### GitHub CI
 

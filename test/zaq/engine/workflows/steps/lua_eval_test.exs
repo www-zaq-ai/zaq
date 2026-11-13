@@ -4,6 +4,9 @@ defmodule Zaq.Engine.Workflows.Steps.LuaEvalTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowRunAgent
 
+  # These scenarios verify output persistence, not the Lua execution deadline.
+  @eval_timeout_ms 10_000
+
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn
       %Zaq.Event{request: %{action: action}} = event
@@ -34,7 +37,11 @@ defmodule Zaq.Engine.Workflows.Steps.LuaEvalTest do
               type: "action",
               module: "Zaq.Agent.Tools.Workflow.LuaEval",
               index: 0,
-              params: %{code: "return 10, 20", return_mode: unquote(mode)}
+              params: %{
+                code: "return 10, 20",
+                return_mode: unquote(mode),
+                eval_timeout_ms: @eval_timeout_ms
+              }
             }
           ],
           edges: []
@@ -77,7 +84,11 @@ defmodule Zaq.Engine.Workflows.Steps.LuaEvalTest do
                      type: "action",
                      module: "Zaq.Agent.Tools.Workflow.LuaEval",
                      index: 0,
-                     params: %{code: unquote(code), return_mode: unquote(mode)}
+                     params: %{
+                       code: unquote(code),
+                       return_mode: unquote(mode),
+                       eval_timeout_ms: @eval_timeout_ms
+                     }
                    },
                    %{
                      name: "after",

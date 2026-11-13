@@ -9178,6 +9178,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             Map.merge(source, %{
               provider: :compatible_catalog,
               id: id,
+              model: id,
               name: id,
               capabilities: capabilities,
               modalities: modalities
