@@ -116,6 +116,36 @@ defmodule Zaq.Engine.HistoryIngress do
 
   def capture_resolved(_, _, _, _), do: {:error, :invalid_request}
 
+  @doc "Applies a provider edit, restore or deletion to a message captured from an active connector."
+  def revise(%{provider: provider, channel_config_id: config_id} = revision)
+      when is_binary(provider) and is_integer(config_id) and config_id > 0 do
+    with :ok <-
+           active_confirmation_scope(%{"provider" => provider, "channel_config_id" => config_id}),
+         {:ok, change} <- revision_change(revision) do
+      revision
+      |> Map.take([
+        :provider,
+        :channel_config_id,
+        :source_scope,
+        :external_message_id,
+        :author_id
+      ])
+      |> Conversations.revise_canonical_message(change)
+    end
+  end
+
+  def revise(_), do: {:error, :invalid_request}
+
+  defp revision_change(%{change: :edit, content: content} = revision)
+       when is_binary(content) or is_nil(content),
+       do: {:ok, {:edit, content, revised_at(revision)}}
+
+  defp revision_change(%{change: :delete} = revision), do: {:ok, {:delete, revised_at(revision)}}
+  defp revision_change(_revision), do: {:error, :invalid_request}
+
+  defp revised_at(%{revised_at: %DateTime{} = revised_at}), do: revised_at
+  defp revised_at(_revision), do: DateTime.utc_now()
+
   defp observe_sender(
          {:ok, %{transcript_id: id}},
          %Incoming{

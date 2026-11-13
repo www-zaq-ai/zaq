@@ -41,6 +41,8 @@ defmodule Zaq.Engine.Conversations.Message do
     field :author_name, :string
     field :provider_sent_at, :utc_datetime_usec
     field :attachments, {:array, :map}, default: []
+    field :edited_at, :utc_datetime_usec
+    field :deleted_at, :utc_datetime_usec
     field :author, :map, virtual: true
     field :timestamp, :map, virtual: true
 
@@ -129,6 +131,32 @@ defmodule Zaq.Engine.Conversations.Message do
     |> validate_immutable_source_identity()
     |> check_constraint(:external_message_id, name: :messages_source_identity_check)
     |> unique_constraint(:external_message_id, name: :messages_canonical_source_index)
+  end
+
+  @doc "Whether a provider edit or deletion has replaced the captured content."
+  def revised?(%{edited_at: edited_at, deleted_at: deleted_at}),
+    do: not is_nil(edited_at) or not is_nil(deleted_at)
+
+  def revised?(_message), do: false
+
+  @doc """
+  Applies a provider edit, restore or deletion to captured content. A deletion
+  erases the content and attachments; the source identity never changes.
+  """
+  def revision_changeset(message, {:edit, content, revised_at}) do
+    message
+    |> cast(%{content: content, edited_at: revised_at, deleted_at: nil}, [
+      :content,
+      :edited_at,
+      :deleted_at
+    ])
+    |> validate_content_or_attachments(@valid_roles ++ ["external"])
+  end
+
+  def revision_changeset(message, {:delete, revised_at}) do
+    message
+    |> change(content: "", attachments: [])
+    |> cast(%{deleted_at: revised_at}, [:deleted_at])
   end
 
   defp validate_source_identity(changeset) do

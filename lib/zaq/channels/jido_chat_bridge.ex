@@ -30,6 +30,8 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Zaq.Channels.{
     Bridge,
+    CommunicationBridge,
+    MessageTimestamp,
     ProviderCatalog,
     RetrievalChannel,
     Supervisor,
@@ -39,7 +41,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.ConnectorConfig.Settings
   alias Zaq.Engine.ChannelConfig
 
-  alias Jido.Chat.ReactionEvent
+  alias Jido.Chat.{MessageDeletedEvent, MessageUpdatedEvent, ReactionEvent}
   alias Jido.Chat.Thread
   alias Zaq.Channels.JidoChatBridge.AdapterOptions
   alias Zaq.Channels.JidoChatBridge.DeliveryResult
@@ -347,6 +349,8 @@ defmodule Zaq.Channels.JidoChatBridge do
       |> Chat.on_reaction(fn _thread, reaction ->
         handle_reaction_event(config, reaction)
       end)
+      |> Chat.on_message_updated(&handle_message_revision(config, :edit, &1))
+      |> Chat.on_message_deleted(&handle_message_revision(config, :delete, &1))
 
     Enum.reduce(message_patterns, chat, fn pattern, acc ->
       Chat.on_new_message(acc, pattern, fn thread, incoming ->
@@ -406,6 +410,47 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   def handle_reaction_event(_config, _reaction), do: :ok
+
+  @doc """
+  Sends a provider edit, restore or deletion of a captured message to Engine.
+
+  Registered as the `Jido.Chat.on_message_updated/2` and
+  `Jido.Chat.on_message_deleted/2` handler in `register_handlers/3`. It finds the
+  stored message by the same source identity as capture and never starts an answer.
+  """
+  @spec handle_message_revision(
+          map(),
+          :edit | :delete,
+          MessageUpdatedEvent.t() | MessageDeletedEvent.t()
+        ) :: :ok
+  def handle_message_revision(config, change, event) do
+    provider = provider_to_atom(config.provider) || :unknown
+    room_id = ConversationIdentity.normalize(event.channel_id)
+
+    revision = %{
+      provider: to_string(provider),
+      channel_config_id: Map.get(config, :id),
+      source_scope: message_source_scope(provider, room_id),
+      external_message_id: ConversationIdentity.normalize(event.message_id),
+      author_id: event.author && event.author.user_id,
+      change: change,
+      content: event.message && event.message.text,
+      revised_at: MessageTimestamp.normalize(event.timestamp, :iso8601)
+    }
+
+    case CommunicationBridge.revise_message(revision, node_router: node_router_module()) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[JidoChatBridge] Message #{change} not applied " <>
+            "message=#{inspect(event.message_id)} provider=#{provider} reason=#{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
 
   defp reaction_room_id(%ReactionEvent{thread: %{external_room_id: id}}) when not is_nil(id),
     do: ConversationIdentity.normalize(id)

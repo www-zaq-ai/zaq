@@ -337,6 +337,80 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
     end
   end
 
+  test "a deleted message can no longer be rated" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Teams",
+        provider: "teams",
+        kind: "retrieval",
+        url: "https://example.invalid",
+        token: "token",
+        settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+      })
+      |> Repo.insert!()
+
+    {:ok, person} = People.create_person(%{full_name: "Teams rater"})
+
+    {:ok, _} =
+      People.add_channel(%{
+        person_id: person.id,
+        platform: "microsoft_teams",
+        channel_identifier: "rater",
+        channel_config_id: config.id
+      })
+
+    {:ok, facts} =
+      Facts.new(%{
+        provider: "teams",
+        channel_config_id: config.id,
+        channel_id: "room",
+        kind: :channel,
+        actor_person_id: person.id
+      })
+
+    {:ok, _captured} =
+      Conversations.capture_canonical_message(
+        facts,
+        %{
+          role: "external",
+          content: "Captured",
+          external_message_id: "post",
+          author_id: "author"
+        },
+        %{
+          provider: "teams",
+          channel_config_id: config.id,
+          provenance: "channel_adapter",
+          source_scope: "room"
+        }
+      )
+
+    ref = %{
+      provider: "teams",
+      channel_config_id: config.id,
+      channel_id: "room",
+      source_scope: "room",
+      message_id: "post"
+    }
+
+    assert {:ok, _rating} = rate(ref, "rater")
+
+    assert {:ok, :revised} =
+             Conversations.revise_canonical_message(
+               %{
+                 provider: "teams",
+                 channel_config_id: config.id,
+                 source_scope: "room",
+                 external_message_id: "post",
+                 author_id: "author"
+               },
+               {:delete, DateTime.utc_now()}
+             )
+
+    assert {:error, :not_found} = rate(ref, "rater")
+  end
+
   property "identical Telegram message IDs remain isolated by connector and native chat scope" do
     {:ok, person} = People.create_person(%{full_name: "Telegram rater"})
 

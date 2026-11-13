@@ -273,7 +273,7 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
           on: p.message_id == m.id,
           where:
             p.transcript_id == ^transcript.parent_id and
-              m.external_message_id == ^transcript.external_thread_id,
+              m.external_message_id == ^transcript.external_thread_id and is_nil(m.deleted_at),
           select: %{
             message_id: m.id,
             author_id: m.author_id,
@@ -330,7 +330,7 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
              from m in Message,
                join: p in TranscriptMessage,
                on: p.message_id == m.id,
-               where: p.transcript_id == ^id and m.id == ^message_id,
+               where: p.transcript_id == ^id and m.id == ^message_id and is_nil(m.deleted_at),
                select: m
            ) do
       {:ok, message}
@@ -360,7 +360,9 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
         from m in Message,
           join: placement in TranscriptMessage,
           on: placement.message_id == m.id,
-          where: placement.transcript_id == ^transcript.id and m.role != "assistant",
+          where:
+            placement.transcript_id == ^transcript.id and m.role != "assistant" and
+              is_nil(m.deleted_at),
           order_by: [asc: placement.position],
           limit: 1,
           select: m

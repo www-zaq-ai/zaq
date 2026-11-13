@@ -604,6 +604,25 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
+  @doc "Delivers a provider edit, restore or deletion of a captured message to Engine."
+  @spec revise_message(map(), keyword()) :: :ok | {:error, term()}
+  def revise_message(revision, opts \\ []) when is_map(revision) and is_list(opts) do
+    node_router = Keyword.get(opts, :node_router, NodeRouter)
+
+    event =
+      Event.new(revision, :engine,
+        type: :sync,
+        name: :incoming_message_revised,
+        opts: [action: :revise_incoming_message]
+      )
+
+    case node_router.dispatch(event) do
+      %Event{response: {:ok, _}} -> :ok
+      %Event{response: {:error, reason}} -> {:error, reason}
+      _ -> {:error, :message_revision_failed}
+    end
+  end
+
   @doc "Builds the canonical Engine request for channel-originated incoming routing."
   @spec build_incoming_routing_event(Incoming.t(), keyword(), map(), keyword()) :: Event.t()
   def build_incoming_routing_event(%Incoming{} = msg, pipeline_opts, actor, opts \\ [])

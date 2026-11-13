@@ -214,6 +214,9 @@ defmodule Zaq.Engine.Api do
     %{event | response: response, next_hop: nil}
   end
 
+  def handle_event(%Event{request: revision} = event, :revise_incoming_message, _context),
+    do: %{event | response: HistoryIngress.revise(revision), next_hop: nil}
+
   def handle_event(
         %Event{request: %Incoming{} = incoming} = event,
         :capture_incoming_history,

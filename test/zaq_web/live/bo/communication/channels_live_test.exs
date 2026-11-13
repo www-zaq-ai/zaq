@@ -2474,6 +2474,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       |> render_submit()
 
       assert render(view) =~ "Tenant ID is required"
+      refute render(view) =~ "Settings Tenant ID"
       refute Repo.get_by(ChannelConfig, provider: "teams")
     end
 

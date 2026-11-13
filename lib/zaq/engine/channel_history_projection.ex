@@ -187,7 +187,9 @@ defmodule Zaq.Engine.ChannelHistoryProjection do
       from placement in TranscriptMessage,
         join: message in Message,
         on: message.id == placement.message_id,
-        where: placement.transcript_id in ^ids and message.role != "assistant",
+        where:
+          placement.transcript_id in ^ids and message.role != "assistant" and
+            is_nil(message.deleted_at),
         distinct: placement.transcript_id,
         order_by: [asc: placement.transcript_id, asc: placement.position],
         select: {placement.transcript_id, message}
@@ -209,7 +211,7 @@ defmodule Zaq.Engine.ChannelHistoryProjection do
             on: message.id == placement.message_id,
             where:
               placement.transcript_id in ^parent_ids and
-                message.external_message_id in ^thread_ids,
+                message.external_message_id in ^thread_ids and is_nil(message.deleted_at),
             select: {placement.transcript_id, message.external_message_id, message}
         )
         |> Map.new(fn {parent_id, external_id, message} ->

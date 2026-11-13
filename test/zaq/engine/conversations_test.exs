@@ -1707,6 +1707,17 @@ defmodule Zaq.Engine.ConversationsTest do
       assert hd(messages).content == "first"
       assert List.last(messages).content == "second"
     end
+
+    test "leaves out a deleted message, also from agent history" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, kept} = Conversations.add_message(conv, %{role: "user", content: "kept"})
+      {:ok, deleted} = Conversations.add_message(conv, %{role: "user", content: "deleted"})
+      deleted |> Message.revision_changeset({:delete, DateTime.utc_now()}) |> Repo.update!()
+
+      kept_id = kept.id
+      assert [%{id: ^kept_id}] = Conversations.list_messages(conv)
+      assert [%{id: ^kept_id}] = Conversations.list_agent_history(%{conversation_id: conv.id})
+    end
   end
 
   # ── list_messages/2 :limit (Comment 56 — push LIMIT into SQL) ────────

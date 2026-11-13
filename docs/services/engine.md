@@ -175,7 +175,9 @@ conversation placement fail rather than backfilling earlier audience or adopting
 the persisted placement. The canonical append path serializes placements
 by locking the transcript, deduplicates only by verified
 provider/connector/source-scope/external-ID identity, and rejects conflicting
-replays; absent provider IDs create distinct messages. New capture is rejected
+replays; absent provider IDs create distinct messages. A replay of a message its
+author has since edited or deleted is a duplicate when its author and placement
+match (see [provider edits and deletions](#provider-edits-and-deletions)). New capture is rejected
 when its connector is disabled or archived, while existing authorized history
 remains readable. Capture and append
 context must come from trusted internal ingress, not browser input or agent
@@ -1370,6 +1372,31 @@ historical receipt's rejection reason.
   Serializes updates on the message before calling the existing `upsert_rating/2` owner.
   Canonical-only messages are supported without weakening the legacy UUID-only endpoint.
   Unscoped metadata lookup is removed; missing targets never fall back to legacy matches.
+
+#### Provider edits and deletions
+
+`HistoryIngress.revise/1` applies a provider edit, restore or deletion to a message
+that capture already stored. Channels sends it with the `:revise_incoming_message`
+action; it is an internal operation, not an agent tool.
+
+- **Lookup:** the message is found by its provider, connector, source scope and
+  external ID, under the same source lock as capture. The connector must be active.
+  A missing message returns `:not_found`; a revision never creates a message.
+- **Author:** only the stored author can revise a user or external message. Another
+  author returns `:unauthorized`.
+- **Edit or restore:** replaces `content` and sets `edited_at`; a restore also clears
+  `deleted_at`. Earlier versions are not kept, and attachments are unchanged.
+- **Delete:** erases `content` and `attachments` and sets `deleted_at`. The row, its
+  transcript position, author and linked answer stay.
+- **Order:** a revision older than the last applied `edited_at` or `deleted_at`
+  changes nothing, so replays and late events are ignored.
+- **Answers:** a revision never admits or answers a message. A replay of an edited
+  or deleted message is recognized as a duplicate and is never admitted again.
+  An execution that is already running keeps the content it loaded; an edit that
+  lands before its execution admission makes that execution fail closed.
+- **Reads:** deleted messages are left out of transcript projections (and so of
+  execution history), `list_messages/2`, `list_agent_history/1`, BO channel history
+  and source ratings. Conversation titles are not regenerated.
 
 #### Rating a message from any origin
 

@@ -1302,7 +1302,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:form, to_form(changeset, as: :form))
-    |> assign(:modal_errors, format_errors(changeset))
+    |> assign(:modal_errors, modal_errors(changeset, socket.assigns.provider))
   end
 
   defp configuration_save_error(socket, {:validation, errors}, _token),

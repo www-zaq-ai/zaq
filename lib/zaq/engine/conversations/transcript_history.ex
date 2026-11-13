@@ -53,6 +53,75 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     Repo.transaction(fn -> capture_locked(facts, attrs, source, :prepare) end)
   end
 
+  @doc """
+  Applies a provider edit, restore or deletion to one captured message, found by
+  its exact source identity. Only its author can revise it, a missing message is
+  never created, and a revision older than the last applied one changes nothing.
+  """
+  @spec revise(map(), {:edit, String.t() | nil, DateTime.t()} | {:delete, DateTime.t()}) ::
+          {:ok, :revised | :unchanged} | {:error, term()}
+  def revise(%{external_message_id: external_id} = source, change)
+      when is_binary(external_id) and external_id != "" do
+    Repo.transaction(fn ->
+      case revise_locked(source, change) do
+        {:ok, result} -> result
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  def revise(_source, _change), do: {:error, :invalid_request}
+
+  defp revise_locked(source, change) do
+    :ok = lock_source_identity(source.provider, source.channel_config_id, source, source)
+
+    account_key =
+      SourceIdentity.account_key(source.provider, source.channel_config_id, source[:source_scope])
+
+    message =
+      Repo.one(
+        from m in Message,
+          where:
+            m.source_provider == ^source.provider and m.source_account_key == ^account_key and
+              m.external_message_id == ^source.external_message_id,
+          lock: "FOR UPDATE"
+      )
+
+    cond do
+      is_nil(message) -> {:error, :not_found}
+      not revision_author?(message, source[:author_id]) -> {:error, :unauthorized}
+      stale_revision?(message, change) -> {:ok, :unchanged}
+      true -> apply_revision(message, change)
+    end
+  end
+
+  defp revision_author?(%Message{role: role, author_id: author_id}, author_id)
+       when role in ["external", "user"] and is_binary(author_id) and author_id != "",
+       do: true
+
+  defp revision_author?(_message, _author_id), do: false
+
+  defp stale_revision?(message, change) do
+    revised_at =
+      case change do
+        {:edit, _content, revised_at} -> revised_at
+        {:delete, revised_at} -> revised_at
+      end
+
+    Enum.any?(
+      [message.edited_at, message.deleted_at],
+      &(not is_nil(&1) and DateTime.compare(revised_at, &1) == :lt)
+    )
+  end
+
+  defp apply_revision(message, change) do
+    changeset = Message.revision_changeset(message, change)
+
+    with {:ok, _message} <- Repo.update(changeset) do
+      {:ok, if(changeset.changes == %{}, do: :unchanged, else: :revised)}
+    end
+  end
+
   defp capture_locked(facts, attrs, source, mode \\ :append) do
     root_facts = %{facts | thread_id: nil, parent: nil}
 
@@ -748,7 +817,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     from placement in TranscriptMessage,
       join: message in Message,
       on: placement.message_id == message.id,
-      where: placement.transcript_id == ^id,
+      where: placement.transcript_id == ^id and is_nil(message.deleted_at),
       select: %{
         message_id: message.id,
         position: placement.position,
@@ -1089,6 +1158,11 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
       matching_attachment_replay?(message.attachments || [], attrs.attachments || [])
   end
 
+  defp revised_replay?(message, candidate, transcript) do
+    matching_message_role?(message, candidate) and message.author_id == candidate.author_id and
+      source_author_matches?(message, candidate) and same_placement_scope?(message, transcript)
+  end
+
   defp matching_message_role?(%Message{role: role}, %Message{role: role}), do: true
 
   defp matching_message_role?(%Message{role: "user", conversation_id: id}, %Message{
@@ -1138,6 +1212,11 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
   defp reuse_matching_message(message, candidate, transcript) do
     cond do
+      Message.revised?(message) ->
+        if revised_replay?(message, candidate, transcript),
+          do: {:ok, message},
+          else: {:error, :source_conflict}
+
       not same_message?(message, candidate) or not same_placement_scope?(message, transcript) ->
         {:error, :source_conflict}
 

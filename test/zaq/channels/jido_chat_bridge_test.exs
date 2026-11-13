@@ -19,6 +19,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Contracts.Record
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
@@ -198,6 +199,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         current_node_fn: fn -> node() end,
         node_list_fn: fn -> [] end
       })
+    end
+  end
+
+  defmodule HistoryNodeRouter do
+    def dispatch(event) do
+      if event.opts[:action] == :route_incoming_message,
+        do: StubNodeRouter.dispatch(event),
+        else: RealAllActionsNodeRouter.dispatch(event)
     end
   end
 
@@ -2792,6 +2801,70 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  post_teams_webhook(context, activity, headers)
       end
 
+      refute_receive {:pipeline_run, _content, _opts}, 200
+    end
+
+    test "stores an edit and a deletion of a captured message across replays and restarts",
+         context do
+      Application.put_env(:zaq, :chat_bridge_node_router_module, HistoryNodeRouter)
+
+      config =
+        insert_channel_config(%{
+          provider: "teams",
+          url: "",
+          token: "client-secret",
+          settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+        })
+
+      runtime = start_teams_runtime(config)
+      headers = teams_auth_headers(context.signing_key)
+
+      original =
+        %{"id" => "19:channel@thread.tacv2;messageid=1", "conversationType" => "channel"}
+        |> teams_activity(%{
+          "team" => %{"id" => "team-1"},
+          "channel" => %{"id" => "19:channel@thread.tacv2"}
+        })
+        |> Map.merge(%{"id" => "msg-1", "text" => "first draft"})
+
+      edit =
+        original
+        |> Map.merge(%{
+          "type" => "messageUpdate",
+          "timestamp" => "2026-08-19T12:05:00Z",
+          "text" => "<at>ZAQ</at> second draft",
+          "entities" => [
+            %{
+              "type" => "mention",
+              "text" => "<at>ZAQ</at>",
+              "mentioned" => %{"id" => "28:bot", "name" => "ZAQ"}
+            }
+          ]
+        })
+        |> put_in(["channelData", "eventType"], "editMessage")
+
+      delete =
+        original
+        |> Map.merge(%{"type" => "messageDelete", "timestamp" => "2026-08-19T12:10:00Z"})
+        |> Map.delete("text")
+        |> put_in(["channelData", "eventType"], "softDeleteMessage")
+
+      for activity <- [original, edit, edit] do
+        assert {:ok, %{response: %{status: 200}}} = post_teams_webhook(runtime, activity, headers)
+      end
+
+      assert %{content: "second draft", deleted_at: nil} = stored_teams_message("msg-1")
+
+      runtime = restart_teams_runtime(runtime)
+
+      for activity <- [original, delete, delete, original, edit] do
+        assert {:ok, %{response: %{status: 200}}} = post_teams_webhook(runtime, activity, headers)
+      end
+
+      assert %{content: "", attachments: [], deleted_at: %DateTime{}} =
+               stored_teams_message("msg-1")
+
+      assert Repo.aggregate(from(m in Message, where: m.source_provider == "teams"), :count) == 1
       refute_receive {:pipeline_run, _content, _opts}, 200
     end
 
@@ -6277,6 +6350,23 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     assert {"authorization", "Bearer bot-token"} in headers
     Jason.decode!(body)
   end
+
+  defp start_teams_runtime(config) do
+    bridge_id = "teams_history_#{config.id}"
+    {state_spec, listener_specs} = JidoChatBridge.runtime_specs(config, bridge_id, [])
+    assert {:ok, _runtime} = Supervisor.start_runtime(bridge_id, state_spec, listener_specs)
+    assert {:ok, state_pid} = Supervisor.lookup_state_pid(bridge_id)
+    on_exit(fn -> _ = Supervisor.stop_bridge_runtime(config, bridge_id) end)
+    %{config: config, state_pid: state_pid}
+  end
+
+  defp restart_teams_runtime(%{config: config}) do
+    assert :ok = Supervisor.stop_bridge_runtime(config, "teams_history_#{config.id}")
+    start_teams_runtime(config)
+  end
+
+  defp stored_teams_message(external_id),
+    do: Repo.get_by!(Message, source_provider: "teams", external_message_id: external_id)
 
   defp post_teams_webhook(%{state_pid: state_pid, config: config}, activity, headers) do
     State.process_webhook_request(state_pid, config, %{

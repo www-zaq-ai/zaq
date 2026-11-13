@@ -1020,6 +1020,7 @@ Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microso
 - **Connection test:** `test_connection/2` requests a Bot Connector token and sends no message.
 - **Reaction ratings:** Teams sends reaction types as words. `like` and `heart` rate 5, `sad` and `angry` rate 1, and `laugh` and `surprised` are ignored. In a channel, the adapter reports the channel as the reaction's room, so the rating finds the message under its source scope.
 - **Notifications:** a personal chat stores its `delivery_external_room_id` reference as the person's `dm_channel_id`, which notifications target. `Channels.Api` maps the `microsoft_teams` person platform to the `teams` connector. A person who has never messaged the bot has no reference, so their notification falls back to their next channel.
+- **Edits and deletions:** the adapter parses `messageUpdate` (an edit or an undelete) as `:message_updated` and `messageDelete` as `:message_deleted`. `JidoChatBridge.handle_message_revision/3` finds the stored message by the same source identity as capture and sends the change to Engine with the `:revise_incoming_message` action. An edit never starts a new answer. See [message revisions](engine.md#provider-edits-and-deletions) for what Engine stores.
 
 **Not supported yet:**
 

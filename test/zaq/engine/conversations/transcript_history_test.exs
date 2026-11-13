@@ -314,6 +314,19 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
     Conversations.append_canonical_message(transcript.id, attrs, source(config, source_overrides))
   end
 
+  defp revise(config, id, change, author_id \\ "author-1") do
+    Conversations.revise_canonical_message(
+      %{
+        provider: "mattermost",
+        channel_config_id: config.id,
+        source_scope: nil,
+        external_message_id: id,
+        author_id: author_id
+      },
+      change
+    )
+  end
+
   defp legacy_conversation(config, external_channel_id \\ "room-1") do
     %Conversation{}
     |> Conversation.changeset(%{
@@ -466,6 +479,75 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
     assert Repo.get!(Transcript, room.id).next_position == 1
     assert Repo.aggregate(Message, :count) == 1
     assert Repo.get!(Message, original.message_id).content == "message p-1"
+  end
+
+  describe "provider edits and deletions" do
+    test "an edit replaces the content, a deletion erases it and leaves it out of reads" do
+      config = config()
+      room = transcript(config, "room-1")
+      assert {:ok, original} = append(room, config, "p-1")
+      assert {:ok, _other} = append(room, config, "p-2")
+
+      assert {:ok, :revised} =
+               revise(config, "p-1", {:edit, "edited p-1", ~U[2026-11-12 10:00:00Z]})
+
+      edited = Repo.get!(Message, original.message_id)
+      assert edited.content == "edited p-1"
+      assert edited.edited_at == ~U[2026-11-12 10:00:00.000000Z]
+      assert edited.attachments == [%{"id" => "a-1"}]
+      assert {:ok, [%{content: "edited p-1"}, _]} = TranscriptHistory.list_admin(room.id)
+
+      assert {:ok, :revised} = revise(config, "p-1", {:delete, ~U[2026-11-12 10:05:00Z]})
+
+      deleted = Repo.get!(Message, original.message_id)
+      assert {deleted.content, deleted.attachments} == {"", []}
+      assert deleted.deleted_at == ~U[2026-11-12 10:05:00.000000Z]
+      assert {:ok, [%{content: "message p-2"}]} = TranscriptHistory.list_admin(room.id)
+      assert Repo.get_by!(TranscriptMessage, message_id: original.message_id).position == 1
+    end
+
+    test "only the author revises an existing message, and older revisions change nothing" do
+      config = config()
+      room = transcript(config, "room-1")
+      assert {:ok, original} = append(room, config, "p-1")
+
+      assert {:error, :not_found} = revise(config, "unknown", {:delete, ~U[2026-11-12 10:00:00Z]})
+
+      assert {:error, :unauthorized} =
+               revise(config, "p-1", {:delete, ~U[2026-11-12 10:00:00Z]}, "someone-else")
+
+      assert {:ok, :revised} = revise(config, "p-1", {:delete, ~U[2026-11-12 10:05:00Z]})
+      assert {:ok, :unchanged} = revise(config, "p-1", {:delete, ~U[2026-11-12 10:05:00Z]})
+      assert {:ok, :unchanged} = revise(config, "p-1", {:edit, "late", ~U[2026-11-12 10:01:00Z]})
+      assert Repo.get!(Message, original.message_id).content == ""
+
+      assert {:ok, :revised} =
+               revise(config, "p-1", {:edit, "restored", ~U[2026-11-12 10:09:00Z]})
+
+      restored = Repo.get!(Message, original.message_id)
+      assert {restored.content, restored.deleted_at} == {"restored", nil}
+      assert Repo.aggregate(Message, :count) == 1
+    end
+
+    test "a redelivered original after a revision is a duplicate, not a source conflict" do
+      config = config()
+      room = transcript(config, "room-1")
+      assert {:ok, original} = append(room, config, "p-1")
+
+      assert {:ok, :revised} =
+               revise(config, "p-1", {:edit, "edited p-1", ~U[2026-11-12 10:00:00Z]})
+
+      assert {:ok, ^original} = append(room, config, "p-1")
+      assert Repo.get!(Message, original.message_id).content == "edited p-1"
+
+      assert {:error, :source_conflict} =
+               append(room, config, "p-1", %{author_id: "someone-else"})
+
+      assert {:ok, :revised} = revise(config, "p-1", {:delete, ~U[2026-11-12 10:05:00Z]})
+      assert {:ok, ^original} = append(room, config, "p-1")
+      assert Repo.get!(Message, original.message_id).deleted_at
+      assert Repo.aggregate(Message, :count) == 1
+    end
   end
 
   test "the source scope prevents accidental deduplication across mailboxes" do
