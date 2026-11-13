@@ -5,8 +5,9 @@ defmodule Zaq.Agent.Tools.Workflow.BatchTest do
   `map` as an authorable type).
   """
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
-  alias Zaq.Agent.Tools.Workflow.Batch
+  alias Zaq.Agent.Tools.Workflow.{Batch, Iterate}
 
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
   @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
@@ -48,6 +49,43 @@ defmodule Zaq.Agent.Tools.Workflow.BatchTest do
   end
 
   describe "validate/1" do
+    test "allows an empty post-process pipeline and rejects a non-list pipeline" do
+      process = %{"name" => "categorize", "type" => "action", "module" => @categorize_module}
+
+      for translator <- [Batch, Iterate] do
+        assert :ok =
+                 translator.validate(batch_node(%{"process" => [process], "post_process" => []}))
+
+        assert {:error, "post_process must be a list of nodes"} =
+                 translator.validate(batch_node(%{"process" => [process], "post_process" => %{}}))
+      end
+    end
+
+    property "both translators reject numeric post-process mapping sources" do
+      check all(value <- integer(), max_runs: 20) do
+        process = %{"name" => "categorize", "type" => "action", "module" => @categorize_module}
+        first = Map.merge(process, %{"name" => "first", "mapping" => %{"value" => value}})
+
+        second =
+          Map.merge(process, %{"name" => "second", "mapping" => %{"value" => "categorize.result"}})
+
+        last = Map.put(first, "name", "last")
+
+        for translator <- [Batch, Iterate],
+            {first_node, error_index} <- [
+              {first, 0},
+              {Map.put(first, "mapping", %{"value" => "categorize.result"}), 2}
+            ] do
+          node =
+            batch_node(%{"process" => [process], "post_process" => [first_node, second, last]})
+
+          assert {:error, message} = translator.validate(node)
+          assert message =~ "post_process node #{error_index}"
+          assert message =~ "mapping"
+        end
+      end
+    end
+
     test "accepts a Batch node whose process pipeline is contract-conforming" do
       node =
         batch_node(%{

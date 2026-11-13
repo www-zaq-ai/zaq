@@ -102,13 +102,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     do: Map.get(params, "__map_error__") == true or Map.get(params, :__map_error__) == true
 
   defp run_step(params, context, run_id, step_index, mod, map_index, strategy, step_name) do
-    case Workflows.get_run!(run_id).status do
-      "paused" ->
-        throw(:pause_requested)
-
-      _ ->
-        :ok
-    end
+    check_pause!(run_id)
 
     case Workflows.get_terminal_step_run(run_id, step_name) do
       %StepRun{status: "completed", results: results} ->
@@ -118,6 +112,14 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         )
 
         {:ok, results || %{}}
+
+      %StepRun{status: "failed_fatal"} ->
+        Logger.debug("[workflow] step skipped — already failed in isolation",
+          run_id: run_id,
+          step_name: step_name
+        )
+
+        {:ok, %{"__map_index__" => map_index, "__map_error__" => true}}
 
       %StepRun{status: "failed", errors: errors} ->
         Logger.debug("[workflow] step skipped — already failed",
@@ -145,6 +147,13 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
       nil ->
         execute_step(mod, run_id, step_name, step_index, params, context, map_index, strategy)
+    end
+  end
+
+  defp check_pause!(run_id) do
+    case Workflows.get_run!(run_id).status do
+      "paused" -> throw(:pause_requested)
+      _ -> :ok
     end
   end
 
