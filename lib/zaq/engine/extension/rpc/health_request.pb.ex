@@ -1,0 +1,8 @@
+defmodule Zaq.Engine.Extension.Rpc.Gateway.V1.HealthRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "gateway.v1.HealthRequest",
+    protoc_gen_elixir_version: "0.17.1",
+    syntax: :proto3
+end

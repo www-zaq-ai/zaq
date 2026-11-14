@@ -20,6 +20,20 @@ if System.get_env("PHX_SERVER") do
   config :zaq, ZaqWeb.Endpoint, server: true
 end
 
+extension_settings =
+  for {key, variable} <- [
+        socket_path: "ZAQ_EXTENSION_SOCKET_PATH",
+        ca_cert: "ZAQ_EXTENSION_CA_CERT",
+        client_cert: "ZAQ_EXTENSION_CLIENT_CERT",
+        client_key: "ZAQ_EXTENSION_CLIENT_KEY",
+        server_name: "ZAQ_EXTENSION_SERVER_NAME"
+      ],
+      value = System.get_env(variable),
+      not is_nil(value),
+      do: {key, value}
+
+config :zaq, Zaq.Engine.Extension.Client, extension_settings
+
 llm_pool_size =
   System.get_env("REQ_LLM_POOL_SIZE") || System.get_env("REQ_LLM_POOL_COUNT") || "50"
 
