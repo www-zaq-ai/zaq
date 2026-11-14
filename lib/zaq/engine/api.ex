@@ -26,6 +26,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Conversations.MessageDelivery
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.EmailConnectorSettings
+  alias Zaq.Engine.Extension
   alias Zaq.Engine.History.{CommunicationPolicy, Delivery}
   alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.IncomingMessageRouter
@@ -47,6 +48,18 @@ defmodule Zaq.Engine.Api do
   alias Zaq.System
 
   @impl true
+  def handle_event(%Event{request: %{}} = event, :extension_health, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, _user} <- BOActor.current_user(event.actor) do
+        {:ok, Extension.snapshot(event.opts)}
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :manage_live_update_settings, _context) do
     response =
       with true <- Keyword.get(event.opts, :confidential) == true,

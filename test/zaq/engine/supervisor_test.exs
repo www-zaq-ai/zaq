@@ -13,6 +13,7 @@ defmodule Zaq.Engine.SupervisorTest do
              Zaq.Engine.Workflows.RunRegistry,
              Zaq.Engine.Telemetry.Supervisor,
              Zaq.People.AuthRateLimiter,
+             Zaq.Engine.Extension,
              Zaq.Engine.Connect.DeviceSupervisor,
              Zaq.Engine.IngestionSupervisor,
              Zaq.Engine.RetrievalSupervisor,

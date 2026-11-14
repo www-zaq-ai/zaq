@@ -2,6 +2,7 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
   use ExUnit.Case, async: true
 
   alias GRPC.Client.Connection
+  alias Zaq.Engine.Extension
   alias Zaq.Engine.Extension.Client
   alias Zaq.ExtensionGateway
 
@@ -17,7 +18,7 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
       File.rm_rf!(directory)
     end)
 
-    %{settings: settings, directory: directory}
+    %{settings: settings, directory: directory, gateway: gateway}
   end
 
   test "real Rust Health succeeds using TLS 1.3, mutual authentication and h2", %{
@@ -75,5 +76,45 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
 
     assert System.monotonic_time(:millisecond) - started < 5_000
     assert {:error, :not_started} = Connection.get_channel(name)
+  end
+
+  test "Engine cache recovers from a real gateway outage without blocking readers", %{
+    settings: settings,
+    directory: directory,
+    gateway: gateway
+  } do
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+
+    runtime =
+      start_supervised!(
+        {Extension,
+         name: nil,
+         settings: settings,
+         poll_interval_ms: 50,
+         clock: fn -> Agent.get(clock, & &1) end}
+      )
+
+    assert_health(runtime, :healthy)
+    Agent.update(clock, fn _ -> 50_000 end)
+    assert %{status: :unreachable, reason: :stale} = Extension.snapshot(server: runtime)
+    Agent.update(clock, fn _ -> 0 end)
+
+    ExtensionGateway.stop(gateway)
+    assert_health(runtime, :unreachable)
+    restarted = ExtensionGateway.start!(directory)
+    on_exit(fn -> ExtensionGateway.stop(restarted) end)
+    assert_health(runtime, :healthy)
+  end
+
+  defp assert_health(runtime, status, attempts \\ 200)
+  defp assert_health(_runtime, _status, 0), do: flunk("gateway health did not settle")
+
+  defp assert_health(runtime, status, attempts) do
+    if Extension.snapshot(server: runtime).status == status do
+      :ok
+    else
+      Process.sleep(10)
+      assert_health(runtime, status, attempts - 1)
+    end
   end
 end
