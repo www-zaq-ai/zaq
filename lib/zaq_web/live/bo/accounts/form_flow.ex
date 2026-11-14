@@ -35,7 +35,7 @@ defmodule ZaqWeb.Live.BO.Accounts.FormFlow do
 
   @spec handle_save_result(
           Phoenix.LiveView.Socket.t(),
-          {:ok, any()} | {:error, Ecto.Changeset.t()},
+          {:ok, any()} | {:error, Ecto.Changeset.t() | atom()},
           keyword()
         ) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_save_result(socket, result, opts) do
@@ -46,8 +46,14 @@ defmodule ZaqWeb.Live.BO.Accounts.FormFlow do
          |> put_flash(:info, Keyword.fetch!(opts, :success_message))
          |> push_navigate(to: Keyword.fetch!(opts, :to))}
 
-      {:error, changeset} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, Phoenix.Component.to_form(changeset))}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to perform this action.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "The account change could not be saved.")}
     end
   end
 end

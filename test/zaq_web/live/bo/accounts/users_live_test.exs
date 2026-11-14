@@ -5,8 +5,12 @@ defmodule ZaqWeb.Live.BO.Accounts.UsersLiveTest do
   import Zaq.AccountsFixtures
   alias Zaq.Accounts
 
-  setup %{conn: conn} do
-    user = user_fixture(%{username: "testadmin"})
+  setup %{conn: conn} = context do
+    user =
+      if context[:account_admin],
+        do: super_admin_fixture(%{username: "testadmin"}),
+        else: user_fixture(%{username: "testadmin"})
+
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = conn |> init_test_session(%{user_id: user.id})
@@ -37,6 +41,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UsersLiveTest do
     assert html =~ "Create a new user"
   end
 
+  @tag :account_admin
   test "creates a new user", %{conn: conn} do
     role = role_fixture(%{name: "staff"})
     {:ok, view, _html} = live(conn, ~p"/bo/users/new")

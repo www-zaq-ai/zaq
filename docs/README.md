@@ -50,6 +50,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 | Workflow DAGs and execution | [Workflows](services/workflows.md) |
 | Notification delivery | [Notifications](services/notifications.md) |
 | BO authentication and authorization | [BO auth](services/bo-auth.md) |
+| Resource confidentiality persistence (inactive foundation) | [Resource policies](services/resource-policies.md) |
 | Runtime settings and secrets | [System configuration](services/system-config.md) |
 | Provisioning and consent | [Onboarding](services/onboarding.md) |
 | Add-ons and hooks | [Add-ons](services/addons.md), [hooks](services/hooks.md) |

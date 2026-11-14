@@ -36,6 +36,62 @@
 - Context functions: `create_user_with_password/1`, `update_user/2`, `delete_user/1`, `update_role/2`, `delete_role/1`
 - JSON meta parsing for roles (string → map)
 
+### Guarded role mutations and policy capabilities
+
+BO role creation/editing/deletion and assigning a role to a new/existing User
+require the current `super_admin` role. The account forms dispatch confidential
+`:account_administration` Engine events. The Engine boundary delegates permission
+checks to `Zaq.Accounts.Administration`, which reloads authority through
+`Zaq.Accounts.BOAuthorization` on every mutation. A cached privileged LiveView
+actor cannot retain write authority after its persisted role is revoked.
+
+`Administration` checks permissions and delegates execution to the existing
+Accounts functions. `Accounts.update_user/2` owns the transaction, row lock,
+changeset validation and persistence, without actor or permission checks. It
+rejects a changed role snapshot so a role changed between permission checking
+and execution cannot be restored by a previously checked same-role edit. A stale
+role returns a changeset error requiring a reload. Welcome delivery reuses
+`Engine.Notifications.WelcomeEmail` after successful creation, outside the write
+transaction; there is no separate account-administration Action.
+
+Same-role profile edits and the existing dedicated password-change behavior are
+unchanged. Internal Accounts persistence remains reusable by installation and
+other trusted domain operations; it is not a public BO authorization boundary.
+Role pages remain viewable to authenticated users; visible controls are not a
+mutation permission grant. This is not a general BO route-authorization system.
+
+`Accounts.BOActor.current_user/1` owns canonical current-user validation;
+`Accounts.BOAuthorization.authorize/2` is the shared named-capability evaluator
+used by account and policy administration, not a clearance-context factory.
+Domain boundaries request their required capability without copying role checks.
+
+The resource-policy foundation exclusively uses BO roles without linking Users
+to People. People/Teams carry confidentiality levels, not administrative authority;
+portal permissions and ResourcePermission grants never authorize policy changes.
+Someone needing administration receives BO access with the appropriate Role.
+Super administrators have all listed capabilities; other roles can explicitly
+list the following independent names in `role.meta["permissions"]`:
+
+- `view_resource_policies`
+- `add_resource_policies`
+- `edit_resource_policies`
+- `manage_confidentiality_defaults`
+- `skip_actor_clearance`
+
+`manage_roles` cannot be delegated through metadata: account-role administration
+remains super-admin-only. `admin`, `staff`, generic `read`/`write` metadata, and
+ordinary `skip_permissions` do not implicitly grant these new capabilities.
+
+`Events.TrustedContext.from_bo_actor/1` builds a canonical independent BO actor and
+issues only the narrow caller-clearance capability. It strips actor-supplied
+role/bypass claims and does not grant content permission or skip channel, agent,
+provider or MCP clearance. It asks the shared BO evaluator for the narrow capability;
+ordinary account edits authenticate without constructing an execution context.
+There are no Person/team policy-administrator grants, scopes or bootstrap.
+TrustedContext can transport this separate capability;
+the actual execution enforcement consumers are subsequent increments. See
+[resource policies](resource-policies.md) for foundation/activation status.
+
 ### Files
 ```
 lib/zaq/accounts.ex                          # Context (roles, users, auth, CRUD)
