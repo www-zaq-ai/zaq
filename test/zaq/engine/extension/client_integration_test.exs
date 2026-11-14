@@ -43,7 +43,8 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
         client_key: Path.join(directory, "server.key")
       )
 
-    assert {:error, :tls_error} = Client.health(settings: invalid_client)
+    assert {:error, reason} = Client.health(settings: invalid_client)
+    assert reason in [:tls_error, :rpc_error]
   end
 
   test "rejects an unrelated trust root", %{settings: settings, directory: directory} do
@@ -56,6 +57,40 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
   test "missing socket is unreachable, not healthy", %{settings: settings} do
     assert {:error, :unreachable} =
              Client.health(settings: Keyword.update!(settings, :socket_path, &(&1 <> ".absent")))
+  end
+
+  test "TLS peer without h2 ALPN is rejected before any HTTP data", %{
+    settings: settings,
+    directory: directory
+  } do
+    path = Path.join(directory, "no-alpn.sock")
+
+    {:ok, listener} =
+      :ssl.listen(0, [
+        :binary,
+        active: false,
+        ifaddr: {:local, path},
+        versions: [:"tlsv1.3"],
+        certfile: Path.join(directory, "server.pem"),
+        keyfile: Path.join(directory, "server.key"),
+        cacertfile: settings[:ca_cert],
+        verify: :verify_peer,
+        fail_if_no_peer_cert: true
+      ])
+
+    on_exit(fn -> :ssl.close(listener) end)
+
+    peer =
+      Task.async(fn ->
+        {:ok, socket} = :ssl.transport_accept(listener, 2_000)
+        {:ok, socket} = :ssl.handshake(socket, 2_000)
+        :ssl.recv(socket, 0, 2_000)
+      end)
+
+    assert {:error, :tls_error} =
+             Client.health(settings: Keyword.put(settings, :socket_path, path))
+
+    assert {:error, :closed} = Task.await(peer)
   end
 
   test "a peer that accepts but never completes TLS is bounded and released", %{

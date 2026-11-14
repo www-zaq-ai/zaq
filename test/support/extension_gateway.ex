@@ -1,6 +1,8 @@
 defmodule Zaq.ExtensionGateway do
   @moduledoc false
 
+  use GenServer, restart: :temporary
+
   def certificates!(directory) do
     File.mkdir_p!(directory)
     File.chmod!(directory, 0o700)
@@ -75,6 +77,19 @@ defmodule Zaq.ExtensionGateway do
     server_name = "gateway.local"
     """)
 
+    owner =
+      ExUnit.Callbacks.start_supervised!({__MODULE__, {binary, config_path}}, id: make_ref())
+
+    await_socket!(Path.join(directory, "gateway.sock"), 100)
+    owner
+  end
+
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+  @impl true
+  def init({binary, config_path}) do
+    Process.flag(:trap_exit, true)
+
     port =
       Port.open({:spawn_executable, binary}, [
         :binary,
@@ -84,14 +99,36 @@ defmodule Zaq.ExtensionGateway do
          [{~c"GATEWAY_CONFIG", String.to_charlist(config_path)}, {~c"GATEWAY_BINARY", false}]}
       ])
 
-    await_socket!(Path.join(directory, "gateway.sock"), 100)
-    {:os_pid, pid} = Port.info(port, :os_pid)
-    {port, pid}
+    {:ok, port}
   end
 
-  def stop({_port, pid}) do
-    System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
+  def stop(owner) do
+    GenServer.stop(owner)
+  catch
+    :exit, _ -> :ok
+  end
+
+  @impl true
+  def handle_info({_port, {:exit_status, _status}}, port), do: {:stop, :normal, port}
+  def handle_info(_message, port), do: {:noreply, port}
+
+  @impl true
+  def terminate(_reason, port) do
+    if info = Port.info(port, :os_pid) do
+      {:os_pid, pid} = info
+      System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
+      await_exit(port)
+    end
+
     :ok
+  end
+
+  defp await_exit(port) do
+    receive do
+      {^port, {:exit_status, _status}} -> :ok
+    after
+      2_000 -> Port.close(port)
+    end
   end
 
   defp await_socket!(path, attempts) when attempts > 0 do

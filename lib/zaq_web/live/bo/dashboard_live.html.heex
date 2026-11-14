@@ -57,6 +57,7 @@
               </p>
             </div>
           </div>
+          <.extension_health health={@extension_health} />
           <.link
             href={~p"/bo/addons"}
             class="block text-center font-mono text-[0.75rem] text-[#03b6d4] hover:underline"
@@ -75,6 +76,9 @@
           <:icon>
             <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
           </:icon>
+          <:status>
+            <.extension_health health={@extension_health} />
+          </:status>
         </.addon_upsell_card>
       <% end %>
     </div>

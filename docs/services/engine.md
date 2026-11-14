@@ -78,6 +78,65 @@ for request/actor preservation and the distinction from legacy generic invoke ca
 
 ## Startup
 
+### Optional Extension gateway Health
+
+`Zaq.Engine.Extension` polls the local commercial gateway from the Engine node.
+Health is connectivity only: it does not enable features, validate a license, or
+change `Zaq.Addons.FeatureStore`. Gateway failures do not block ZAQ startup or
+ordinary open-source operation.
+
+Configure all five environment variables on each Engine node that serves these
+requests:
+
+- `ZAQ_EXTENSION_SOCKET_PATH` — absolute Unix socket path.
+- `ZAQ_EXTENSION_CA_CERT` — absolute PEM path for the gateway trust root.
+- `ZAQ_EXTENSION_CLIENT_CERT` — absolute client certificate/chain PEM path.
+- `ZAQ_EXTENSION_CLIENT_KEY` — absolute client private-key PEM path.
+- `ZAQ_EXTENSION_SERVER_NAME` — expected DNS name in the server certificate,
+  such as `gateway.local`; this is not the socket path.
+
+No configuration means **unconfigured**, with no gateway probes. Partial or
+invalid configuration reports **error** without aborting startup. Restart the
+Engine after changing configuration or certificates. Mount certificates and keys
+read-only; restrict the client key to its process owner. Do not commit PEM keys
+or import them through BO.
+
+The client requires TLS 1.3, mutual TLS, server-name verification and negotiated
+`h2` ALPN over the Unix socket, with no TCP/plaintext fallback. Keep the socket
+parent private (`0700`) and socket owner-only (`0600`). The gateway container uses
+UID/GID `10001`, while ZAQ's image uses UID `1000`: the connecting Engine must use
+the socket owner's effective UID, with matching volume ownership and writable
+ZAQ runtime directories. A shared GID alone cannot grant access. Mount the socket
+directory rather than a single socket inode so gateway restarts remain visible.
+For multiple routable Engine nodes, each needs equivalent local gateway access;
+this status is not an aggregate cluster-health report.
+
+One probe runs at a time, with a five-second overall deadline and a 30-second
+delay after completion/cleanup. Each probe opens and releases its connection;
+the next probe retries after an outage. Cached results older than 45 seconds are
+unreachable, not healthy. The authenticated, confidential `:extension_health`
+Engine Event returns `%Zaq.Engine.Extension.Health{}` only, without configuration
+or raw transport errors. Dashboard reads run asynchronously, have a two-second
+UI deadline, and refresh after completion. The existing add-on card distinguishes
+unconfigured, checking, healthy, unreachable and error independently of entitlement.
+
+The wire contract is checked in at `priv/proto/gateway.proto`; generated Protobuf
+bindings live under `lib/zaq/engine/extension/rpc/`. They use Protobuf's
+`package_prefix=zaq.engine.extension.rpc` and `plugins=grpc` generator options;
+the service and stub are kept in separate files.
+
+The real Rust interoperability tests require a built gateway binary and OpenSSL:
+
+```bash
+GATEWAY_BINARY=/absolute/path/to/commercial-gateway mix test test/zaq/engine/extension/client_integration_test.exs --include integration
+```
+
+Tests generate temporary certificates and sockets. No production credentials or
+running gateway are required. Default tests cover the optional runtime, deadline,
+Engine authorization and dashboard without requiring Rust.
+
+### Role configuration
+
 The `:engine` role must be included in `:roles` config or the `ROLES` env var:
 
 ```elixir
