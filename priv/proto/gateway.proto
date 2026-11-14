@@ -1,0 +1,11 @@
+syntax = "proto3";
+package gateway.v1;
+
+service Gateway {
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {}
+message HealthResponse {
+  string status = 1;
+}
