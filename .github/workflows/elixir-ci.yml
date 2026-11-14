@@ -9,6 +9,54 @@ on:
       - main
 
 jobs:
+  protobuf:
+    name: Protobuf bindings
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.20.4"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Install pinned protobuf compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cat priv/proto/protoc.version)
+          archive="$RUNNER_TEMP/extension-protoc.zip"
+          curl --fail --silent --show-error --location \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${version}/protoc-${version}-linux-x86_64.zip" \
+            --output "$archive"
+          printf '%s  %s\n' "$(cat priv/proto/protoc-linux-x86_64.sha256)" "$archive" | sha256sum --check --status
+          unzip -q "$archive" -d "$RUNNER_TEMP/extension-protoc"
+          echo "$RUNNER_TEMP/extension-protoc/bin" >> "$GITHUB_PATH"
+
+      - name: Test protobuf generation and drift detection
+        run: >-
+          mix run --no-start -e 'ExUnit.start(include: [:protobuf]);
+          Code.require_file("test/tooling/extension_proto_test.exs")'
+
+      - name: Check checked-in protobuf bindings
+        run: mix run --no-start scripts/generate_extension_proto.exs --check
+
   format:
     name: Format
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}

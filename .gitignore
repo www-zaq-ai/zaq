@@ -92,6 +92,10 @@ db_snapshots/
 # other files under scripts remain ignored.
 !/scripts/
 /scripts/*
+!/scripts/generate_extension_proto.exs
+!/scripts/lib/
+/scripts/lib/*
+!/scripts/lib/extension_proto.exs
 !/scripts/setup_postgres_extensions.sql
 !/scripts/setup_paradedb_extensions.sql
 !/scripts/setup_development_extensions.sql

@@ -100,6 +100,7 @@ defmodule Zaq.MixProject do
       {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.6", override: true},
       {:grpc, "~> 1.1.0"},
+      {:grpc_server, "~> 1.1.0", only: :test},
       {:gun, "~> 2.7.0"},
       {:protobuf, "~> 0.17"},
       # Wake queued Finch callers after borrower cancellation (upstream PR #54).

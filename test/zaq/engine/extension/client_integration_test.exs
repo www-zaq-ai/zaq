@@ -6,22 +6,22 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
   alias Zaq.Engine.Extension.Client
   alias Zaq.ExtensionGateway
 
-  @moduletag :integration
+  @moduletag capture_log: true
 
-  setup do
+  setup context do
     directory = Path.join(System.tmp_dir!(), "zx-#{System.unique_integer([:positive])}")
     settings = ExtensionGateway.certificates!(directory)
-    gateway = ExtensionGateway.start!(directory)
+    gateway = unless context[:raw_peer], do: ExtensionGateway.start!(directory)
 
     on_exit(fn ->
-      ExtensionGateway.stop(gateway)
+      if gateway, do: ExtensionGateway.stop(gateway)
       File.rm_rf!(directory)
     end)
 
     %{settings: settings, directory: directory, gateway: gateway}
   end
 
-  test "real Rust Health succeeds using TLS 1.3, mutual authentication and h2", %{
+  test "protobuf Health succeeds using TLS 1.3, mutual authentication and h2", %{
     settings: settings
   } do
     name = make_ref()
@@ -59,6 +59,7 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
              Client.health(settings: Keyword.update!(settings, :socket_path, &(&1 <> ".absent")))
   end
 
+  @tag :raw_peer
   test "TLS peer without h2 ALPN is rejected before any HTTP data", %{
     settings: settings,
     directory: directory
@@ -93,6 +94,7 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
     assert {:error, :closed} = Task.await(peer)
   end
 
+  @tag :raw_peer
   test "a peer that accepts but never completes TLS is bounded and released", %{
     settings: settings,
     directory: directory
@@ -139,6 +141,101 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
     restarted = ExtensionGateway.start!(directory)
     on_exit(fn -> ExtensionGateway.stop(restarted) end)
     assert_health(runtime, :healthy)
+  end
+
+  test "Engine caches full-probe milliseconds and clears them after a failed check", %{
+    settings: settings,
+    gateway: gateway
+  } do
+    runtime = start_supervised!({Extension, name: nil, settings: settings, poll_interval_ms: 50})
+    assert_health(runtime, :healthy)
+
+    health = Extension.snapshot(server: runtime)
+    assert %DateTime{} = health.checked_at
+    assert is_integer(health.response_time_ms)
+    assert health.response_time_ms >= 0
+
+    ExtensionGateway.stop(gateway)
+    assert_health(runtime, :unreachable)
+    assert %{response_time_ms: nil} = Extension.snapshot(server: runtime)
+  end
+
+  test "Engine duration uses elapsed monotonic time, including zero at a negative clock origin",
+       %{
+         settings: settings
+       } do
+    runtime =
+      start_supervised!({Extension, name: nil, settings: settings, clock: fn -> -1_000 end})
+
+    assert_health(runtime, :healthy)
+    assert %{response_time_ms: 0} = Extension.snapshot(server: runtime)
+  end
+
+  test "controlled protobuf responses and gRPC errors use the production client's safe reasons",
+       %{
+         settings: settings,
+         gateway: gateway
+       } do
+    ExtensionGateway.respond(gateway, {:ok, "not-ready"})
+    assert {:error, :unexpected_status} = Client.health(settings: settings)
+    ExtensionGateway.respond(gateway, {:error, :unavailable})
+    assert {:error, :rpc_error} = Client.health(settings: settings)
+  end
+
+  test "a delayed response measures exact monotonic elapsed time and an RPC failure clears it", %{
+    settings: settings,
+    gateway: gateway
+  } do
+    {:ok, clock} = Agent.start_link(fn -> -100 end)
+    ExtensionGateway.respond(gateway, {:await, {:ok, "ok"}})
+
+    runtime =
+      start_supervised!(
+        {Extension,
+         name: nil,
+         settings: settings,
+         poll_interval_ms: 50,
+         clock: fn -> Agent.get(clock, & &1) end}
+      )
+
+    assert_receive {:gateway_request, ^gateway, handler, _request}, 2_000
+    assert %{status: :checking} = Extension.snapshot(server: runtime)
+    Agent.update(clock, fn _ -> -58 end)
+    send(handler, {:release, gateway})
+    assert_health(runtime, :healthy)
+    assert %{response_time_ms: 42} = Extension.snapshot(server: runtime)
+
+    ExtensionGateway.respond(gateway, {:error, :unavailable})
+    assert_health(runtime, :error)
+    assert %{reason: :rpc_error, response_time_ms: nil} = Extension.snapshot(server: runtime)
+  end
+
+  test "an unanswered RPC clears a prior response time when the Engine deadline expires", %{
+    settings: settings,
+    gateway: gateway
+  } do
+    runtime =
+      start_supervised!(
+        {Extension, name: nil, settings: settings, poll_interval_ms: 50, probe_timeout_ms: 1_000}
+      )
+
+    assert_health(runtime, :healthy)
+    assert_receive {:gateway_request, ^gateway, _first_handler, _request}, 2_000
+
+    ExtensionGateway.respond(gateway, {:await, {:ok, "ok"}})
+    assert_receive {:gateway_request, ^gateway, _blocked_handler, _request}, 2_000
+    assert_health(runtime, :unreachable)
+    assert %{reason: :timeout, response_time_ms: nil} = Extension.snapshot(server: runtime)
+  end
+
+  test "the client bounds a protobuf RPC whose handler never replies", %{
+    settings: settings,
+    gateway: gateway
+  } do
+    ExtensionGateway.respond(gateway, {:await, {:ok, "ok"}})
+    started = System.monotonic_time(:millisecond)
+    assert {:error, :rpc_error} = Client.health(settings: settings)
+    assert System.monotonic_time(:millisecond) - started < 5_000
   end
 
   defp assert_health(runtime, status, attempts \\ 200)

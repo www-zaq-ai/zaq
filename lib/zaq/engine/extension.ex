@@ -73,16 +73,27 @@ defmodule Zaq.Engine.Extension do
   def handle_info(:probe, %{task: nil} = state) do
     connection_name = make_ref()
     opts = Keyword.put(state.opts, :connection_name, connection_name)
-    task = Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn -> Client.health(opts) end)
+    clock = state.clock
+
+    task =
+      Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn ->
+        started_at = clock.()
+        result = Client.health(opts)
+        {result, clock.() - started_at}
+      end)
+
     timer = Process.send_after(self(), {:probe_timeout, task.ref}, state.probe_timeout_ms)
 
     {:noreply,
      %{state | task: task, connection_name: connection_name, deadline_timer: timer, phase: :probe}}
   end
 
-  def handle_info({ref, result}, %{task: %Task{ref: ref}, phase: :probe} = state) do
+  def handle_info(
+        {ref, {result, response_time_ms}},
+        %{task: %Task{ref: ref}, phase: :probe} = state
+      ) do
     Process.demonitor(ref, [:flush])
-    {:noreply, state |> put_health(result) |> schedule_probe()}
+    {:noreply, state |> put_health(result, response_time_ms) |> schedule_probe()}
   end
 
   def handle_info({ref, _result}, %{task: %Task{ref: ref}, phase: :cleanup} = state) do
@@ -129,7 +140,7 @@ defmodule Zaq.Engine.Extension do
     %{state | task: nil, connection_name: nil, deadline_timer: nil}
   end
 
-  defp put_health(state, result) do
+  defp put_health(state, result, response_time_ms \\ nil) do
     {status, reason} =
       case result do
         {:ok, :healthy} ->
@@ -144,7 +155,12 @@ defmodule Zaq.Engine.Extension do
 
     %{
       state
-      | health: %Health{status: status, reason: reason, checked_at: DateTime.utc_now()},
+      | health: %Health{
+          status: status,
+          reason: reason,
+          checked_at: DateTime.utc_now(),
+          response_time_ms: if(status == :healthy, do: response_time_ms)
+        },
         checked_monotonic: state.clock.()
     }
   end

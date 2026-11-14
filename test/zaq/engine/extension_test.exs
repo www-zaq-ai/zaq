@@ -6,11 +6,13 @@ defmodule Zaq.Engine.ExtensionTest do
   test "unconfigured runtime is immediately readable and does not start probes" do
     runtime = start_supervised!({Extension, name: nil, settings: []})
     assert %{status: :unconfigured, checked_at: nil} = Extension.snapshot(server: runtime)
+    assert %{response_time_ms: nil} = Extension.snapshot(server: runtime)
   end
 
   test "invalid configuration cannot prevent runtime startup" do
     runtime = start_supervised!({Extension, name: nil, settings: [socket_path: "relative.sock"]})
     assert %{status: :error, reason: :invalid_configuration} = Extension.snapshot(server: runtime)
+    assert %{response_time_ms: nil} = Extension.snapshot(server: runtime)
   end
 
   test "a stalled external peer cannot block snapshot reads or outlive the probe deadline" do
@@ -29,6 +31,7 @@ defmodule Zaq.Engine.ExtensionTest do
     {:ok, socket} = :gen_tcp.accept(listener, 2_000)
     assert Extension.snapshot(server: runtime).status in [:checking, :unreachable]
     assert %{reason: :timeout} = assert_snapshot(runtime, :unreachable)
+    assert %{response_time_ms: nil} = Extension.snapshot(server: runtime)
     assert {:ok, _client_hello} = :gen_tcp.recv(socket, 0, 2_000)
     assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2_000)
   end
