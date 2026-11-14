@@ -32,6 +32,7 @@ defmodule ZaqWeb.Dashboard.ExtensionHealth do
         <time datetime={DateTime.to_iso8601(@health.checked_at)}>
           {Calendar.strftime(@health.checked_at, "%H:%M:%S UTC")}
         </time>
+        <span :if={not is_nil(@health.response_time_ms)}>· {@health.response_time_ms} ms</span>
       </p>
     </div>
     """

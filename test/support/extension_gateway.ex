@@ -1,106 +1,19 @@
 defmodule Zaq.ExtensionGateway do
-  @moduledoc false
+  @moduledoc "Test-only protobuf gateway with an isolated TLS/UDS listener and programmable Health replies."
 
   use GenServer, restart: :temporary
 
-  def certificates!(directory) do
-    File.mkdir_p!(directory)
-    File.chmod!(directory, 0o700)
+  alias GRPC.Server.Adapters.Cowboy.{Handler, Router}
+  alias Zaq.ExtensionGateway.{Certificates, Server}
 
-    openssl!(directory, ~w(req -x509 -newkey ed25519 -nodes -days 1
-      -keyout ca.key -out ca.pem -subj /CN=ExtensionTestCA
-      -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign))
+  defdelegate certificates!(directory), to: Certificates, as: :generate!
 
-    for {identity, usage} <- [{"server", "serverAuth"}, {"client", "clientAuth"}] do
-      openssl!(directory, [
-        "req",
-        "-new",
-        "-newkey",
-        "ed25519",
-        "-nodes",
-        "-keyout",
-        "#{identity}.key",
-        "-out",
-        "#{identity}.csr",
-        "-subj",
-        "/CN=gateway.local"
-      ])
-
-      File.write!(Path.join(directory, "#{identity}.ext"), """
-      basicConstraints=critical,CA:FALSE
-      keyUsage=critical,digitalSignature
-      extendedKeyUsage=#{usage}
-      subjectAltName=DNS:gateway.local
-      """)
-
-      openssl!(directory, [
-        "x509",
-        "-req",
-        "-days",
-        "1",
-        "-in",
-        "#{identity}.csr",
-        "-CA",
-        "ca.pem",
-        "-CAkey",
-        "ca.key",
-        "-CAcreateserial",
-        "-out",
-        "#{identity}.pem",
-        "-extfile",
-        "#{identity}.ext"
-      ])
-    end
-
-    [
-      socket_path: Path.join(directory, "gateway.sock"),
-      ca_cert: Path.join(directory, "ca.pem"),
-      client_cert: Path.join(directory, "client.pem"),
-      client_key: Path.join(directory, "client.key"),
-      server_name: "gateway.local"
-    ]
-  end
-
-  def start!(directory) do
-    binary = System.fetch_env!("GATEWAY_BINARY") |> Path.expand()
-    config_path = Path.join(directory, "gateway.toml")
-
-    File.write!(config_path, """
-    socket_path = "#{directory}/gateway.sock"
-    log_filter = "off"
-    [tls]
-    ca_cert = "#{directory}/ca.pem"
-    server_cert = "#{directory}/server.pem"
-    server_key = "#{directory}/server.key"
-    client_cert = "#{directory}/client.pem"
-    client_key = "#{directory}/client.key"
-    server_name = "gateway.local"
-    """)
-
-    owner =
-      ExUnit.Callbacks.start_supervised!({__MODULE__, {binary, config_path}}, id: make_ref())
-
-    await_socket!(Path.join(directory, "gateway.sock"), 100)
-    owner
+  def start!(directory, opts \\ []) do
+    opts = Keyword.put_new(opts, :notify, self())
+    ExUnit.Callbacks.start_supervised!({__MODULE__, {directory, opts}}, id: make_ref())
   end
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-
-  @impl true
-  def init({binary, config_path}) do
-    Process.flag(:trap_exit, true)
-
-    port =
-      Port.open({:spawn_executable, binary}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        {:env,
-         [{~c"GATEWAY_CONFIG", String.to_charlist(config_path)}, {~c"GATEWAY_BINARY", false}]}
-      ])
-
-    {:ok, port}
-  end
 
   def stop(owner) do
     GenServer.stop(owner)
@@ -108,44 +21,99 @@ defmodule Zaq.ExtensionGateway do
     :exit, _ -> :ok
   end
 
-  @impl true
-  def handle_info({_port, {:exit_status, _status}}, port), do: {:stop, :normal, port}
-  def handle_info(_message, port), do: {:noreply, port}
+  def respond(gateway, response), do: GenServer.call(gateway, {:respond, response})
 
   @impl true
-  def terminate(_reason, port) do
-    if info = Port.info(port, :os_pid) do
-      {:os_pid, pid} = info
-      System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
-      await_exit(port)
+  def init({directory, opts}) do
+    Process.flag(:trap_exit, true)
+    reference = make_ref()
+    socket = Path.join(directory, "gateway.sock")
+
+    routes =
+      for {:grpc, path} <- Server.__meta__(:routes) do
+        {path, Handler,
+         {nil, {Server.__meta__(:service).__meta__(:name), Server}, path, %{local: self()}}}
+      end
+
+    transport = %{
+      connection_type: :supervisor,
+      num_acceptors: 2,
+      socket_opts: [
+        ip: {:local, socket},
+        port: 0,
+        versions: [:"tlsv1.3"],
+        verify: :verify_peer,
+        fail_if_no_peer_cert: true,
+        cacertfile: Path.join(directory, "ca.pem"),
+        certfile: Path.join(directory, "server.pem"),
+        keyfile: Path.join(directory, "server.key"),
+        alpn_preferred_protocols: ["h2"]
+      ]
+    }
+
+    # grpc_server's wrapper names listeners by module and logs an IP address.
+    # Its wire handler works over UDS; own the Ranch listener to isolate fixtures.
+    protocol = %{
+      connection_type: :supervisor,
+      env: %{dispatch: Router.compile([{:_, routes}])},
+      stream_handlers: [:grpc_stream_h],
+      idle_timeout: 5_000
+    }
+
+    case start_listener(reference, socket, transport, protocol) do
+      {:ok, listener} ->
+        case File.chmod(socket, 0o600) do
+          :ok ->
+            monitor = Process.monitor(listener)
+
+            {:ok,
+             %{
+               reference: reference,
+               monitor: monitor,
+               socket: socket,
+               response: Keyword.get(opts, :response, {:ok, "ok"}),
+               notify: opts[:notify]
+             }}
+
+          {:error, reason} ->
+            :ranch.stop_listener(reference)
+            File.rm(socket)
+            {:stop, reason}
+        end
+
+      {:error, :socket_exists} ->
+        {:stop, :socket_exists}
+
+      {:error, reason} ->
+        File.rm(socket)
+        {:stop, reason}
     end
+  end
 
+  defp start_listener(reference, socket, transport, protocol) do
+    case File.lstat(socket) do
+      {:error, :enoent} ->
+        :ranch.start_listener(reference, :ranch_ssl, transport, :cowboy_tls, protocol)
+
+      _ ->
+        {:error, :socket_exists}
+    end
+  end
+
+  @impl true
+  def handle_call(:response, _from, state), do: {:reply, {state.response, state.notify}, state}
+
+  def handle_call({:respond, response}, _from, state),
+    do: {:reply, :ok, %{state | response: response}}
+
+  @impl true
+  def handle_info({:DOWN, monitor, :process, _pid, reason}, %{monitor: monitor} = state),
+    do: {:stop, reason, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    :ranch.stop_listener(state.reference)
+    File.rm(state.socket)
     :ok
-  end
-
-  defp await_exit(port) do
-    receive do
-      {^port, {:exit_status, _status}} -> :ok
-    after
-      2_000 -> Port.close(port)
-    end
-  end
-
-  defp await_socket!(path, attempts) when attempts > 0 do
-    if File.exists?(path) do
-      :ok
-    else
-      Process.sleep(20)
-      await_socket!(path, attempts - 1)
-    end
-  end
-
-  defp await_socket!(_path, 0), do: raise("gateway did not create its socket")
-
-  defp openssl!(directory, args) do
-    case System.cmd("openssl", args, cd: directory, stderr_to_stdout: true) do
-      {_, 0} -> :ok
-      {output, _} -> raise "test certificate generation failed: #{output}"
-    end
   end
 end

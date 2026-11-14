@@ -9,7 +9,13 @@ defmodule Storybook.Dashboard.ExtensionHealth do
 
   def variations do
     for status <- [:unconfigured, :checking, :healthy, :unreachable, :error] do
-      %Variation{id: status, attributes: %{id: "extension-health-#{status}", health: %Health{status: status}}}
+      health = %Health{
+        status: status,
+        checked_at: if(status in [:healthy, :unreachable, :error], do: ~U[2026-11-14 08:00:00Z]),
+        response_time_ms: if(status == :healthy, do: 42)
+      }
+
+      %Variation{id: status, attributes: %{id: "extension-health-#{status}", health: health}}
     end
   end
 end

@@ -103,6 +103,7 @@ defmodule Zaq.MixProject do
       # Remove this override when a compatible Hex release contains the fix (zaq-bjp).
       {:finch, github: "sneako/finch", branch: "main", override: true},
       {:grpc, "~> 1.1.0"},
+      {:grpc_server, "~> 1.1.0", only: :test},
       {:gun, "~> 2.7.0"},
       {:protobuf, "~> 0.17"},
       # Wake queued Finch callers after borrower cancellation (upstream PR #54).

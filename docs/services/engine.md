@@ -119,21 +119,72 @@ Engine Event returns `%Zaq.Engine.Extension.Health{}` only, without configuratio
 or raw transport errors. Dashboard reads run asynchronously, have a two-second
 UI deadline, and refresh after completion. The existing add-on card distinguishes
 unconfigured, checking, healthy, unreachable and error independently of entitlement.
+The last-check line includes the successful probe's elapsed milliseconds, measured
+with a monotonic clock across connection, TLS, Health RPC and connection release.
+Checks without a successful response have no response time.
 
-The wire contract is checked in at `priv/proto/gateway.proto`; generated Protobuf
-bindings live under `lib/zaq/engine/extension/rpc/`. They use Protobuf's
-`package_prefix=zaq.engine.extension.rpc` and `plugins=grpc` generator options;
-the service and stub are kept in separate files.
+#### Wire contract and generated bindings
 
-The real Rust interoperability tests require a built gateway binary and OpenSSL:
+`priv/proto/gateway.proto` owns the wire contract. Generated Protobuf messages,
+service and client stub live under `lib/zaq/engine/extension/rpc/`, one module per
+file. Public module names retain the `Zaq.Engine.Extension.Rpc` prefix.
+
+After editing a schema, install the compiler version in `priv/proto/protoc.version`
+and regenerate using the locked Elixir protobuf dependency; no global generator
+escript is needed:
 
 ```bash
-GATEWAY_BINARY=/absolute/path/to/commercial-gateway mix test test/zaq/engine/extension/client_integration_test.exs --include integration
+mix run --no-start scripts/generate_extension_proto.exs
+mix run --no-start scripts/generate_extension_proto.exs --check
 ```
 
-Tests generate temporary certificates and sockets. No production credentials or
-running gateway are required. Default tests cover the optional runtime, deadline,
-Engine authorization and dashboard without requiring Rust.
+The check detects edited, missing and obsolete bindings without writing files.
+The dedicated protobuf CI job verifies the pinned compiler archive checksum,
+tests the generator and checks for schema drift. Ordinary tests use the checked-in
+bindings and do not need `protoc`.
+
+Compiler-dependent generator tests live under `test/tooling/` and are excluded
+from ordinary tests. With the pinned compiler installed, run them explicitly:
+
+```bash
+mix test test/tooling/extension_proto_test.exs --include protobuf
+```
+
+#### Self-contained gateway tests
+
+The commercial gateway is external to this repository and is deployed only on
+installations with at least one enabled add-on. It is not a developer or normal
+CI prerequisite. Default tests use `Zaq.ExtensionGateway`, an Elixir gRPC server
+derived from the generated service. They call the production client over private
+temporary Unix sockets with ephemeral certificates, TLS 1.3, mandatory mTLS and
+`h2` ALPN. OpenSSL generates the test identities; no production credentials,
+Rust tooling, external checkout or running gateway are required.
+
+```bash
+mix test test/zaq/engine/extension test/zaq/engine/extension_test.exs
+```
+
+The test server supports controlled Health status/error responses and a bounded
+reply barrier for timing/deadline scenarios. Tests cover transport rejection,
+probe duration and failure clearing, stale cache detection and outage/recovery.
+Raw peers exercise stalled handshakes and missing ALPN before protobuf dispatch.
+
+Regeneration updates wire types and RPC routing, not simulated business behavior.
+For each newly exercised RPC, add an explicit handler to
+`test/support/extension_gateway/server.ex` and corresponding response/error tests.
+Unimplemented RPCs return gRPC `UNIMPLEMENTED`; do not silently default them to
+success. Never edit the generated bindings to implement fixture behavior.
+
+An optional Rust interoperability smoke test is excluded even when ordinary
+integration tests are included. Run it explicitly with a built gateway binary:
+
+```bash
+GATEWAY_BINARY=/absolute/path/to/commercial-gateway mix test test/zaq/engine/extension/rust_interoperability_test.exs --include commercial_gateway
+```
+
+Selecting that test without a binary fails with setup instructions. The test-only
+launcher removes unrelated inherited `GATEWAY_*` overrides from its child process;
+it does not alter the developer's environment files.
 
 ### Role configuration
 
