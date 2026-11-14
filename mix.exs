@@ -99,6 +99,9 @@ defmodule Zaq.MixProject do
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.6", override: true},
+      {:grpc, "~> 1.1.0"},
+      {:gun, "~> 2.7.0"},
+      {:protobuf, "~> 0.17"},
       # Wake queued Finch callers after borrower cancellation (upstream PR #54).
       # Replace this pin with a Hex release containing the fix when available.
       {:nimble_pool,

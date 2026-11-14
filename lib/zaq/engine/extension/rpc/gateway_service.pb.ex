@@ -1,0 +1,11 @@
+defmodule Zaq.Engine.Extension.Rpc.Gateway.V1.Gateway.Service do
+  @moduledoc false
+
+  use GRPC.Service, name: "gateway.v1.Gateway", protoc_gen_elixir_version: "0.17.1"
+
+  rpc(
+    :Health,
+    Zaq.Engine.Extension.Rpc.Gateway.V1.HealthRequest,
+    Zaq.Engine.Extension.Rpc.Gateway.V1.HealthResponse
+  )
+end
