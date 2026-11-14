@@ -103,4 +103,42 @@ defmodule Zaq.Accounts.AdministrationTest do
     assert Administration.run(admin, :update_role, %{id: "invalid", attrs: %{}}) ==
              {:error, :invalid_request}
   end
+
+  test "editing a deleted user's profile returns not found without changing the actor", %{
+    regular: regular,
+    user: user
+  } do
+    target = user_fixture(%{must_change_password: false})
+    assert {:ok, _deleted} = Accounts.delete_user(target)
+
+    assert Administration.run(regular, :update_user, %{
+             id: target.id,
+             attrs: %{username: "missing_user_edit"}
+           }) == {:error, :not_found}
+
+    assert Accounts.get_user(target.id) == nil
+    assert Accounts.get_user!(user.id).username == user.username
+  end
+
+  test "updating or deleting a previously deleted role returns not found", %{admin: admin} do
+    role = role_fixture()
+    assert {:ok, _deleted} = Administration.run(admin, :delete_role, %{id: role.id})
+
+    assert Administration.run(admin, :update_role, %{
+             id: role.id,
+             attrs: %{meta: %{"read" => true}}
+           }) == {:error, :not_found}
+
+    assert Administration.run(admin, :delete_role, %{id: role.id}) == {:error, :not_found}
+    assert Accounts.get_role_by_name(role.name) == nil
+  end
+
+  test "non-map role update attributes return invalid request without writing", %{admin: admin} do
+    role = role_fixture()
+
+    assert Administration.run(admin, :update_role, %{id: role.id, attrs: []}) ==
+             {:error, :invalid_request}
+
+    assert Accounts.get_role!(role.id).meta == %{}
+  end
 end
