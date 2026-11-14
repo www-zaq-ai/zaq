@@ -61,6 +61,7 @@ defmodule Zaq.Engine.Extension.Client do
            cred: credential(settings),
            connect_timeout: 1_500,
            adapter_opts: [
+             event_handler: {Zaq.Engine.Extension.TLSEvents, nil},
              retry: 0,
              connect_timeout: 1_000,
              tls_handshake_timeout: 1_000,
@@ -100,6 +101,7 @@ defmodule Zaq.Engine.Extension.Client do
   end
 
   defp connection_error({:tls_alert, _}), do: :tls_error
+  defp connection_error(:alpn_required), do: :tls_error
   defp connection_error({:options, _}), do: :invalid_configuration
 
   defp connection_error(reason) when is_tuple(reason),

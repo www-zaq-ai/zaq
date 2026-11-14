@@ -5,14 +5,19 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
 
   import ZaqWeb.Dashboard.MetricOverview, only: [metric_overview: 1]
   import ZaqWeb.Dashboard.ServicesStatusTable, only: [services_status_table: 1]
+  import ZaqWeb.Dashboard.ExtensionHealth, only: [extension_health: 1]
   import ZaqWeb.Components.DesignSystem.AddonUpsellCard, only: [addon_upsell_card: 1]
 
   alias Zaq.Addons.FeatureStore
+  alias Zaq.Engine.Extension.Health
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
+  alias Zaq.Event
   alias Zaq.NodeRouter
 
   @kpi_range "30d"
+  @extension_refresh_ms 30_000
+  @extension_read_timeout_ms 2_000
 
   @supervisor_map %{
     engine: Zaq.Engine.Supervisor,
@@ -41,14 +46,19 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
           end
       end
 
-    {:ok,
-     assign(socket,
-       current_path: "/bo/dashboard",
-       addon_data: addon_data,
-       days_left: days_left,
-       services: refresh_services(),
-       metric_cards: telemetry_metrics
-     )}
+    socket =
+      assign(socket,
+        current_path: "/bo/dashboard",
+        addon_data: addon_data,
+        days_left: days_left,
+        services: refresh_services(),
+        metric_cards: telemetry_metrics,
+        extension_health: %Health{status: :checking},
+        extension_health_request: nil,
+        extension_health_timer: nil
+      )
+
+    {:ok, refresh_extension_health(socket)}
   end
 
   # -- Node event handlers --
@@ -61,7 +71,72 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   @impl true
   def handle_info(:addons_updated, socket), do: {:noreply, socket}
 
+  def handle_info(:refresh_extension_health, socket),
+    do: {:noreply, refresh_extension_health(socket)}
+
+  def handle_info(
+        {:extension_health_timeout, ref},
+        %{assigns: %{extension_health_request: ref}} = socket
+      ) do
+    socket = cancel_async(socket, :extension_health)
+    {:noreply, finish_extension_health(socket, %Health{status: :unreachable, reason: :timeout})}
+  end
+
+  def handle_info({:extension_health_timeout, _ref}, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(
+        :extension_health,
+        result,
+        %{assigns: %{extension_health_request: ref}} = socket
+      )
+      when not is_nil(ref) do
+    health =
+      case result do
+        {:ok, %Event{response: {:ok, %Health{} = health}}} -> health
+        _ -> %Health{status: :unreachable, reason: :engine_unavailable}
+      end
+
+    {:noreply, finish_extension_health(socket, health)}
+  end
+
+  def handle_async(:extension_health, _result, socket), do: {:noreply, socket}
+
   # -- Private --
+
+  defp refresh_extension_health(socket) do
+    if connected?(socket) and is_nil(socket.assigns.extension_health_request) do
+      event =
+        Event.new(%{}, :engine,
+          actor: %{user_id: socket.assigns.current_user.id},
+          opts: [action: :extension_health, confidential: true]
+        )
+
+      ref = make_ref()
+
+      timer =
+        Process.send_after(self(), {:extension_health_timeout, ref}, @extension_read_timeout_ms)
+
+      socket
+      |> assign(extension_health_request: ref, extension_health_timer: timer)
+      |> start_async(:extension_health, fn -> NodeRouter.dispatch(event) end)
+    else
+      socket
+    end
+  end
+
+  defp finish_extension_health(socket, health) do
+    if socket.assigns.extension_health_timer,
+      do: Process.cancel_timer(socket.assigns.extension_health_timer)
+
+    Process.send_after(self(), :refresh_extension_health, @extension_refresh_ms)
+
+    assign(socket,
+      extension_health: health,
+      extension_health_request: nil,
+      extension_health_timer: nil
+    )
+  end
 
   defp refresh_services do
     service_defs = [

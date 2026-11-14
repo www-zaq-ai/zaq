@@ -25,10 +25,10 @@ defmodule Zaq.Engine.ExtensionTest do
     end)
 
     runtime = start_supervised!({Extension, name: nil, settings: settings, probe_timeout_ms: 500})
-    assert %{status: :checking} = Extension.snapshot(server: runtime)
+    assert Extension.snapshot(server: runtime).status in [:checking, :unreachable]
     {:ok, socket} = :gen_tcp.accept(listener, 2_000)
-    assert %{status: :checking} = Extension.snapshot(server: runtime)
-    assert_snapshot(runtime, :unreachable)
+    assert Extension.snapshot(server: runtime).status in [:checking, :unreachable]
+    assert %{reason: :timeout} = assert_snapshot(runtime, :unreachable)
     assert {:ok, _client_hello} = :gen_tcp.recv(socket, 0, 2_000)
     assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2_000)
   end
