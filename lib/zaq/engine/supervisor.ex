@@ -37,6 +37,7 @@ defmodule Zaq.Engine.Supervisor do
       {Registry, keys: :unique, name: Zaq.Engine.Workflows.RunRegistry},
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.People.AuthRateLimiter,
+      Zaq.Engine.Extension,
       {DynamicSupervisor, strategy: :one_for_one, name: Zaq.Engine.Connect.DeviceSupervisor},
       Zaq.Engine.IngestionSupervisor,
       Zaq.Engine.RetrievalSupervisor,
