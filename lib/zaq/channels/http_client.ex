@@ -37,12 +37,21 @@ defmodule Zaq.Channels.HttpClient do
       {:ok, %{status: 201, success: true, headers: %{...}, body: ...,
               truncated: false, url: "https://..."}}
 
-  `body` is truncated to `max_response_bytes` so a large response cannot flood
-  the agent's context; `truncated` says whether that happened.
+  The default `response_format: "decoded"` applies `max_response_bytes` after
+  reception and retains the decoded body or a truncated prefix. Header values
+  are joined with commas.
 
-  > #### Response size {: .info}
-  > The cap is applied after the body is received, not during transfer — it
-  > bounds what reaches the agent, not what crosses the network.
+  `response_format: "raw"` bounds reception by counting entity bytes, after HTTP
+  transfer framing and before content decoding or decompression. Crossing the
+  limit stops reception with `{:error, :response_too_large}`, never a truncated
+  success. Complete bodies are Base64 strings with `body_encoding: "base64"`;
+  Base64 expansion is outside the entity-byte limit. Raw header values remain
+  lists, including duplicate signing metadata and `content-encoding`. Both modes
+  filter credential/cookie response headers.
+
+  Raw requests send `accept-encoding: identity`. A peer may still send encoded
+  content; its bytes and encoding header are returned unchanged. The caller owns
+  signature verification and protocol interpretation.
   """
 
   alias Zaq.HttpRequest.{AddressPolicy, Prepared}
@@ -52,9 +61,10 @@ defmodule Zaq.Channels.HttpClient do
   @redacted_response_headers ~w(set-cookie authorization proxy-authorization)
 
   @type response :: %{
+          optional(:body_encoding) => String.t(),
           status: pos_integer(),
           success: boolean(),
-          headers: %{String.t() => String.t()},
+          headers: %{String.t() => String.t() | [String.t()]},
           body: term(),
           truncated: boolean(),
           url: String.t()
@@ -81,6 +91,7 @@ defmodule Zaq.Channels.HttpClient do
 
       request
       |> request_options()
+      |> response_options(request.response_format, max_bytes)
       |> Req.request()
       |> handle_response(request, max_bytes)
     end
@@ -115,6 +126,32 @@ defmodule Zaq.Channels.HttpClient do
 
   defp merge_credential(request_options, {:query, name, value}) do
     Keyword.update(request_options, :params, %{name => value}, &Map.put(&1, name, value))
+  end
+
+  defp response_options(options, "decoded", _max_bytes), do: options
+
+  defp response_options(options, "raw", max_bytes) do
+    options
+    |> Keyword.update!(:headers, &Map.put(&1, "accept-encoding", "identity"))
+    |> Keyword.put(:raw, true)
+    |> Keyword.put(:into, fn
+      {:data, ""}, acc ->
+        {:cont, acc}
+
+      {:data, chunk}, {request, response} ->
+        received_bytes = Map.get(response.private, :zaq_received_bytes, 0) + byte_size(chunk)
+
+        if received_bytes > max_bytes do
+          {:halt, {request, %{response | body: :response_too_large}}}
+        else
+          response =
+            response
+            |> Map.put(:body, [chunk | List.wrap(response.body)])
+            |> Req.Response.put_private(:zaq_received_bytes, received_bytes)
+
+          {:cont, {request, response}}
+        end
+    end)
   end
 
   defp validate_destination_addresses(host, %OutboundHttpPolicy{} = policy) do
@@ -154,6 +191,34 @@ defmodule Zaq.Channels.HttpClient do
   defp body_key("form"), do: :form
   defp body_key("raw"), do: :body
 
+  defp handle_response(
+         {:ok, %Req.Response{body: :response_too_large}},
+         %Prepared{response_format: "raw"},
+         _max
+       ),
+       do: {:error, :response_too_large}
+
+  defp handle_response(
+         {:ok, %Req.Response{} = response},
+         %Prepared{response_format: "raw"} = spec,
+         _max
+       ) do
+    with {:ok, headers} <- raw_headers(response.headers) do
+      body = response.body |> List.wrap() |> Enum.reverse() |> IO.iodata_to_binary()
+
+      {:ok,
+       %{
+         status: response.status,
+         success: response.status in 200..299,
+         headers: headers,
+         body: Base.encode64(body),
+         body_encoding: "base64",
+         truncated: false,
+         url: spec.url
+       }}
+    end
+  end
+
   defp handle_response({:ok, %Req.Response{} = response}, spec, max) do
     {body, truncated} = cap_body(response.body, max)
 
@@ -161,7 +226,7 @@ defmodule Zaq.Channels.HttpClient do
      %{
        status: response.status,
        success: response.status in 200..299,
-       headers: safe_headers(response.headers),
+       headers: safe_headers(response.headers, "decoded"),
        body: body,
        truncated: truncated,
        url: spec.url
@@ -187,12 +252,25 @@ defmodule Zaq.Channels.HttpClient do
 
   defp cap_body(body, _max), do: {body, false}
 
+  defp raw_headers(headers) do
+    headers = safe_headers(headers, "raw")
+
+    if Enum.all?(headers, fn {name, values} ->
+         String.valid?(name) and Enum.all?(values, &String.valid?/1)
+       end),
+       do: {:ok, headers},
+       else: {:error, :invalid_response_headers}
+  end
+
   # Req always builds `headers` as a map; a non-map would already have crashed
   # inside its own response steps, so there is no fallback clause here.
-  defp safe_headers(headers) do
+  defp safe_headers(headers, format) do
     headers
     |> Enum.reject(fn {name, _value} -> String.downcase(name) in @redacted_response_headers end)
-    |> Map.new(fn {name, value} -> {String.downcase(name), join_header(value)} end)
+    |> Map.new(fn {name, value} ->
+      value = if format == "raw", do: List.wrap(value), else: join_header(value)
+      {String.downcase(name), value}
+    end)
   end
 
   defp join_header(value) when is_list(value), do: Enum.join(value, ", ")

@@ -42,6 +42,9 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
   ## Expected context keys
 
   - `:node_router` — override the NodeRouter module (default `Zaq.NodeRouter`).
+  - `:event_opts` — trusted `confidential: true` suppresses both HTTP dispatch
+    events and replaces failures with payload-free Jido errors. Parameters cannot
+    enable it. Jido execution logging options remain caller-owned.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -69,8 +72,12 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
     stored in this conversation's history.
 
     The response has `status`, `success` (true for 2xx), `headers`, and `body`.
-    A large body is truncated and `truncated` is set to true; if you need the
-    rest, narrow the request with query parameters rather than resending.
+    By default a large body is truncated and `truncated` is set to true; if you
+    need the rest, narrow the request with query parameters rather than resending.
+    Set `response_format: "raw"` to receive exact entity bytes as Base64 with
+    `body_encoding: "base64"` and header value lists. Raw reception is bounded:
+    an oversized response fails instead of returning a truncated body. Content
+    decoding, decompression, and signature verification are not performed.
     """,
     schema:
       Zoi.object(%{
@@ -106,6 +113,12 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
             description: ~s|How to encode the body: "json", "form" (url-encoded), or "raw"|
           )
           |> Zoi.default("json"),
+        response_format:
+          Zoi.enum(["decoded", "raw"],
+            description:
+              "Decoded response (default), or bounded raw entity bytes as Base64 without decompression"
+          )
+          |> Zoi.default("decoded"),
         timeout_ms:
           Zoi.integer(description: "Receive timeout in milliseconds")
           |> Zoi.positive()
@@ -128,17 +141,28 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
       Zoi.object(%{
         status: Zoi.integer(description: "HTTP response status code"),
         success: Zoi.boolean(description: "True when the status is 2xx"),
-        headers: Zoi.map(Zoi.string(), Zoi.string(), description: "Response headers, lowercased"),
-        body: Zoi.any(description: "Response body, decoded when JSON") |> Zoi.nullable(),
+        headers:
+          Zoi.map(Zoi.string(), Zoi.union([Zoi.string(), Zoi.list(Zoi.string())]),
+            description: "Filtered lowercase headers; raw mode preserves each header's value list"
+          ),
+        body:
+          Zoi.any(description: "Decoded body, or Base64 entity bytes in raw mode")
+          |> Zoi.nullable(),
+        body_encoding:
+          Zoi.enum(["base64"], description: "Present only for raw response bodies")
+          |> Zoi.optional(),
         truncated:
           Zoi.boolean(description: "True when the body was cut short to fit the agent's context"),
         url: Zoi.string(description: "URL the request was sent to")
       })
 
+  alias Jido.Action.Error
   alias Zaq.Agent.Tools.DataSourceTool
   alias Zaq.Event
   alias Zaq.HttpRequest
   alias Zaq.NodeRouter
+
+  require Logger
 
   # Dispatched inline rather than through `DataSourceTool.dispatch/5`: that helper
   # wraps the payload for datasource-shaped calls, which this is not. Response
@@ -146,13 +170,72 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
   @impl Jido.Action
   def run(params, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
+    confidential? = Keyword.get(Map.get(context, :event_opts, []), :confidential) == true
 
-    with {:ok, request} <- HttpRequest.build(params) do
-      %{request: request}
-      |> Event.new(:channels, opts: [action: :http_request])
-      |> node_router.dispatch()
-      |> Map.fetch!(:response)
-      |> DataSourceTool.format_response("HTTP request failed", &{:ok, &1})
+    execute(params, node_router, confidential?)
+  end
+
+  defp execute(params, node_router, confidential?) do
+    opts =
+      if confidential?,
+        do: [action: :http_request, confidential: true],
+        else: [action: :http_request]
+
+    case HttpRequest.build(params) do
+      {:ok, request} ->
+        %{request: request}
+        |> Event.new(:channels, opts: opts)
+        |> node_router.dispatch()
+        |> Map.fetch!(:response)
+        |> format_response(confidential?)
+
+      error ->
+        if confidential?, do: confidential_failure(error, :validation), else: error
     end
+  rescue
+    error ->
+      if confidential? do
+        confidential_failure(error, :execution)
+      else
+        reraise error, __STACKTRACE__
+      end
+  catch
+    kind, reason ->
+      if confidential? do
+        confidential_failure(kind, :execution)
+      else
+        :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+  end
+
+  defp format_response({:ok, response}, _confidential?) when is_map(response), do: {:ok, response}
+  defp format_response(error, true), do: confidential_failure(error, :request)
+
+  defp format_response(response, false),
+    do: DataSourceTool.format_response(response, "HTTP request failed", &{:ok, &1})
+
+  # Jido logs returned errors; remove payload-bearing reasons before that boundary.
+  defp confidential_failure(error, phase) do
+    reason =
+      case error do
+        {:error, reason} when reason in [:response_too_large, :invalid_response_headers] -> reason
+        {:error, {:transport_error, _}} -> :transport_error
+        _ -> :request_failed
+      end
+
+    exception_type = if is_exception(error), do: error.__struct__, else: :unknown
+
+    Logger.warning(
+      "[HttpRequest] confidential request failed phase=#{phase} reason=#{reason} " <>
+        "exception_type=#{inspect(exception_type)}"
+    )
+
+    {:error,
+     Error.execution_error("confidential_http_request_failed", %{
+       phase: phase,
+       reason: reason,
+       exception_type: exception_type,
+       retry: false
+     })}
   end
 end
