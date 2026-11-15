@@ -2,7 +2,8 @@ defmodule Zaq.TestSupport.HTTPFixtureOptions do
   @moduledoc """
   Applies Req options only to one local fixture's origin and path prefix.
 
-  Use only in synchronous tests: Req's plugin list is application configuration.
+  Req's plugin list is application configuration. Use synchronous tests or
+  `async: true, group: :req_default_options` for every asynchronous writer.
   Requests to other destinations keep their original options. The original
   configuration is restored at test exit, including an absent configuration.
   """

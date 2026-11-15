@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true, group: :req_default_options
   use ExUnitProperties
 
   alias Zaq.Agent.Tools.Registry
@@ -9,8 +9,14 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
   alias Zaq.NodeRouter
   alias Zaq.System, as: ZaqSystem
   alias Zaq.System.{HttpCredentialProviderRef, OutboundHttpPolicy}
+  alias Zaq.TestSupport.{Http2ResponsePeer, HTTPFixtureOptions}
 
   @limit 128
+
+  setup do
+    Process.put({__MODULE__, :reference}, Ecto.UUID.generate())
+    :ok
+  end
 
   test "raw non-2xx responses preserve compressed entity bytes and filtered duplicate headers" do
     entity = :zlib.gzip(<<0, 255, 128, "signed-response">>)
@@ -186,6 +192,24 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
     end
   end
 
+  test "HTTP2 empty DATA frames do not alter the entity or consume its exact byte allowance" do
+    entity = :binary.copy(<<0, 255>>, div(@limit, 2))
+    <<first::binary-size(64), last::binary>> = entity
+    url = Http2ResponsePeer.start!(["", first, "", last, ""], self())
+    save_policy(url)
+    HTTPFixtureOptions.configure(url, connect_options: [protocols: [:http2]])
+
+    assert {:ok, response} = execute(url, %{response_format: "raw"})
+    assert response.status == 200
+    assert response.body_encoding == "base64"
+    assert Base.decode64!(response.body) == entity
+    refute response.truncated
+    assert_received {:http2_request, stream_id}
+    assert stream_id > 0 and rem(stream_id, 2) == 1
+    assert_receive {:http2_response_sent, peer}
+    send(peer, :close)
+  end
+
   test "disconnects in fixed-length and chunked bodies never return partial success" do
     for framing <- [
           "content-length: 40\r\n\r\npartial",
@@ -244,7 +268,7 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
         assert Base.decode64!(response.body) == sentinel
       end)
 
-    refute_received {:node_router_event, _}
+    refute_http_events()
     refute log =~ sentinel
     refute log =~ Base.encode64(sentinel)
   end
@@ -256,13 +280,23 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
     assert {:ok, _} =
              execute(url, %{confidential: true, event_opts: [confidential: true]})
 
-    assert_received {:node_router_event, %{opts: outer_opts}}
+    reference = Process.get({__MODULE__, :reference})
+
+    assert_received {:node_router_event,
+                     %{
+                       request: %{request: %HttpRequest{doc_reference: ^reference}},
+                       opts: outer_opts
+                     }}
+
     assert outer_opts[:action] == :http_request
     refute outer_opts[:confidential]
-    assert_received {:node_router_event, %{opts: child_opts}}
+
+    assert_received {:node_router_event,
+                     %{request: %HttpRequest{doc_reference: ^reference}, opts: child_opts}}
+
     assert child_opts[:action] == :prepare_http_request
     refute child_opts[:confidential]
-    refute_received {:node_router_event, _}
+    refute_http_events()
   end
 
   test "confidential preparation failures become safe errors before Jido logs them" do
@@ -289,7 +323,7 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
       end)
 
     refute log =~ sentinel
-    refute_received {:node_router_event, _}
+    refute_http_events()
   end
 
   test "confidential validation, overflow and disconnect errors expose only safe classifications" do
@@ -336,7 +370,7 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
       assert log =~ "confidential request failed"
       refute log =~ sentinel
       refute log =~ Base.encode64(sentinel)
-      refute_received {:node_router_event, _}
+      refute_http_events()
     end
   end
 
@@ -369,11 +403,21 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
 
   defp execute(url, params \\ %{}, context \\ %{}) do
     assert {:ok, [action]} = Registry.resolve_modules(["general.http_request"])
+    params = Map.put(params, :doc_reference, Process.get({__MODULE__, :reference}))
 
     Jido.Exec.run(action, Map.merge(%{method: "GET", url: url}, params), context,
       timeout: 0,
       max_retries: 0
     )
+  end
+
+  defp refute_http_events do
+    reference = Process.get({__MODULE__, :reference})
+
+    refute_received {:node_router_event,
+                     %{request: %{request: %HttpRequest{doc_reference: ^reference}}}}
+
+    refute_received {:node_router_event, %{request: %HttpRequest{doc_reference: ^reference}}}
   end
 
   defp peer(respond) do
@@ -397,18 +441,22 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
       id: make_ref()
     )
 
+    url = "http://127.0.0.1:#{port}/signed"
+    save_policy(url)
+    url
+  end
+
+  defp save_policy(url) do
     assert {:ok, _} =
              %OutboundHttpPolicy{}
              |> OutboundHttpPolicy.changeset(%{
                enabled: true,
                block_loopback: false,
                allowed_methods: ["GET"],
-               allowed_ports: [port],
+               allowed_ports: [URI.parse(url).port],
                max_response_bytes: @limit
              })
              |> ZaqSystem.save_outbound_http_policy()
-
-    "http://127.0.0.1:#{port}/signed"
   end
 
   defp receive_headers(socket, headers) do
