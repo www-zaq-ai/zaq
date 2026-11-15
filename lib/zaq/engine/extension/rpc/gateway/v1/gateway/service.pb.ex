@@ -8,4 +8,10 @@ defmodule Zaq.Engine.Extension.Rpc.Gateway.V1.Gateway.Service do
     Zaq.Engine.Extension.Rpc.Gateway.V1.HealthRequest,
     Zaq.Engine.Extension.Rpc.Gateway.V1.HealthResponse
   )
+
+  rpc(
+    :Connect,
+    stream(Zaq.Engine.Extension.Rpc.Gateway.V1.ZaqEnvelope),
+    stream(Zaq.Engine.Extension.Rpc.Gateway.V1.GatewayEnvelope)
+  )
 end

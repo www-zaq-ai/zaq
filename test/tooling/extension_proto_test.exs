@@ -28,7 +28,7 @@ defmodule Zaq.Scripts.ExtensionProtoTest do
   } do
     assert :ok = ExtensionProto.run(opts)
     original = contents(output)
-    assert map_size(original) == 4
+    assert map_size(original) == 10
     assert :ok = ExtensionProto.run(Keyword.put(opts, :check, true))
     assert :ok = ExtensionProto.run(opts)
     assert contents(output) == original

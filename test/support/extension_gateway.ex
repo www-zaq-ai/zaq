@@ -1,9 +1,10 @@
 defmodule Zaq.ExtensionGateway do
-  @moduledoc "Test-only protobuf gateway with an isolated TLS/UDS listener and programmable Health replies."
+  @moduledoc "Test-only protobuf gateway with an isolated TLS/UDS listener and programmable stream replies."
 
   use GenServer, restart: :temporary
 
   alias GRPC.Server.Adapters.Cowboy.{Handler, Router}
+  alias Zaq.Engine.Extension.Rpc.Gateway.V1.GatewayHello
   alias Zaq.ExtensionGateway.{Certificates, Server}
 
   defdelegate certificates!(directory), to: Certificates, as: :generate!
@@ -22,6 +23,17 @@ defmodule Zaq.ExtensionGateway do
   end
 
   def respond(gateway, response), do: GenServer.call(gateway, {:respond, response})
+
+  def push(gateway, frame) do
+    stream = GenServer.call(gateway, :stream)
+    GRPC.Server.send_reply(stream, frame)
+  end
+
+  def push_wire(gateway, bytes) do
+    %{payload: %{pid: pid}} = GenServer.call(gateway, :stream)
+    # Bypass framing only in this hostile peer fixture, not the production client.
+    Handler.stream_body(pid, bytes, [], :nofin, true)
+  end
 
   @impl true
   def init({directory, opts}) do
@@ -57,7 +69,7 @@ defmodule Zaq.ExtensionGateway do
       connection_type: :supervisor,
       env: %{dispatch: Router.compile([{:_, routes}])},
       stream_handlers: [:grpc_stream_h],
-      idle_timeout: 5_000
+      idle_timeout: 60_000
     }
 
     case start_listener(reference, socket, transport, protocol) do
@@ -71,7 +83,19 @@ defmodule Zaq.ExtensionGateway do
                reference: reference,
                monitor: monitor,
                socket: socket,
+               stream: nil,
                response: Keyword.get(opts, :response, {:ok, "ok"}),
+               hello:
+                 Keyword.get(
+                   opts,
+                   :hello,
+                   {:hello,
+                    %GatewayHello{
+                      selected_version: 1,
+                      capabilities: ["health.v1"],
+                      max_envelope_bytes: 262_144
+                    }}
+                 ),
                notify: opts[:notify]
              }}
 
@@ -102,6 +126,13 @@ defmodule Zaq.ExtensionGateway do
 
   @impl true
   def handle_call(:response, _from, state), do: {:reply, {state.response, state.notify}, state}
+
+  def handle_call(:hello, _from, state), do: {:reply, state.hello, state}
+
+  def handle_call(:stream, _from, state), do: {:reply, state.stream, state}
+
+  def handle_call({:stream, stream}, _from, state),
+    do: {:reply, :ok, %{state | stream: stream}}
 
   def handle_call({:respond, response}, _from, state),
     do: {:reply, :ok, %{state | response: response}}

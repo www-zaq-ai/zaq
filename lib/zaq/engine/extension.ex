@@ -1,14 +1,19 @@
 defmodule Zaq.Engine.Extension do
   @moduledoc """
-  Engine-owned gateway health cache. Only its background task performs local RPCs;
-  readers receive a bounded, sanitized connectivity snapshot, never entitlement.
+  Engine-owned authenticated Extension stream and cached gateway liveness.
+
+  A supervised reader performs blocking stream reads; bounded background writes
+  keep snapshot reads independent of transport stalls. Health requires a recent,
+  correlated gateway response on this stream, not merely an open TLS connection.
+  Disconnects discard transient correlation; reconnect never replays operations.
   """
 
   use GenServer
 
-  alias Zaq.Engine.Extension.{Client, Health}
+  alias Zaq.Engine.Extension.{Client, Health, Protocol, Reader, Writer}
+  alias Zaq.Engine.Extension.Rpc.Gateway.V1.{GatewayEnvelope, HealthResponse}
 
-  @doc "Starts the node-local health runtime without waiting for the gateway."
+  @doc "Starts the node-local stream runtime without waiting for the gateway."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -38,21 +43,36 @@ defmodule Zaq.Engine.Extension do
         {:error, reason} -> {%Health{status: :error, reason: reason}, false}
       end
 
+    poll_interval = Keyword.get(opts, :poll_interval_ms, 30_000)
+    retry_interval = Keyword.get(opts, :reconnect_interval_ms, min(poll_interval, 1_000))
+
     state = %{
       health: health,
       checked_monotonic: nil,
-      task: nil,
+      reader: nil,
+      writer: nil,
+      writing: false,
+      cleanup: nil,
       connection_name: nil,
-      deadline_timer: nil,
-      phase: :probe,
+      generation: nil,
+      hello_id: nil,
+      pending: nil,
+      first_probe: true,
+      started_at: nil,
+      deadline: nil,
+      scheduled: nil,
+      phase: :disconnected,
+      max_envelope_bytes: Protocol.max_envelope_bytes(),
       opts: opts,
-      poll_interval_ms: Keyword.get(opts, :poll_interval_ms, 30_000),
+      poll_interval_ms: poll_interval,
       probe_timeout_ms: Keyword.get(opts, :probe_timeout_ms, 5_000),
       stale_after_ms: Keyword.get(opts, :stale_after_ms, 45_000),
+      retry_interval_ms: retry_interval,
+      retry_delay_ms: retry_interval,
       clock: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end)
     }
 
-    if configured?, do: send(self(), :probe)
+    if configured?, do: send(self(), :connect)
     {:ok, state}
   end
 
@@ -61,7 +81,7 @@ defmodule Zaq.Engine.Extension do
     health =
       if state.checked_monotonic &&
            state.clock.() - state.checked_monotonic > state.stale_after_ms do
-        %{state.health | status: :unreachable, reason: :stale}
+        %{state.health | status: :unreachable, reason: :stale, response_time_ms: nil}
       else
         state.health
       end
@@ -69,88 +89,232 @@ defmodule Zaq.Engine.Extension do
     {:reply, health, state}
   end
 
-  @impl true
-  def handle_info(:probe, %{task: nil} = state) do
-    connection_name = make_ref()
-    opts = Keyword.put(state.opts, :connection_name, connection_name)
-    clock = state.clock
+  def handle_call({:extension_frame, generation, _frame}, _from, %{generation: active} = state)
+      when generation != active,
+      do: {:reply, {:reject, :invalid_envelope}, state}
 
-    task =
+  def handle_call({:extension_frame, _generation, frame}, _from, %{phase: :negotiating} = state) do
+    case Protocol.negotiate(frame, state.hello_id) do
+      {:ok, limit} ->
+        send(self(), :probe)
+        {:reply, :continue, %{state | phase: :ready, max_envelope_bytes: limit}}
+
+      {:error, reason} ->
+        reject_frame(state, reason)
+    end
+  end
+
+  def handle_call({:extension_frame, _generation, frame}, _from, %{phase: :ready} = state) do
+    case Protocol.validate(frame, state.max_envelope_bytes) do
+      :ok -> receive_frame(frame, state)
+      {:error, reason} -> reject_frame(state, reason)
+    end
+  end
+
+  def handle_call({:extension_frame, _generation, _frame}, _from, state),
+    do: {:reply, {:reject, :invalid_envelope}, state}
+
+  @impl true
+  def handle_info(:connect, %{phase: :disconnected} = state) do
+    owner = self()
+    generation = make_ref()
+    name = make_ref()
+    hello_id = Ecto.UUID.generate()
+    opts = Keyword.put(state.opts, :connection_name, name)
+    started_at = state.clock.()
+
+    writer =
       Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn ->
-        started_at = clock.()
-        result = Client.health(opts)
-        {result, clock.() - started_at}
+        Writer.run(owner, generation, hello_id, opts)
       end)
 
-    timer = Process.send_after(self(), {:probe_timeout, task.ref}, state.probe_timeout_ms)
+    state = %{
+      state
+      | writer: writer,
+        generation: generation,
+        connection_name: name,
+        hello_id: hello_id,
+        started_at: started_at,
+        first_probe: true,
+        scheduled: nil,
+        phase: :connecting
+    }
 
-    {:noreply,
-     %{state | task: task, connection_name: connection_name, deadline_timer: timer, phase: :probe}}
+    {:noreply, start_deadline(state)}
   end
 
-  def handle_info(
-        {ref, {result, response_time_ms}},
-        %{task: %Task{ref: ref}, phase: :probe} = state
-      ) do
+  def handle_info({:extension_stream, generation, stream}, %{generation: generation} = state) do
+    owner = self()
+
+    reader =
+      Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn ->
+        Reader.run(owner, generation, stream)
+      end)
+
+    {:noreply, %{state | reader: reader, phase: :negotiating}}
+  end
+
+  def handle_info(:probe, %{phase: :ready, pending: nil, writing: false} = state) do
+    pending = %{
+      id: Ecto.UUID.generate(),
+      started_at: if(state.first_probe, do: state.started_at, else: state.clock.())
+    }
+
+    frame = Protocol.health_request(pending.id)
+    send(state.writer.pid, {:write, frame})
+    state = %{state | pending: pending, writing: true, scheduled: nil}
+    {:noreply, if(state.deadline, do: state, else: start_deadline(state))}
+  end
+
+  def handle_info(:probe, %{phase: :ready} = state) do
+    {:noreply, disconnect(state, :timeout)}
+  end
+
+  def handle_info({:deadline, token}, %{deadline: {_timer, token}} = state),
+    do: {:noreply, disconnect(state, :timeout)}
+
+  def handle_info({ref, {:error, reason}}, %{reader: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
-    {:noreply, state |> put_health(result, response_time_ms) |> schedule_probe()}
+    {:noreply, disconnect(%{state | reader: nil}, reason)}
   end
 
-  def handle_info({ref, _result}, %{task: %Task{ref: ref}, phase: :cleanup} = state) do
+  def handle_info({:extension_sent, generation}, %{generation: generation} = state),
+    do: {:noreply, %{state | writing: false}}
+
+  def handle_info({ref, result}, %{writer: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
-    {:noreply, schedule_probe(state)}
+
+    reason =
+      case result do
+        {:error, reason} -> reason
+        :ok -> :unreachable
+      end
+
+    {:noreply, disconnect(%{state | writer: nil}, reason)}
   end
 
-  def handle_info({:probe_timeout, ref}, %{task: %Task{ref: ref}} = state) do
-    Task.shutdown(state.task, :brutal_kill)
-    {:noreply, clean_connection(state, :timeout)}
+  def handle_info({ref, _result}, %{cleanup: %Task{ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, schedule_reconnect(%{state | cleanup: nil})}
   end
 
-  def handle_info(
-        {:DOWN, ref, :process, _pid, _reason},
-        %{task: %Task{ref: ref}, phase: :probe} = state
-      ) do
-    {:noreply, clean_connection(state, :probe_failed)}
-  end
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{reader: %Task{ref: ref}} = state),
+    do: {:noreply, disconnect(%{state | reader: nil}, :unreachable)}
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{task: %Task{ref: ref}} = state) do
-    {:noreply, schedule_probe(state)}
-  end
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{writer: %Task{ref: ref}} = state),
+    do: {:noreply, disconnect(%{state | writer: nil}, :unreachable)}
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{cleanup: %Task{ref: ref}} = state),
+    do: {:noreply, schedule_reconnect(%{state | cleanup: nil})}
 
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, %{task: task, connection_name: name}) do
-    if task, do: Task.shutdown(task, :brutal_kill)
-    if name, do: Client.disconnect(name)
+  def terminate(_reason, state) do
+    stop_task(state.reader)
+    stop_writer(state.writer)
+    stop_task(state.cleanup)
+    if state.connection_name, do: Client.disconnect(state.connection_name)
     :ok
   end
 
-  defp clean_connection(state, reason) do
-    if state.deadline_timer, do: Process.cancel_timer(state.deadline_timer)
-    name = state.connection_name
-    task = Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn -> Client.disconnect(name) end)
-    state = put_health(state, {:error, reason})
-    %{state | task: task, phase: :cleanup, deadline_timer: nil}
+  defp receive_frame(
+         %GatewayEnvelope{
+           request_id: id,
+           payload: {:health_response, %HealthResponse{} = response}
+         },
+         %{pending: %{id: id} = pending} = state
+       ) do
+    result = if response.status == "ok", do: {:ok, :healthy}, else: {:error, :unexpected_status}
+    elapsed = max(state.clock.() - pending.started_at, 0)
+
+    state =
+      state
+      |> cancel_deadline()
+      |> put_health(result, elapsed)
+      |> Map.merge(%{pending: nil, first_probe: false, retry_delay_ms: state.retry_interval_ms})
+
+    timer = Process.send_after(self(), :probe, state.poll_interval_ms)
+    {:reply, :continue, %{state | scheduled: timer}}
   end
 
-  defp schedule_probe(state) do
-    if state.deadline_timer, do: Process.cancel_timer(state.deadline_timer)
-    Process.send_after(self(), :probe, state.poll_interval_ms)
-    %{state | task: nil, connection_name: nil, deadline_timer: nil}
+  defp receive_frame(%GatewayEnvelope{payload: {:health_response, _}}, state),
+    do: {:reply, :continue, state}
+
+  defp receive_frame(%GatewayEnvelope{payload: {:error, _}}, state),
+    do: reject_frame(state, :rpc_error)
+
+  defp receive_frame(_frame, state), do: reject_frame(state, :unsupported_operation)
+
+  defp reject_frame(state, reason) do
+    if state.scheduled, do: Process.cancel_timer(state.scheduled)
+
+    state =
+      state
+      |> put_health({:error, reason})
+      |> Map.merge(%{phase: :rejecting, scheduled: nil})
+
+    state = if state.deadline, do: state, else: start_deadline(state)
+    {:reply, {:reject, reason}, state}
   end
+
+  defp start_deadline(state) do
+    token = make_ref()
+    timer = Process.send_after(self(), {:deadline, token}, state.probe_timeout_ms)
+    %{state | deadline: {timer, token}}
+  end
+
+  defp cancel_deadline(state) do
+    if state.deadline, do: Process.cancel_timer(elem(state.deadline, 0))
+    %{state | deadline: nil}
+  end
+
+  defp disconnect(state, reason) do
+    stop_task(state.reader)
+    stop_writer(state.writer)
+    if state.scheduled, do: Process.cancel_timer(state.scheduled)
+    name = state.connection_name
+    cleanup = Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn -> Client.disconnect(name) end)
+
+    state
+    |> cancel_deadline()
+    |> put_health({:error, reason})
+    |> Map.merge(%{
+      reader: nil,
+      writer: nil,
+      writing: false,
+      cleanup: cleanup,
+      generation: nil,
+      pending: nil,
+      phase: :cleanup,
+      scheduled: nil
+    })
+  end
+
+  defp schedule_reconnect(state) do
+    timer = Process.send_after(self(), :connect, state.retry_delay_ms)
+
+    %{
+      state
+      | phase: :disconnected,
+        connection_name: nil,
+        scheduled: timer,
+        retry_delay_ms: min(state.retry_delay_ms * 2, 30_000)
+    }
+  end
+
+  defp stop_task(nil), do: :ok
+  defp stop_task(task), do: Task.shutdown(task, :brutal_kill)
+
+  defp stop_writer(nil), do: :ok
+  defp stop_writer(task), do: send(task.pid, :stop)
 
   defp put_health(state, result, response_time_ms \\ nil) do
     {status, reason} =
       case result do
-        {:ok, :healthy} ->
-          {:healthy, nil}
-
-        {:error, reason} when reason in [:unreachable, :timeout, :probe_failed] ->
-          {:unreachable, reason}
-
-        {:error, reason} ->
-          {:error, reason}
+        {:ok, :healthy} -> {:healthy, nil}
+        {:error, reason} when reason in [:unreachable, :timeout] -> {:unreachable, reason}
+        {:error, reason} -> {:error, reason}
       end
 
     %{

@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.Extension.Client do
   @moduledoc """
-  Calls the local Extension gateway Health RPC over mutually authenticated TLS/UDS.
+  Opens the local Extension gateway stream over mutually authenticated TLS/UDS.
+  The unary Health helper remains for compatibility checks, not runtime monitoring.
   Transport failures are reduced to safe reason codes; health does not confer entitlement.
   """
 
@@ -35,7 +36,23 @@ defmodule Zaq.Engine.Extension.Client do
     :exit, _ -> {:error, :unreachable}
   end
 
-  @doc "Releases a probe connection, including after its calling task is cancelled."
+  @doc """
+  Opens a bidirectional RPC without closing its request side.
+  Requires `:connection_name` so the owner can release the connection, including failed setup.
+  """
+  @spec connect(keyword()) :: {:ok, struct()} | {:error, atom()}
+  def connect(opts \\ []) do
+    with {:ok, settings} <- settings(opts),
+         {:ok, channel} <- open_connection(settings, Keyword.fetch!(opts, :connection_name)) do
+      {:ok, Gateway.Stub.connect(channel, timeout: :infinity)}
+    end
+  rescue
+    _ -> {:error, :rpc_error}
+  catch
+    :exit, _ -> {:error, :unreachable}
+  end
+
+  @doc "Releases the named connection, including after its reader is stopped."
   @spec disconnect(reference()) :: :ok
   def disconnect(name) do
     Connection.disconnect(name)
@@ -52,6 +69,24 @@ defmodule Zaq.Engine.Extension.Client do
   end
 
   defp probe(settings, name) do
+    case open_connection(settings, name) do
+      {:ok, channel} ->
+        try do
+          case Gateway.Stub.health(channel, %HealthRequest{}, timeout: 2_000) do
+            {:ok, %HealthResponse{status: "ok"}} -> {:ok, :healthy}
+            {:ok, %HealthResponse{}} -> {:error, :unexpected_status}
+            {:error, _} -> {:error, :rpc_error}
+          end
+        after
+          disconnect(name)
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp open_connection(settings, name) do
     # A bare socket path takes gRPC's legacy insecure branch even with credentials.
     target = "unix://" <> settings[:socket_path]
 
@@ -66,19 +101,12 @@ defmodule Zaq.Engine.Extension.Client do
              connect_timeout: 1_000,
              tls_handshake_timeout: 1_000,
              await_timeout: 1_200,
+             response_window: 65_536,
              http2_opts: %{closing_timeout: 100}
            ]
          ) do
       {:ok, channel} ->
-        try do
-          case Gateway.Stub.health(channel, %HealthRequest{}, timeout: 2_000) do
-            {:ok, %HealthResponse{status: "ok"}} -> {:ok, :healthy}
-            {:ok, %HealthResponse{}} -> {:error, :unexpected_status}
-            {:error, _} -> {:error, :rpc_error}
-          end
-        after
-          disconnect(name)
-        end
+        {:ok, channel}
 
       {:error, reason} ->
         {:error, connection_error(reason)}

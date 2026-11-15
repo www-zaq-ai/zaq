@@ -28,7 +28,10 @@ defmodule Zaq.Engine.Supervisor do
 
   use Supervisor
 
+  alias Zaq.Engine.GrpcSettings
+
   def start_link(opts \\ []) do
+    GrpcSettings.load()
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
