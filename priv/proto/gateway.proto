@@ -3,9 +3,56 @@ package gateway.v1;
 
 service Gateway {
   rpc Health(HealthRequest) returns (HealthResponse);
+  // ZAQ opens this RPC; gateway operations travel in the response direction.
+  rpc Connect(stream ZaqEnvelope) returns (stream GatewayEnvelope);
 }
 
 message HealthRequest {}
 message HealthResponse {
   string status = 1;
+}
+
+// Correlation identifiers are globally unique, including across connections.
+// Unknown oneof variants must produce an explicit error, not an execution ACK.
+message ZaqEnvelope {
+  string request_id = 1;
+  uint32 protocol_version = 2;
+  oneof payload {
+    ZaqHello hello = 10;
+    HealthRequest health_request = 11;
+    ProtocolError error = 12;
+  }
+}
+
+message GatewayEnvelope {
+  string request_id = 1;
+  uint32 protocol_version = 2;
+  oneof payload {
+    GatewayHello hello = 10;
+    HealthResponse health_response = 11;
+    ProtocolError error = 12;
+  }
+}
+
+message ZaqHello {
+  repeated uint32 supported_versions = 1;
+  repeated string capabilities = 2;
+  uint32 max_envelope_bytes = 3;
+}
+
+message GatewayHello {
+  uint32 selected_version = 1;
+  repeated string capabilities = 2;
+  uint32 max_envelope_bytes = 3;
+}
+
+message ProtocolError {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    UNSUPPORTED_OPERATION = 1;
+    INCOMPATIBLE_PROTOCOL = 2;
+    INVALID_ENVELOPE = 3;
+    RESOURCE_EXHAUSTED = 4;
+  }
+  Code code = 1;
 }

@@ -979,6 +979,31 @@ test.describe("System Config", () => {
       await expect(page.getByRole("heading", { name: "Global" })).toBeVisible()
     })
 
+    test("gRPC limit defaults to 64 MiB, rejects invalid values, and persists with a restart hint", async ({ page }) => {
+      const input = page.locator("#global-grpc-limit-input")
+      const save = page.locator("#global-grpc-limit-form button[type='submit']")
+
+      await expect(input).toHaveValue("64")
+      await expect(page.locator("#global-grpc-limit-hint")).toContainText("Engine restart required")
+
+      await input.fill("0")
+      await save.click()
+      await expect.poll(() => input.evaluate(element => element.validity.rangeUnderflow)).toBe(true)
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+      await expect(input).toHaveValue("64")
+
+      await input.fill("32")
+      await expectFlashDuringAction(
+        page,
+        "gRPC message size saved. Restart each Engine node to apply it.",
+        () => save.click()
+      )
+
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
+      await expect(input).toHaveValue("32")
+      await expect(page.locator("#global-grpc-limit-hint")).toContainText("Engine restart required")
+    })
+
     test("renders Language and TimeZone fields", async ({ page }) => {
       await expect(page.locator("#global-language-select")).toBeVisible()
       await expect(page.locator("#global-timezone-select")).toBeVisible()

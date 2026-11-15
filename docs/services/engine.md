@@ -80,7 +80,8 @@ for request/actor preservation and the distinction from legacy generic invoke ca
 
 ### Optional Extension gateway Health
 
-`Zaq.Engine.Extension` polls the local commercial gateway from the Engine node.
+`Zaq.Engine.Extension` owns one persistent, bidirectional `Gateway.Connect` stream
+to the local gateway from the Engine node. Health probes use that same stream.
 Health is connectivity only: it does not enable features, validate a license, or
 change `Zaq.Addons.FeatureStore`. Gateway failures do not block ZAQ startup or
 ordinary open-source operation.
@@ -111,23 +112,70 @@ directory rather than a single socket inode so gateway restarts remain visible.
 For multiple routable Engine nodes, each needs equivalent local gateway access;
 this status is not an aggregate cluster-health report.
 
-One probe runs at a time, with a five-second overall deadline and a 30-second
-delay after completion/cleanup. Each probe opens and releases its connection;
-the next probe retries after an outage. Cached results older than 45 seconds are
-unreachable, not healthy. The authenticated, confidential `:extension_health`
+One probe runs at a time, with a five-second deadline and a 30-second delay after
+each response. The first deadline covers connection, TLS, version negotiation and
+the first Health response. Subsequent probes measure the in-stream round trip.
+An open socket alone is not healthy: the gateway must echo the probe's unique
+request identifier with status `ok`. Disconnects invalidate health immediately;
+unanswered probes close the connection. Reconnection uses exponential backoff
+from one second to 30 seconds. Cached results older than 45 seconds are
+unreachable, with no response time. The authenticated, confidential `:extension_health`
 Engine Event returns `%Zaq.Engine.Extension.Health{}` only, without configuration
 or raw transport errors. Dashboard reads run asynchronously, have a two-second
 UI deadline, and refresh after completion. The existing add-on card distinguishes
 unconfigured, checking, healthy, unreachable and error independently of entitlement.
-The last-check line includes the successful probe's elapsed milliseconds, measured
-with a monotonic clock across connection, TLS, Health RPC and connection release.
+The last-check line includes the successful probe's elapsed monotonic milliseconds.
+The first value includes connection and negotiation; later values are round trips
+over the existing stream, without connection teardown.
 Checks without a successful response have no response time.
+
+A supervised reader handles the gRPC client's blocking reply enumerable, handing
+off one decoded envelope at a time. A supervised writer handles connection setup
+and blocking sends, keeping transport stalls out of snapshot calls. Gun owns the
+TLS connection under its own supervisor; the writer monitors the Extension runtime
+and releases the named connection even if that runtime is killed without a
+termination callback. The runtime closes the connection on timeout, shutdown or
+rejected negotiation.
+The client limits read-ahead with a 64 KiB response window. Encoded messages use
+the Global tab's **gRPC maximum message size**, defaulting to 64 MiB. Before Engine
+services start, `Zaq.Engine.GrpcSettings` applies the persisted value to the
+node-wide `:grpc, :max_message_length` setting. This bounds send size and rejects
+oversized incoming frame prefixes before buffering their complete bodies.
+Extension advertises that same value; negotiation may lower the envelope limit.
+Saving does not alter running streams: restart each Engine node to apply a change.
+The read-ahead window remains independent of this per-message limit. Only one probe is outstanding, so this
+control-only version needs no outbound invocation queue or result-credit system.
 
 #### Wire contract and generated bindings
 
 `priv/proto/gateway.proto` owns the wire contract. Generated Protobuf messages,
 service and client stub live under `lib/zaq/engine/extension/rpc/`, one module per
 file. Public module names retain the `Zaq.Engine.Extension.Rpc` prefix.
+
+ZAQ opens `Connect(stream ZaqEnvelope) returns (stream GatewayEnvelope)` and keeps
+both directions open. Its correlated `ZaqHello` offers protocol versions,
+capabilities and an encoded-envelope limit. `GatewayHello` selects a supported
+version and advertises its capabilities and limit; version 1 requires `health.v1`.
+Every envelope carries a protocol version. Each request has a globally unique
+identifier, which its response echoes.
+ZAQ sends Health requests; the gateway replies on the response direction of the
+same RPC. Future gateway operations belong in typed envelope variants, not bespoke
+RPCs per Action. No Action execution capability is advertised by this first step.
+Unknown variants receive `UNSUPPORTED_OPERATION`, never an execution acknowledgment.
+Invalid negotiation and envelopes receive bounded protocol errors before closing.
+
+The unary Health RPC and `Client.health/1` remain for legacy interoperability tests,
+but the Engine runtime never calls them and has no unary fallback. A Health-only
+gateway cannot satisfy stream health; deploying this runtime requires the matching
+gateway Connect implementation. The external Rust gateway must regenerate bindings,
+implement negotiation and in-stream Health, and permit long-lived streaming RPCs
+through its timeout configuration.
+
+Correlation and stream state are transient. Reconnection negotiates afresh and
+does not replay operations or deliver late frames to a replacement stream. No
+durability, cancellation, automatic business retries or exactly-once execution is
+provided; future invocation timeouts may leave side effects unknown. Commercial
+authorization and result interpretation remain gateway responsibilities.
 
 After editing a schema, install the compiler version in `priv/proto/protoc.version`
 and regenerate using the locked Elixir protobuf dependency; no global generator
@@ -164,9 +212,11 @@ Rust tooling, external checkout or running gateway are required.
 mix test test/zaq/engine/extension test/zaq/engine/extension_test.exs
 ```
 
-The test server supports controlled Health status/error responses and a bounded
-reply barrier for timing/deadline scenarios. Tests cover transport rejection,
-probe duration and failure clearing, stale cache detection and outage/recovery.
+The test server supports Connect negotiation, unsolicited gateway envelopes,
+controlled Health status/error responses and a bounded reply barrier for timing
+and deadline scenarios. Tests cover transport rejection, same-stream reuse,
+negotiation and operation rejection, malformed/oversized frames, probe duration
+and failure clearing, stale cache detection and outage/recovery.
 Raw peers exercise stalled handshakes and missing ALPN before protobuf dispatch.
 
 Regeneration updates wire types and RPC routing, not simulated business behavior.

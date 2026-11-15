@@ -860,6 +860,19 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :system_config_get_grpc_max_message_bytes, _context),
+    do: %{event | response: System.get_grpc_max_message_bytes()}
+
+  def handle_event(
+        %Event{request: %{mib: mib}} = event,
+        :system_config_set_grpc_max_message_mib,
+        _context
+      ),
+      do: %{event | response: System.set_grpc_max_message_mib(mib)}
+
+  def handle_event(%Event{} = event, :system_config_set_grpc_max_message_mib, _context),
+    do: %{event | response: {:error, :invalid_grpc_max_message_size}}
+
   def handle_event(%Event{} = event, :system_config_get_global_base_url, _context),
     do: %{event | response: System.get_global_base_url()}
 
