@@ -150,6 +150,13 @@ Hop type controls response timing:
 - `:sync` hop: `dispatch/1` waits for role API completion and returns the updated event.
 - `:async` hop: `dispatch/1` starts background work and returns immediately with the event that was dispatched.
 
+Trusted callers needing worker lifecycle evidence can opt into
+`event.opts[:track_dispatch] == true`. A successfully admitted async hop returns
+its local router worker PID in `event.assigns[:async_task_pid]`; task admission
+failure returns `{:error, :dispatch_unavailable}` in `response`. The PID is not
+an execution-success acknowledgment. Callers monitor it and keep domain completion
+correlation separate. Without the option, existing async return behavior is unchanged.
+
 Multi-hop behavior is recursive:
 
 - If role handling returns an event with a new `next_hop`, `NodeRouter` dispatches again.

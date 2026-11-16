@@ -10,10 +10,11 @@ defmodule Zaq.Engine.Extension.Protocol do
     ZaqHello
   }
 
+  alias Zaq.Engine.Extension.ActionProtocol
   alias Zaq.System.GrpcConfig
 
   @version 1
-  @capabilities ["health.v1"]
+  @capabilities ["health.v1", "actions.v1"]
 
   @doc "The local encoded-envelope ceiling, also enforced by the gRPC frame limit."
   @spec max_envelope_bytes() :: pos_integer()
@@ -29,7 +30,8 @@ defmodule Zaq.Engine.Extension.Protocol do
        %ZaqHello{
          supported_versions: [@version],
          capabilities: @capabilities,
-         max_envelope_bytes: max_envelope_bytes()
+         max_envelope_bytes: max_envelope_bytes(),
+         action_limits: ActionProtocol.offer(max_envelope_bytes())
        }}
     )
   end

@@ -18,4 +18,16 @@ defmodule Zaq.Engine.Extension.Rpc.Gateway.V1.GatewayEnvelope do
   )
 
   field(:error, 12, type: Zaq.Engine.Extension.Rpc.Gateway.V1.ProtocolError, oneof: 0)
+
+  field(:action_request, 20,
+    type: Zaq.Engine.Extension.Rpc.Gateway.V1.ActionRequest,
+    json_name: "actionRequest",
+    oneof: 0
+  )
+
+  field(:action_receipt, 21,
+    type: Zaq.Engine.Extension.Rpc.Gateway.V1.ActionReceipt,
+    json_name: "actionReceipt",
+    oneof: 0
+  )
 end

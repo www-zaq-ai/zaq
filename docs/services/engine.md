@@ -143,8 +143,10 @@ node-wide `:grpc, :max_message_length` setting. This bounds send size and reject
 oversized incoming frame prefixes before buffering their complete bodies.
 Extension advertises that same value; negotiation may lower the envelope limit.
 Saving does not alter running streams: restart each Engine node to apply a change.
-The read-ahead window remains independent of this per-message limit. Only one probe is outstanding, so this
-control-only version needs no outbound invocation queue or result-credit system.
+The read-ahead window remains independent of this per-message limit. One Health
+probe is outstanding at a time. The optional [Action exchange](extension-actions.md)
+uses separate bounded worker and reply-credit accounting; receipts and Health
+remain independent of Action admission.
 
 #### Wire contract and generated bindings
 
@@ -159,22 +161,24 @@ version and advertises its capabilities and limit; version 1 requires `health.v1
 Every envelope carries a protocol version. Each request has a globally unique
 identifier, which its response echoes.
 ZAQ sends Health requests; the gateway replies on the response direction of the
-same RPC. Future gateway operations belong in typed envelope variants, not bespoke
-RPCs per Action. No Action execution capability is advertised by this first step.
+same RPC. Gateway operations use typed envelope variants, not bespoke RPCs per
+Action. Selecting `actions.v1` enables metadata listing, schema description and
+Registry/Jido execution with negotiated limits and reply receipts. See the
+[Action wire and execution contract](extension-actions.md) for its authority,
+deadline and credit semantics.
 Unknown variants receive `UNSUPPORTED_OPERATION`, never an execution acknowledgment.
 Invalid negotiation and envelopes receive bounded protocol errors before closing.
 
 The unary Health RPC and `Client.health/1` remain for legacy interoperability tests,
-but the Engine runtime never calls them and has no unary fallback. A Health-only
-gateway cannot satisfy stream health; deploying this runtime requires the matching
-gateway Connect implementation. The external Rust gateway must regenerate bindings,
-implement negotiation and in-stream Health, and permit long-lived streaming RPCs
-through its timeout configuration.
+but the Engine runtime never calls them and has no unary fallback. A unary-only
+gateway cannot satisfy stream health. A streaming peer selecting only `health.v1`
+can satisfy Health without enabling Actions. The matching Rust gateway uses the
+same protobuf and permits long-lived Connect streams.
 
 Correlation and stream state are transient. Reconnection negotiates afresh and
 does not replay operations or deliver late frames to a replacement stream. No
 durability, cancellation, automatic business retries or exactly-once execution is
-provided; future invocation timeouts may leave side effects unknown. Commercial
+provided; invocation timeouts may leave side effects unknown. Commercial
 authorization and result interpretation remain gateway responsibilities.
 
 After editing a schema, install the compiler version in `priv/proto/protoc.version`

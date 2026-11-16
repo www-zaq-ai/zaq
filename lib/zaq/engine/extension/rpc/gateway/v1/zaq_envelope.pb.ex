@@ -18,4 +18,10 @@ defmodule Zaq.Engine.Extension.Rpc.Gateway.V1.ZaqEnvelope do
   )
 
   field(:error, 12, type: Zaq.Engine.Extension.Rpc.Gateway.V1.ProtocolError, oneof: 0)
+
+  field(:action_reply, 20,
+    type: Zaq.Engine.Extension.Rpc.Gateway.V1.ActionReply,
+    json_name: "actionReply",
+    oneof: 0
+  )
 end
