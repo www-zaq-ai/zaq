@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/www-zaq-ai/zaq/compare/v0.19.0...v0.19.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **database:** add verified TLS support for application connections ([#943](https://github.com/www-zaq-ai/zaq/issues/943)) ([721fb11](https://github.com/www-zaq-ai/zaq/commit/721fb112ab2186dcb4328406d50b991f35f94b60))
+
 ## [0.19.0](https://github.com/www-zaq-ai/zaq/compare/v0.18.0...v0.19.0) (2026-11-13)
 
 
