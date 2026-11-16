@@ -105,7 +105,9 @@ Defaults below refer to the repository Compose file and [production runtime conf
 
 | Variable | Default / requirement | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Required in production and Compose | Restricted application-owner connection; must match the provisioning target |
+| `DATABASE_URL` | Required by direct releases; optional with image component settings | Restricted application-owner connection; an explicit URL overrides component settings |
+| `ZAQ_DATABASE_SSL` | Unset (existing plaintext default) | `true` enables verified application TLS in a generated URL; `false` explicitly disables TLS |
+| `ZAQ_DATABASE_SSL_CA_CERT_FILE` | Optional; requires URL `ssl=true` | Readable container-local PEM CA bundle; otherwise system trust |
 | `SECRET_KEY_BASE` | Required | Phoenix signing/encryption secret |
 | `SYSTEM_CONFIG_ENCRYPTION_KEY` | Required in production | Encryption key for stored credentials and other sensitive fields |
 | `SYSTEM_CONFIG_ENCRYPTION_KEY_ID` | Runtime default `v1` | Key metadata; add explicit Compose passthrough if overriding |
@@ -117,6 +119,11 @@ Defaults below refer to the repository Compose file and [production runtime conf
 | `WORKFLOWS_ENABLED` | Production runtime: `false` | Opt-in workflow runtime and UI |
 
 Not every runtime setting is passed through by the supplied Compose file. For example, to change chunk concurrency, add `OBAN_INGESTION_CHUNKS_CONCURRENCY: "${OBAN_INGESTION_CHUNKS_CONCURRENCY:-6}"` under the `zaq` service's `environment` block. A shell variable or `.env` entry has no effect unless Compose passes it into the container.
+
+See [application database TLS](../database-setup.md#application-database-tls) for
+explicit-URL precedence, CA mounts, verification failures, the Helm/image contract,
+and the separate libpq provisioning settings. `PGSSLMODE` alone does not enable
+application TLS.
 
 Disk declarations belong in **Data Sources → Disk**, not System Config. Model and provider settings belong in **System Config**, not infrastructure environment variables.
 

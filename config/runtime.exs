@@ -95,8 +95,8 @@ if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :zaq, Zaq.Repo,
-    # ssl: true,
     url: database_url,
+    database_ssl_ca_cert_file: System.get_env("ZAQ_DATABASE_SSL_CA_CERT_FILE"),
     types: Zaq.PostgrexTypes,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # For machines with several cores, consider starting multiple pools of `pool_size`

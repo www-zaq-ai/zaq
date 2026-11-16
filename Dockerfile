@@ -111,7 +111,7 @@ COPY scripts/setup_postgres_extensions.sql scripts/setup_paradedb_extensions.sql
       scripts/docker_database_authenticate.sql scripts/docker_entrypoint.sh \
       scripts/docker_database_adopt.sql scripts/docker_database_adopt_validate.sql \
       scripts/transfer_legacy_database.sh scripts/transfer_legacy_database.sql \
-      scripts/provision_database.sh /app/db-bootstrap/
+      scripts/provision_database.sh scripts/database_url.py /app/db-bootstrap/
 
 RUN python3 -m venv /app/.venv && \
     /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \
