@@ -10,7 +10,16 @@ defmodule Zaq.Engine.Extension do
 
   use GenServer
 
-  alias Zaq.Engine.Extension.{Client, Health, Protocol, Reader, Writer}
+  alias Zaq.Engine.Extension.{
+    ActionProtocol,
+    ActionSession,
+    Client,
+    Health,
+    Protocol,
+    Reader,
+    Writer
+  }
+
   alias Zaq.Engine.Extension.Rpc.Gateway.V1.{GatewayEnvelope, HealthResponse}
 
   @doc "Starts the node-local stream runtime without waiting for the gateway."
@@ -52,6 +61,8 @@ defmodule Zaq.Engine.Extension do
       reader: nil,
       writer: nil,
       writing: false,
+      actions: %ActionSession{},
+      probe_due: false,
       cleanup: nil,
       connection_name: nil,
       generation: nil,
@@ -94,11 +105,13 @@ defmodule Zaq.Engine.Extension do
       do: {:reply, {:reject, :invalid_envelope}, state}
 
   def handle_call({:extension_frame, _generation, frame}, _from, %{phase: :negotiating} = state) do
-    case Protocol.negotiate(frame, state.hello_id) do
-      {:ok, limit} ->
-        send(self(), :probe)
-        {:reply, :continue, %{state | phase: :ready, max_envelope_bytes: limit}}
-
+    with {:ok, limit} <- Protocol.negotiate(frame, state.hello_id),
+         {:hello, hello} <- frame.payload,
+         {:ok, action_limits} <- ActionProtocol.negotiate(hello, limit) do
+      send(self(), :probe)
+      actions = ActionSession.configure(state.actions, action_limits, state.generation)
+      {:reply, :continue, %{state | phase: :ready, max_envelope_bytes: limit, actions: actions}}
+    else
       {:error, reason} ->
         reject_frame(state, reason)
     end
@@ -162,7 +175,12 @@ defmodule Zaq.Engine.Extension do
 
     frame = Protocol.health_request(pending.id)
     send(state.writer.pid, {:write, frame})
-    state = %{state | pending: pending, writing: true, scheduled: nil}
+    state = %{state | pending: pending, writing: true, scheduled: nil, probe_due: false}
+    {:noreply, if(state.deadline, do: state, else: start_deadline(state))}
+  end
+
+  def handle_info(:probe, %{phase: :ready, pending: nil, writing: true} = state) do
+    state = %{state | probe_due: true, scheduled: nil}
     {:noreply, if(state.deadline, do: state, else: start_deadline(state))}
   end
 
@@ -179,7 +197,26 @@ defmodule Zaq.Engine.Extension do
   end
 
   def handle_info({:extension_sent, generation}, %{generation: generation} = state),
-    do: {:noreply, %{state | writing: false}}
+    do: {:noreply, pump_actions(%{state | writing: false})}
+
+  def handle_info({:extension_action_completed, generation, id, outcome}, state) do
+    actions = ActionSession.complete(state.actions, generation, id, outcome)
+    {:noreply, pump_actions(%{state | actions: actions})}
+  end
+
+  def handle_info({:action_deadline, generation, id}, state) do
+    actions = ActionSession.deadline(state.actions, generation, id)
+    {:noreply, pump_actions(%{state | actions: actions})}
+  end
+
+  def handle_info(
+        {:action_receipt_deadline, generation, sequence},
+        %{generation: generation} = state
+      ) do
+    if Map.has_key?(state.actions.replies, sequence),
+      do: {:noreply, disconnect(state, :timeout)},
+      else: {:noreply, state}
+  end
 
   def handle_info({ref, result}, %{writer: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
@@ -206,6 +243,12 @@ defmodule Zaq.Engine.Extension do
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{cleanup: %Task{ref: ref}} = state),
     do: {:noreply, schedule_reconnect(%{state | cleanup: nil})}
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{actions: %{workers: workers}} = state)
+      when is_map_key(workers, ref) do
+    actions = ActionSession.worker_down(state.actions, ref)
+    {:noreply, pump_actions(%{state | actions: actions})}
+  end
 
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -238,6 +281,20 @@ defmodule Zaq.Engine.Extension do
     {:reply, :continue, %{state | scheduled: timer}}
   end
 
+  defp receive_frame(%GatewayEnvelope{request_id: id, payload: {:action_request, request}}, state) do
+    case ActionSession.request(state.actions, id, request) do
+      {:ok, actions} -> {:reply, :continue, pump_actions(%{state | actions: actions})}
+      {:error, reason, actions} -> reject_frame(%{state | actions: actions}, reason)
+    end
+  end
+
+  defp receive_frame(%GatewayEnvelope{request_id: id, payload: {:action_receipt, receipt}}, state) do
+    case ActionSession.receipt(state.actions, id, receipt.sequence) do
+      {:ok, actions} -> {:reply, :continue, %{state | actions: actions}}
+      {:error, reason, actions} -> reject_frame(%{state | actions: actions}, reason)
+    end
+  end
+
   defp receive_frame(%GatewayEnvelope{payload: {:health_response, _}}, state),
     do: {:reply, :continue, state}
 
@@ -245,6 +302,24 @@ defmodule Zaq.Engine.Extension do
     do: reject_frame(state, :rpc_error)
 
   defp receive_frame(_frame, state), do: reject_frame(state, :unsupported_operation)
+
+  defp pump_actions(%{phase: :ready, writing: false, probe_due: true} = state) do
+    send(self(), :probe)
+    %{state | probe_due: false}
+  end
+
+  defp pump_actions(%{phase: :ready, writing: false} = state) do
+    case ActionSession.take_next(state.actions) do
+      {nil, _actions} ->
+        state
+
+      {{_sequence, frame}, actions} ->
+        send(state.writer.pid, {:write, frame})
+        %{state | actions: actions, writing: true}
+    end
+  end
+
+  defp pump_actions(state), do: state
 
   defp reject_frame(state, reason) do
     if state.scheduled, do: Process.cancel_timer(state.scheduled)
@@ -283,6 +358,8 @@ defmodule Zaq.Engine.Extension do
       reader: nil,
       writer: nil,
       writing: false,
+      probe_due: false,
+      actions: ActionSession.configure(state.actions, nil, nil),
       cleanup: cleanup,
       generation: nil,
       pending: nil,

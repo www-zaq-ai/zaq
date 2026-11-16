@@ -146,10 +146,11 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
   @impl Jido.Action
   def run(params, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
+    event_opts = Keyword.take(Map.get(context, :event_opts, []), [:confidential])
 
     with {:ok, request} <- HttpRequest.build(params) do
       %{request: request}
-      |> Event.new(:channels, opts: [action: :http_request])
+      |> Event.new(:channels, opts: Keyword.put(event_opts, :action, :http_request))
       |> node_router.dispatch()
       |> Map.fetch!(:response)
       |> DataSourceTool.format_response("HTTP request failed", &{:ok, &1})

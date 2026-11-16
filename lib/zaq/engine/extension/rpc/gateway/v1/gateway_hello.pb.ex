@@ -9,4 +9,9 @@ defmodule Zaq.Engine.Extension.Rpc.Gateway.V1.GatewayHello do
   field(:selected_version, 1, type: :uint32, json_name: "selectedVersion")
   field(:capabilities, 2, repeated: true, type: :string)
   field(:max_envelope_bytes, 3, type: :uint32, json_name: "maxEnvelopeBytes")
+
+  field(:action_limits, 4,
+    type: Zaq.Engine.Extension.Rpc.Gateway.V1.ActionLimits,
+    json_name: "actionLimits"
+  )
 end

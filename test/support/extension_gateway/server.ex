@@ -39,6 +39,11 @@ defmodule Zaq.ExtensionGateway.Server do
     GRPC.Server.send_reply(stream, stream_response(response, frame.request_id, stream.local))
   end
 
+  defp handle_frame(%ZaqEnvelope{request_id: id, payload: {:action_reply, reply}}, stream) do
+    {_, notify} = GenServer.call(stream.local, :response)
+    if notify, do: send(notify, {:gateway_action_reply, stream.local, id, reply})
+  end
+
   defp handle_frame(%ZaqEnvelope{payload: {:error, error}}, stream) do
     {_, notify} = GenServer.call(stream.local, :response)
     if notify, do: send(notify, {:gateway_rejection, stream.local, error})

@@ -3,9 +3,9 @@ defmodule Zaq.ExtensionGateway.Rust do
 
   use GenServer, restart: :temporary
 
-  def start!(directory) do
+  def start!(directory, opts \\ []) do
     binary =
-      System.get_env("GATEWAY_BINARY") ||
+      opts[:binary] || System.get_env("GATEWAY_BINARY") ||
         raise "Set GATEWAY_BINARY to a built commercial gateway to run --include commercial_gateway"
 
     config_path = Path.join(directory, "gateway.toml")
@@ -23,7 +23,7 @@ defmodule Zaq.ExtensionGateway.Rust do
     """)
 
     owner =
-      ExUnit.Callbacks.start_supervised!({__MODULE__, {Path.expand(binary), config_path}},
+      ExUnit.Callbacks.start_supervised!({__MODULE__, {Path.expand(binary), config_path, opts}},
         id: make_ref()
       )
 
@@ -40,7 +40,7 @@ defmodule Zaq.ExtensionGateway.Rust do
   end
 
   @impl true
-  def init({binary, config_path}) do
+  def init({binary, config_path, opts}) do
     Process.flag(:trap_exit, true)
 
     removed =
@@ -54,18 +54,28 @@ defmodule Zaq.ExtensionGateway.Rust do
         :binary,
         :exit_status,
         :stderr_to_stdout,
+        {:args, Keyword.get(opts, :args, [])},
         {:env, [{~c"GATEWAY_CONFIG", String.to_charlist(config_path)} | removed]}
       ])
 
-    {:ok, port}
+    {:ok, %{port: port, notify: opts[:notify]}}
   end
 
   @impl true
-  def handle_info({_port, {:exit_status, _status}}, port), do: {:stop, :normal, port}
-  def handle_info(_message, port), do: {:noreply, port}
+  def handle_info({_port, {:exit_status, status}}, state) do
+    if state.notify, do: send(state.notify, {:gateway_binary_exit, self(), status})
+    {:stop, :normal, state}
+  end
+
+  def handle_info({_port, {:data, bytes}}, state) do
+    if state.notify, do: send(state.notify, {:gateway_binary_output, self(), bytes})
+    {:noreply, state}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, port) do
+  def terminate(_reason, %{port: port}) do
     if info = Port.info(port, :os_pid) do
       {:os_pid, pid} = info
       System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)

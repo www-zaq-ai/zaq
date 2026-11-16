@@ -975,7 +975,10 @@ defmodule Zaq.Channels.Api do
       ) do
     response =
       request
-      |> Event.new(:engine, opts: [action: :prepare_http_request])
+      |> Event.new(:engine,
+        opts:
+          Keyword.put(Keyword.take(event.opts, [:confidential]), :action, :prepare_http_request)
+      )
       |> NodeRouter.dispatch()
       |> Map.fetch!(:response)
       |> case do

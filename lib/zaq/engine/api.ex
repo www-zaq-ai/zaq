@@ -27,6 +27,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.EmailConnectorSettings
   alias Zaq.Engine.Extension
+  alias Zaq.Engine.Extension.Actions, as: ExtensionActions
   alias Zaq.Engine.History.{CommunicationPolicy, Delivery}
   alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.IncomingMessageRouter
@@ -859,6 +860,12 @@ defmodule Zaq.Engine.Api do
       other -> %{event | response: {:error, {:invalid_request, other}}}
     end
   end
+
+  def handle_event(%Event{} = event, :extension_action, _context),
+    do: ExtensionActions.handle_event(event)
+
+  def handle_event(%Event{} = event, :extension_action_completed, _context),
+    do: ExtensionActions.deliver_completion(event)
 
   def handle_event(%Event{} = event, :system_config_get_grpc_max_message_bytes, _context),
     do: %{event | response: System.get_grpc_max_message_bytes()}
