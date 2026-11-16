@@ -8,17 +8,7 @@ owner_database_url() {
   if [ -z "${DATABASE_URL:-}" ] && [ -n "${PGHOST:-}" ]; then
     : "${ZAQ_OWNER_PASSWORD:?Required owner password for bundled database}"
     export DATABASE_URL
-    DATABASE_URL=$(python3 -c '
-import os
-from urllib.parse import quote
-
-user = quote(os.environ.get("ZAQ_OWNER", "zaq_owner"), safe="")
-password = quote(os.environ["ZAQ_OWNER_PASSWORD"], safe="")
-database = quote(os.environ.get("ZAQ_DATABASE", "zaq_prod"), safe="")
-host = os.environ["PGHOST"]
-port = os.environ.get("PGPORT", "5432")
-print(f"postgresql://{user}:{password}@{host}:{port}/{database}")
-')
+    DATABASE_URL=$(python3 "$(dirname "$0")/database_url.py" build)
   fi
 }
 

@@ -34,3 +34,44 @@ if env -u DATABASE_URL -u ZAQ_OWNER_PASSWORD PATH="$tmp:$PATH" PGHOST=postgres \
 fi
 
 printf '%s\n' 'Docker entrypoint URL checks passed'
+
+for mode in 'provision-db --automatic' 'adopt-existing-db'; do
+  # Intentional splitting exercises both entrypoint argument lists.
+  actual=$(env PATH="$tmp:$PATH" PGHOST=postgres ZAQ_DATABASE_SSL=invalid \
+    ZAQ_OWNER_PASSWORD='ignored' DATABASE_URL='postgresql://explicit@example/zaq?ssl=true' \
+    /bin/sh "$root/scripts/docker_entrypoint.sh" $mode)
+  [ "$actual" = 'postgresql://explicit@example/zaq?ssl=true' ] || {
+    printf '%s\n' 'Explicit TLS URL was changed' >&2; exit 1;
+  }
+done
+
+actual=$(env -u DATABASE_URL PATH="$tmp:$PATH" PGHOST=postgres ZAQ_DATABASE_SSL=true \
+  ZAQ_OWNER=zaq_owner ZAQ_DATABASE=zaq_prod ZAQ_OWNER_PASSWORD='owner:p@ss/word' \
+  /bin/sh "$root/scripts/docker_entrypoint.sh" provision-db --automatic)
+[ "$actual" = "$expected?ssl=true" ] || {
+  printf '%s\n' 'Derived TLS URL mismatch' >&2; exit 1;
+}
+
+if env -u DATABASE_URL PATH="$tmp:$PATH" PGHOST=postgres ZAQ_DATABASE_SSL=invalid \
+  ZAQ_OWNER_PASSWORD='must-not-appear' \
+  /bin/sh "$root/scripts/docker_entrypoint.sh" provision-db --automatic >"$tmp/error" 2>&1; then
+  printf '%s\n' 'Invalid TLS setting was accepted' >&2; exit 1
+fi
+[ "$(cat "$tmp/error")" = 'ZAQ_DATABASE_SSL must be true or false.' ] || {
+  printf '%s\n' 'TLS diagnostic was not credential-safe' >&2; exit 1;
+}
+printf '%s\n' 'Docker entrypoint TLS checks passed'
+
+for mode in provision-db transfer-legacy-db; do
+  actual=$(env -u DATABASE_URL -u ZAQ_OWNER_PASSWORD PATH="$tmp:$PATH" \
+    PGHOST=postgres ZAQ_DATABASE_SSL=invalid \
+    /bin/sh "$root/scripts/docker_entrypoint.sh" "$mode")
+  [ -z "$actual" ] || { printf '%s\n' 'DBA mode unexpectedly constructed a URL' >&2; exit 1; }
+done
+actual=$(/bin/sh "$root/scripts/docker_entrypoint.sh" printf '%s' 'custom-command')
+[ "$actual" = custom-command ] || { printf '%s\n' 'Custom command dispatch failed' >&2; exit 1; }
+if /bin/sh "$root/scripts/docker_entrypoint.sh" server unexpected >"$tmp/error" 2>&1; then
+  printf '%s\n' 'Server mode accepted extra arguments' >&2; exit 1
+fi
+[ "$(cat "$tmp/error")" = 'Server mode takes no arguments.' ] || exit 1
+printf '%s\n' 'Docker entrypoint mode checks passed'

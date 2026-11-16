@@ -91,6 +91,88 @@ runtime chunk creation/reset. `public` follows the database owner using
 An existing database containing objects owned by another role needs explicit DBA
 reconciliation. Never transfer DBA-owned extension objects to ZAQ.
 
+## Application database TLS
+
+Application connections (including release migrations) use Ecto/Postgrex, not
+libpq. `PGSSLMODE` configures psql provisioning connections only; setting it does
+not enable application TLS.
+
+| Setting | Contract |
+| --- | --- |
+| `ZAQ_DATABASE_SSL` | Optional, exactly `true` or `false`. The image entrypoint adds `?ssl=true` or `?ssl=false` when constructing `DATABASE_URL` from `PGHOST`, `PGPORT`, `ZAQ_OWNER`, `ZAQ_OWNER_PASSWORD` and `ZAQ_DATABASE`. Unset/empty preserves the existing URL without a TLS option. |
+| `DATABASE_URL` | A nonempty explicit URL is preserved and takes precedence over component settings, including `ZAQ_DATABASE_SSL` (even an invalid switch is ignored). Use `?ssl=true` in that URL to enable application TLS. |
+| `ZAQ_DATABASE_SSL_CA_CERT_FILE` | Optional readable PEM CA bundle **inside the application container**, used with `ssl=true`. Mount it read-only on every application/migration container and on automatic provisioning/adoption jobs. Without it, the application uses the Erlang/system trust store. |
+
+`ssl=true` requires encryption, a trusted server certificate chain, and a matching
+server hostname. The pinned Ecto 3.14.3 parses this URL boolean; Postgrex 0.22.4
+defaults to peer verification, system CA roots, and HTTPS-style hostname checking.
+The custom-CA path preserves those verification requirements explicitly. Use the
+certificate's DNS name in `PGHOST` or the explicit URL, not an unrelated service
+alias or IP address. Trust-store contents must include the issuing CA; mounting a
+private CA file does not install it into system trust. There is no encryption-only
+or skip-verification setting. `ssl=false` explicitly uses plaintext. Unset TLS
+retains the previous plaintext default, so an SSL-required database rejects it.
+
+An explicit URL without `ssl=true` does not inherit the component TLS switch.
+The CA setting still applies to an explicit TLS URL; a CA setting without
+`ssl=true` fails configuration rather than being ignored. Invalid TLS values,
+duplicate `ssl` options, and libpq-only TLS URL keys such as `sslmode` and
+`sslrootcert` are rejected with credential-safe diagnostics. Configure trust
+through the CA setting, not `ssl_opts` in a URL. Invalid/unreadable CA files,
+untrusted or expired certificates, and hostname mismatches fail the connection;
+there is no plaintext retry. Migration failure prevents server startup.
+
+For an external PostgreSQL deployment using component settings, the image contract
+for Helm or another orchestrator is:
+
+```yaml
+PGHOST: database.example.com
+PGPORT: "5432"
+ZAQ_DATABASE: zaq_prod
+ZAQ_OWNER: zaq_owner
+ZAQ_DATABASE_SSL: "true"
+ZAQ_DATABASE_SSL_CA_CERT_FILE: /etc/zaq/database-ca/ca.pem
+```
+
+Inject `ZAQ_OWNER_PASSWORD` from a Secret, unencoded; the entrypoint percent-encodes
+the username, password and database name. Omit `DATABASE_URL` when using these
+components. Omit the CA-file setting only if the server's CA is already trusted
+by the container's system store. Chart support must pass these settings and mount
+the CA in the **fixed image**; setting them on an older image does not add support.
+For direct release execution without the image entrypoint, supply `DATABASE_URL`
+with its TLS boolean explicitly. Never print connection URLs or enable shell tracing.
+
+### Provisioning TLS and owner authentication
+
+Configure DBA and separate owner/reader psql checks independently with libpq
+settings, normally `PGSSLMODE=verify-full` and `PGSSLROOTCERT` pointing to the
+provisioning container's CA bundle. Application CA settings do not configure those
+connections. A server requiring TLS also needs these provisioning settings.
+
+Automatic bootstrap and adoption continue authenticating the **actual application
+URL** as the owner against the same server/database. For that check only, the
+wrapper converts Ecto `ssl=true` to libpq `sslmode=verify-full` with the application
+CA file, or `sslrootcert=system` when no file is set. Use libpq 17+ for this
+system-root mode; the image supplies it and Python 3 for URL adaptation. `ssl=false` becomes
+`sslmode=disable`; absent `ssl` leaves libpq's environment behavior unchanged.
+The owner check's explicit TLS options override `PGSSLMODE`/`PGSSLROOTCERT` for
+that connection. Ecto pool/timing options (`pool_size`, `timeout`, `idle_interval`)
+are removed for psql, not passed as unsupported libpq parameters. Unknown
+owner-validation options fail before provisioning. Owner credentials, receipts,
+ownership and migration-ledger checks remain mandatory; TLS failures do not
+authorize password rotation or database repair.
+
+### TLS regression checks
+
+Run `sh test/docker_entrypoint_test.sh` and
+`mix test test/zaq/database_config_test.exs` for URL/precedence/configuration tests.
+The opt-in `python3 test/integration/database_tls_test.py` creates and removes one
+disposable SSL-required pgvector PostgreSQL container. It requires Docker,
+`pgvector/pgvector:pg18`, OpenSSL, psql 17+, and compiled Mix dependencies. It uses
+ephemeral credentials and certificates to exercise provisioning, real release
+migrations/application startup, rejected trust/hostname/plaintext connections,
+and post-migration receipt/owner authentication. It never targets an existing DB.
+
 ## Owner-managed logins and schema access
 
 The owner receives `CREATEROLE` and can create logins, create schemas, and grant

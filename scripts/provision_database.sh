@@ -33,11 +33,7 @@ export PGUSER="${PGUSER:-postgres}" PGDATABASE="${PGDATABASE:-postgres}"
 export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-10}"
 if [ "$automatic" = true ] || [ "$adopt_existing" = true ]; then
   : "${DATABASE_URL:?Required application-owner DATABASE_URL}"
-  case "$DATABASE_URL" in
-    ecto://*) ZAQ_OWNER_DATABASE_URL="postgresql://${DATABASE_URL#ecto://}" ;;
-    postgres://*|postgresql://*) ZAQ_OWNER_DATABASE_URL=$DATABASE_URL ;;
-    *) fail 'DATABASE_URL must be an owner PostgreSQL URL.' ;;
-  esac
+  ZAQ_OWNER_DATABASE_URL=$(python3 "$(dirname "$0")/database_url.py" libpq)
   export ZAQ_OWNER_DATABASE_URL
 fi
 
