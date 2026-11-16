@@ -14,25 +14,25 @@ jobs:
 
     # One runner per browser. Each leg has its own Postgres and Phoenix, so
     # POST /e2e/reset stays a whole-node reset within its
-    # leg and no test isolation work is needed. fail-fast is off so one browser
-    # failing still tells us about the other two.
+    # leg and no test isolation work is needed. PRs require all three browsers;
+    # the merge queue revalidates Chromium only. fail-fast stays off for PR coverage.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - browser: chromium
-            runner: ubuntu-24.04
-            postgres-image: pgvector/pgvector:pg18
-          - browser: firefox
-            runner: ubuntu-24.04
-            postgres-image: pgvector/pgvector:pg18
-          - browser: webkit
-            runner: macos-15
-            # An empty image disables the service; macOS runs Postgres natively.
-            postgres-image: ""
+        include: >-
+          ${{ fromJSON(
+            github.event_name == 'merge_group'
+              && '[{"browser":"chromium","runner":"ubuntu-24.04","postgres-image":"pgvector/pgvector:pg18"}]'
+              || '[
+                {"browser":"chromium","runner":"ubuntu-24.04","postgres-image":"pgvector/pgvector:pg18"},
+                {"browser":"firefox","runner":"ubuntu-24.04","postgres-image":"pgvector/pgvector:pg18"},
+                {"browser":"webkit","runner":"macos-15","postgres-image":""}
+              ]'
+          ) }}
 
     services:
       postgres:
+        # An empty image disables the service; macOS runs Postgres natively.
         image: ${{ matrix.postgres-image }}
         env:
           POSTGRES_USER: postgres
@@ -214,7 +214,7 @@ jobs:
           fi
 
   # The repository ruleset "Bypassable Main Branch" requires a check named
-  # exactly "User Journeys QA". The matrix above reports three differently-named
+  # exactly "User Journeys QA". The matrix above reports browser-specific
   # checks, so this job carries the required name and fails if any leg failed.
   # `if: always()` is required — a skipped job leaves the required check pending
   # forever and blocks the PR just as hard as a failure.
