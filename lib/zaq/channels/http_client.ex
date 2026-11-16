@@ -45,9 +45,17 @@ defmodule Zaq.Channels.HttpClient do
   transfer framing and before content decoding or decompression. Crossing the
   limit stops reception with `{:error, :response_too_large}`, never a truncated
   success. Complete bodies are Base64 strings with `body_encoding: "base64"`;
-  Base64 expansion is outside the entity-byte limit. Raw header values remain
-  lists, including duplicate signing metadata and `content-encoding`. Both modes
-  filter credential/cookie response headers.
+  Base64 expansion and metadata are outside the entity-byte limit. Raw header
+  values remain lists, including duplicate signing metadata and `content-encoding`.
+  Raw responses return trailers separately, with the same filtering and UTF-8
+  validation as headers; absent trailers are an empty map. Both modes filter
+  credential/cookie response headers.
+
+  Finch 0.24.0 misclassifies trailers on empty, chunked HTTP/1.1 entities, allowing
+  Req to overwrite initial headers and leave trailers empty. That response shape
+  is not metadata-safe until [Finch #408](https://github.com/sneako/finch/issues/408)
+  is fixed and the dependency updated (`zaq-bjp`). HTTP/2 trailers and non-empty
+  HTTP/1.1 entities with trailers are unaffected.
 
   Raw requests send `accept-encoding: identity`. A peer may still send encoded
   content; its bytes and encoding header are returned unchanged. The caller owns
@@ -62,6 +70,7 @@ defmodule Zaq.Channels.HttpClient do
 
   @type response :: %{
           optional(:body_encoding) => String.t(),
+          optional(:trailers) => %{String.t() => [String.t()]},
           status: pos_integer(),
           success: boolean(),
           headers: %{String.t() => String.t() | [String.t()]},
@@ -203,7 +212,8 @@ defmodule Zaq.Channels.HttpClient do
          %Prepared{response_format: "raw"} = spec,
          _max
        ) do
-    with {:ok, headers} <- raw_headers(response.headers) do
+    with {:ok, headers} <- raw_headers(response.headers),
+         {:ok, trailers} <- raw_headers(response.trailers) do
       body = response.body |> List.wrap() |> Enum.reverse() |> IO.iodata_to_binary()
 
       {:ok,
@@ -211,6 +221,7 @@ defmodule Zaq.Channels.HttpClient do
          status: response.status,
          success: response.status in 200..299,
          headers: headers,
+         trailers: trailers,
          body: Base.encode64(body),
          body_encoding: "base64",
          truncated: false,

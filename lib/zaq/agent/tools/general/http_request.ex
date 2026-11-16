@@ -34,17 +34,21 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
 
   ## Credentials
 
-  A request may reference a BO-managed Auth Credential by `credential_id`. The
-  credential value itself is resolved only on the channels node. Literal
-  `authorization` or `proxy-authorization` headers are still rejected because
-  they would put secrets in the model context.
+  A request may reference a BO-managed Auth Credential by `credential_id`.
+  Engine prepares credential material and Channels injects it at the outbound
+  edge; the value is not an Action parameter. Literal `authorization` or
+  `proxy-authorization` headers are still rejected because they would put secrets
+  in the model context.
 
   ## Expected context keys
 
   - `:node_router` — override the NodeRouter module (default `Zaq.NodeRouter`).
   - `:event_opts` — trusted `confidential: true` suppresses both HTTP dispatch
-    events and replaces failures with payload-free Jido errors. Parameters cannot
-    enable it. Jido execution logging options remain caller-owned.
+    events and replaces failures arising within `run/2` with payload-free Jido
+    errors. Parameters cannot enable it. Jido validates the schema before `run/2`:
+    its diagnostics are unchanged, so Action inputs must be safe for ordinary
+    validation logging. This flag is not a blanket secrecy guarantee for arbitrary
+    inputs. Jido execution logging options remain caller-owned.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -75,9 +79,12 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
     By default a large body is truncated and `truncated` is set to true; if you
     need the rest, narrow the request with query parameters rather than resending.
     Set `response_format: "raw"` to receive exact entity bytes as Base64 with
-    `body_encoding: "base64"` and header value lists. Raw reception is bounded:
-    an oversized response fails instead of returning a truncated body. Content
-    decoding, decompression, and signature verification are not performed.
+    `body_encoding: "base64"` and header value lists. Raw responses include a separate
+    `trailers` map with filtered value lists, empty when absent. Signing metadata is
+    unreliable for empty, chunked HTTP/1.1 responses due to a transport dependency
+    limitation. Raw reception is bounded: an oversized response fails instead of
+    returning a truncated body. Content decoding, decompression, and signature
+    verification are not performed.
     """,
     schema:
       Zoi.object(%{
@@ -145,6 +152,12 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
           Zoi.map(Zoi.string(), Zoi.union([Zoi.string(), Zoi.list(Zoi.string())]),
             description: "Filtered lowercase headers; raw mode preserves each header's value list"
           ),
+        trailers:
+          Zoi.map(Zoi.string(), Zoi.list(Zoi.string()),
+            description:
+              "Raw mode only: filtered lowercase trailer value lists, empty when absent"
+          )
+          |> Zoi.optional(),
         body:
           Zoi.any(description: "Decoded body, or Base64 entity bytes in raw mode")
           |> Zoi.nullable(),

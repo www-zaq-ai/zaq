@@ -382,10 +382,22 @@ and method policies apply to both; redirects and transport retries remain disabl
 Decoded responses retain their existing body decoding, post-reception truncation,
 and comma-joined header values. Raw responses return a Base64 `body`, the explicit
 `body_encoding: "base64"` marker, and lowercase header names mapped to value lists.
-Duplicate values retain their order. Both formats filter `set-cookie`,
-`authorization`, and `proxy-authorization` response headers.
-Raw mode rejects retained non-UTF-8 header values with `:invalid_response_headers`
-so the result remains JSON-safe without rewriting signing metadata.
+Raw responses also include a separate `trailers` map with lowercase names and value
+lists, empty when absent. Headers and trailers are not merged, even when they share
+a name. Duplicate values retain their order. Both formats filter `set-cookie`,
+`authorization`, and `proxy-authorization` response headers; raw trailers use the
+same filtering. Raw mode rejects retained non-UTF-8 header or trailer values with
+`:invalid_response_headers` so the result remains JSON-safe without rewriting
+signing metadata.
+
+Known limitation with Finch 0.24.0: an empty, chunked HTTP/1.1 response carrying
+trailers is not metadata-safe. Finch classifies its trailers as initial headers,
+and Req can overwrite the original headers while leaving `trailers` empty. Callers
+must not rely on signing metadata from that response shape pending an upstream
+fix ([Finch #408](https://github.com/sneako/finch/issues/408), follow-up `zaq-bjp`).
+HTTP/2 trailers, non-empty HTTP/1.1 entities with trailers, and empty responses
+without trailers are unaffected. The empty HTTP/1.1 trailer regression remains
+explicitly skipped until the dependency is fixed and updated.
 
 Raw bytes are the HTTP entity after transfer framing, before content decoding or
 decompression. Raw requests send `accept-encoding: identity`; if the peer sends
@@ -398,16 +410,22 @@ independently of `Content-Length`. An overflow stops reception and returns
 `:response_too_large`; a disconnect before completion returns a transport error.
 Neither produces a truncated success. Complete raw responses have `truncated: false`.
 The byte limit precedes Base64 expansion; callers transporting the result inside
-another envelope must account for that expansion and headers.
+another envelope must account for that expansion, headers and trailers.
 
 Trusted Action context `event_opts: [confidential: true]` suppresses observer
 broadcasts for both the HTTP request and Engine preparation. Caller parameters
-cannot enable it. Confidential failures become `confidential_http_request_failed`
-Jido errors with safe classification details before error logging; ordinary error
-behavior is preserved. Jido's standard sanitizer protects credential-shaped fields,
-but generic request/response payloads are not secrets by name: confidential callers
-must use the existing non-debug execution log level (for example `log_level: :info`)
-rather than enabling payload-bearing debug logs.
+cannot enable it. Failures arising within the Action's `run/2` become
+`confidential_http_request_failed` Jido errors with safe classification details
+before error logging; ordinary error behavior is preserved.
+
+Action parameters must be safe for ordinary validation diagnostics. Callers pass
+`credential_id`, not credential values: Engine prepares BO-managed credentials and
+Channels injects them at the outbound edge. Jido validates the Action schema before
+`run/2`, and its schema-error diagnostics are unchanged by `confidential: true`.
+The flag is not a blanket secrecy guarantee for arbitrary Action inputs. Generic
+request/response payloads are not secrets by name, so confidential callers must use
+a non-debug execution log level (for example `log_level: :info`) rather than enable
+payload-bearing debug logs. This does not suppress schema-error diagnostics.
 
 ## Module Map
 

@@ -147,6 +147,244 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
     assert inspect(error) =~ "invalid_response_headers"
   end
 
+  test "raw HTTP1 trailers preserve signing metadata separately from headers at the byte limit" do
+    for {size, status} <- [{1, 200}, {@limit, 422}] do
+      entity = :binary.copy(<<255>>, size)
+
+      url =
+        peer(fn socket ->
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 #{status} Response\r\ntransfer-encoding: chunked\r\n",
+            "signature: initial\r\ntrailer: signature, content-digest\r\n\r\n",
+            chunk(entity),
+            "0\r\nSignature: first\r\nSignature: second\r\ncontent-digest: sha-256=:digest:\r\n",
+            "set-cookie: hidden\r\nauthorization: hidden\r\nproxy-authorization: hidden\r\n\r\n"
+          ])
+        end)
+
+      assert {:ok, response} = execute(url, %{response_format: "raw"})
+      assert response.status == status
+      assert response.success == status in 200..299
+      assert Base.decode64!(response.body) == entity
+      refute response.truncated
+      assert response.headers["signature"] == ["initial"]
+      assert response.headers["trailer"] == ["signature, content-digest"]
+
+      assert response.trailers == %{
+               "signature" => ["first", "second"],
+               "content-digest" => ["sha-256=:digest:"]
+             }
+
+      assert Jason.decode!(Jason.encode!(response))["trailers"] == response.trailers
+    end
+  end
+
+  @tag skip:
+         "Enable after Finch https://github.com/sneako/finch/issues/408 is fixed and updated (zaq-bjp)"
+  test "empty chunked HTTP1 responses preserve initial headers separately from trailers" do
+    url =
+      peer(fn socket ->
+        :gen_tcp.send(socket, [
+          "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n",
+          "signature: initial\r\ntrailer: signature\r\n\r\n",
+          "0\r\nsignature: final\r\n\r\n"
+        ])
+      end)
+
+    assert {:ok, response} = execute(url, %{response_format: "raw"})
+    assert Base.decode64!(response.body) == ""
+    assert response.headers["signature"] == ["initial"]
+    assert response.headers["trailer"] == ["signature"]
+    assert response.trailers == %{"signature" => ["final"]}
+  end
+
+  test "raw responses without trailers return an empty map and decoded responses omit it" do
+    for format <- ["raw", "decoded"], entity <- ["", "ok"] do
+      url =
+        peer(
+          &:gen_tcp.send(
+            &1,
+            "HTTP/1.1 200 OK\r\ncontent-length: #{byte_size(entity)}\r\n\r\n#{entity}"
+          )
+        )
+
+      assert {:ok, response} = execute(url, %{response_format: format})
+
+      if format == "raw",
+        do: assert(response.trailers == %{}),
+        else: refute(Map.has_key?(response, :trailers))
+    end
+  end
+
+  test "invalid retained HTTP1 trailers fail before returning a JSON-unsafe response" do
+    for confidential? <- [false, true] do
+      url =
+        peer(fn socket ->
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n",
+            chunk("ok"),
+            "0\r\nsignature: ",
+            <<255>>,
+            "\r\n\r\n"
+          ])
+        end)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, error} =
+                 execute(url, %{response_format: "raw"}, %{
+                   event_opts: [confidential: confidential?]
+                 })
+
+        if confidential? do
+          assert error.message == "confidential_http_request_failed"
+          assert error.details.reason == :invalid_response_headers
+        else
+          assert inspect(error) =~ "invalid_response_headers"
+        end
+      end)
+    end
+  end
+
+  test "sensitive HTTP1 trailers are removed before UTF8 validation" do
+    url =
+      peer(fn socket ->
+        :gen_tcp.send(socket, [
+          "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n0\r\n",
+          Enum.map(["set-cookie", "authorization", "proxy-authorization"], fn name ->
+            [name, ": ", <<255>>, "\r\n"]
+          end),
+          "\r\n"
+        ])
+      end)
+
+    assert {:ok, response} = execute(url, %{response_format: "raw"})
+    assert response.trailers == %{}
+    assert Base.decode64!(response.body) == ""
+  end
+
+  property "non-empty raw HTTP1 entities preserve ordered trailer metadata" do
+    check all(
+            entity <- binary(min_length: 1, max_length: @limit),
+            values <-
+              list_of(string(:alphanumeric, min_length: 1, max_length: 16),
+                min_length: 1,
+                max_length: 4
+              ),
+            max_runs: 12
+          ) do
+      url =
+        peer(fn socket ->
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n",
+            chunk(entity),
+            "0\r\n",
+            Enum.map(values, &["signature: ", &1, "\r\n"]),
+            "\r\n"
+          ])
+        end)
+
+      assert {:ok, response} = execute(url, %{response_format: "raw"})
+      assert response.trailers == %{"signature" => values}
+      assert Base.decode64!(response.body) == entity
+      refute response.truncated
+    end
+  end
+
+  test "HTTP1 trailers do not turn oversized or incomplete responses into partial success" do
+    url =
+      peer(fn socket ->
+        :gen_tcp.send(socket, [
+          "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n",
+          chunk(String.duplicate("x", @limit + 1)),
+          "0\r\nsignature: final\r\n\r\n"
+        ])
+      end)
+
+    assert {:error, error} = execute(url, %{response_format: "raw"})
+    assert inspect(error) =~ "response_too_large"
+
+    for incomplete <- ["0\r\nsignature:", "0\r\nsignature: incomplete\r\n"] do
+      url =
+        peer(fn socket ->
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n",
+            chunk("complete entity"),
+            incomplete
+          ])
+        end)
+
+      assert {:error, error} = execute(url, %{response_format: "raw"})
+      assert inspect(error) =~ "transport_error"
+    end
+  end
+
+  test "HTTP2 trailing HEADERS preserve filtered duplicate metadata and exact entity bytes" do
+    for size <- [0, @limit] do
+      entity = :binary.copy(<<255>>, size)
+
+      url =
+        Http2ResponsePeer.start!([entity], self(),
+          headers: [{"signature", "initial"}],
+          trailers: [
+            {"signature", "first"},
+            {"signature", "second"},
+            {"content-digest", "sha-256=:digest:"},
+            {"set-cookie", "hidden"},
+            {"authorization", "hidden"},
+            {"proxy-authorization", "hidden"}
+          ]
+        )
+
+      save_policy(url)
+      HTTPFixtureOptions.configure(url, connect_options: [protocols: [:http2]])
+      assert {:ok, response} = execute(url, %{response_format: "raw"})
+      assert response.headers["signature"] == ["initial"]
+
+      assert response.trailers == %{
+               "signature" => ["first", "second"],
+               "content-digest" => ["sha-256=:digest:"]
+             }
+
+      assert Base.decode64!(response.body) == entity
+      refute response.truncated
+      assert_receive {:http2_response_sent, peer}
+      send(peer, :close)
+    end
+  end
+
+  test "HTTP2 trailers reject retained invalid UTF8 and ignore invalid redacted fields" do
+    for field <- ["signature", "set-cookie"] do
+      url = Http2ResponsePeer.start!(["ok"], self(), trailers: [{field, <<255>>}])
+      save_policy(url)
+      HTTPFixtureOptions.configure(url, connect_options: [protocols: [:http2]])
+
+      if field == "signature" do
+        assert {:error, error} = execute(url, %{response_format: "raw"})
+        assert inspect(error) =~ "invalid_response_headers"
+      else
+        assert {:ok, response} = execute(url, %{response_format: "raw"})
+        assert response.trailers == %{}
+        assert Base.decode64!(response.body) == "ok"
+      end
+
+      assert_receive {:http2_response_sent, peer}
+      send(peer, :close)
+    end
+  end
+
+  test "HTTP2 trailing metadata without END_STREAM is not a complete response" do
+    url =
+      Http2ResponsePeer.start!(["complete entity"], self(),
+        trailers: [{"signature", "incomplete"}],
+        end_stream: false
+      )
+
+    save_policy(url)
+    HTTPFixtureOptions.configure(url, connect_options: [protocols: [:http2]])
+    assert {:error, error} = execute(url, %{response_format: "raw"})
+    assert inspect(error) =~ "transport_error"
+  end
+
   property "raw chunked entity bytes round-trip exactly up to the configured bound" do
     check all(entity <- binary(max_length: @limit), max_runs: 12) do
       url =
