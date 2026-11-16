@@ -145,13 +145,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
 
     try do
-      # Run-driver mode: SEQUENTIAL today. `react_until_satisfied/3` also accepts
-      # `async: true, max_concurrency:, timeout:` to fan map forks out across
-      # processes, but we intentionally do NOT thread them yet — sequential
-      # execution keeps the map summary order deterministic (forks resolve in
-      # index order). Enabling async additionally requires per-fork names that
-      # cannot collide and `FanIn` `mergeable` accumulation; when enabling, pass
-      # the opts here and re-confirm ordering.
+      # Runic schedules Batch forks in hash order even in this single-process
+      # driver. Iterate explicitly sequences items inside its execution step.
       Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
       result = finalize(run, started_ms)
 

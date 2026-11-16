@@ -43,6 +43,42 @@ defmodule Storybook.Chat.AssistantBubble do
   def variations do
     [
       %Variation{
+        id: :delivery_failed,
+        description: "Generated answer retained inline after a definite delivery failure; no retry controls",
+        attributes: %{
+          content: "The rollout is complete. All teams can use the new workspace.",
+          timestamp: ~N[2026-11-10 10:30:05],
+          align: :right,
+          msg_id: "delivery-failed-story",
+          author_name: "Support Agent",
+          delivery_state: :failed
+        }
+      },
+      %Variation{
+        id: :delivery_unconfirmed,
+        description: "Unknown delivery outcome; a timeout does not prove the provider rejected the answer",
+        attributes: %{
+          content: "The rollout is complete. All teams can use the new workspace.",
+          timestamp: ~N[2026-11-10 10:30:05],
+          align: :right,
+          msg_id: "delivery-unconfirmed-story",
+          author_name: "Support Agent",
+          delivery_state: :unconfirmed
+        }
+      },
+      %Variation{
+        id: :delivery_history_updating,
+        description: "Confirmed transport while the target transcript association is recovering",
+        attributes: %{
+          content: "The rollout is complete. All teams can use the new workspace.",
+          timestamp: ~N[2026-11-10 10:30:05],
+          align: :right,
+          msg_id: "delivery-history-story",
+          author_name: "Support Agent",
+          delivery_state: :history_updating
+        }
+      },
+      %Variation{
         id: :channel_history,
         description: "Channel history — Agent on the right with ZAQ icon, name and aligned actions",
         attributes: %{

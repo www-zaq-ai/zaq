@@ -1,6 +1,5 @@
 const { test, expect, request: apiRequest } = require("@playwright/test");
 const {
-  gotoBackOfficeLive,
   loginToBackOffice,
   resetE2EState,
   setE2ESystemConfig,
@@ -21,7 +20,6 @@ test.describe("Version update badge", () => {
     await setE2ESystemConfig(request, "ui.update_badge_enabled", "true");
 
     await loginToBackOffice(page);
-    await gotoBackOfficeLive(page, "/bo/dashboard");
 
     const enabledVersionText = await page.locator(".sidebar-version").textContent();
     expect((enabledVersionText || "").trim()).toMatch(/^v\S+$/);
@@ -41,7 +39,6 @@ test.describe("Version update badge", () => {
     await setE2ESystemConfig(request, "ui.update_badge_enabled", "false");
 
     await loginToBackOffice(page);
-    await gotoBackOfficeLive(page, "/bo/dashboard");
 
     const disabledVersionText = await page.locator(".sidebar-version").textContent();
     expect((disabledVersionText || "").trim()).toMatch(/^v\S+$/);

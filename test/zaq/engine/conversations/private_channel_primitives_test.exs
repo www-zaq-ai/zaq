@@ -4,6 +4,7 @@ defmodule Zaq.Engine.Conversations.PrivateChannelPrimitivesTest do
 
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.{ChannelConfig, Conversations, HistoryIngress}
+  alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.Conversations.{Conversation, ExecutionRecord, Message}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.People.IdentityResolver
@@ -110,6 +111,54 @@ defmodule Zaq.Engine.Conversations.PrivateChannelPrimitivesTest do
 
     assert prepared.routing_context.conversation_id == binding.conversation_id
     assert Repo.aggregate(Message, :count) == 1
+  end
+
+  test "nested initial context capture publishes only from the completed preparation owner", %{
+    config: config,
+    scope: scope
+  } do
+    assert {:ok, person} = IdentityResolver.resolve_channel_sender(scope)
+    incoming = input(config, scope)
+    assert {:ok, captured} = HistoryIngress.capture_resolved(incoming, person.id, :direct)
+    id = captured.transcript_id
+    Phoenix.PubSub.subscribe(Zaq.PubSub, ChannelHistoryUpdates.topic(id))
+
+    assert {:ok, prepared} =
+             Conversations.prepare_channel_input(person, incoming, "Initial context")
+
+    context_id = Repo.get_by!(Message, content: "Initial context").id
+    assert_receive {:channel_history_updated, ^id, [^context_id]}
+    assert Repo.get!(Message, context_id).content == "Initial context"
+
+    assert Repo.get!(Message, context_id).conversation_id ==
+             prepared.routing_context.conversation_id
+
+    refute_received {:channel_history_updated, _, [^context_id]}
+  end
+
+  test "outer rollback after successful preparation keeps context and UI invalidation uncommitted",
+       %{
+         config: config,
+         scope: scope
+       } do
+    assert {:ok, person} = IdentityResolver.resolve_channel_sender(scope)
+    incoming = input(config, scope)
+    assert {:ok, captured} = HistoryIngress.capture_resolved(incoming, person.id, :direct)
+    id = captured.transcript_id
+    Phoenix.PubSub.subscribe(Zaq.PubSub, ChannelHistoryUpdates.topic(id))
+
+    assert {:error, :abort} =
+             Repo.transaction(fn ->
+               assert {:ok, _} = Conversations.prepare_channel_input(person, incoming, "Context")
+               context_id = Repo.get_by!(Message, content: "Context").id
+               send(self(), {:rolled_back_context, context_id})
+               refute_received {:channel_history_updated, _, [^context_id]}
+               Repo.rollback(:abort)
+             end)
+
+    refute Repo.get_by(Message, content: "Context")
+    assert_received {:rolled_back_context, context_id}
+    refute_received {:channel_history_updated, _, [^context_id]}
   end
 
   property "a caller-supplied Person cannot bypass sender binding", %{

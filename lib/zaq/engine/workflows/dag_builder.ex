@@ -37,7 +37,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   node into a general `"map"` node before the node map is built. Iteration,
   chunking, per-fork visibility, strategies, and error isolation all live in the
   `map` lowering (see "map node lowering" below). Delivery mode is the explicit
-  `delivery` param (`"item"` | `"list"`) — there is no `Iterate` wrapper node.
+  `delivery` param (`"item"` | `"list"`) or through `Iterate` for input-order execution.
 
   A Batch node declares its sub-pipeline as a flat **inline node map** pipeline
   inside `params`:
@@ -273,12 +273,11 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   end
 
   # Maps a node's "module" string to the `Zaq.Engine.Workflows.Node`
-  # implementation that owns its build-time enrichment. `Batch` is the only
-  # orchestrator now — it translates itself (and any nested `Iterate` marker) into
-  # a `map` node. Adding a new translator means adding its module here and the
-  # `enrich/2` callback on the module — not editing this builder.
+  # implementation that owns its build-time enrichment. Batch and Iterate both
+  # lower to the internal map primitive with distinct scheduling semantics.
   @node_modules %{
-    "Zaq.Agent.Tools.Workflow.Batch" => Zaq.Agent.Tools.Workflow.Batch
+    "Zaq.Agent.Tools.Workflow.Batch" => Zaq.Agent.Tools.Workflow.Batch,
+    "Zaq.Agent.Tools.Workflow.Iterate" => Zaq.Agent.Tools.Workflow.Iterate
   }
 
   defp enrich_node(node, nodes_list) do
@@ -319,6 +318,12 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   # Map/Reduce/Collect chain is appended internally. The Collect node carries the map
   # node's own name, so downstream `from`-edges resolve to it via `node_atom(name)`
   # with no special casing.
+  defp add_map_chain(wf, %{ordered: ordered, collect: collect}, name, incoming, node_map, run_id) do
+    wf
+    |> add_node(ordered, name, incoming, node_map, run_id)
+    |> Runic.Workflow.add(collect, to: ordered)
+  end
+
   defp add_map_chain(wf, spec, name, incoming, node_map, run_id) do
     wf
     |> add_node(spec.extract, name, incoming, node_map, run_id)

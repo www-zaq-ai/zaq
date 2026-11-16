@@ -182,7 +182,7 @@
       <% end %>
     <% else %>
       <%= case @detail do %>
-        <% {:ok, %{transcript: transcript, messages: messages, grants: grants, root_message: root}} -> %>
+        <% {:ok, %{transcript: transcript, messages: messages, grants: grants, root_message: root} = detail} -> %>
           <div class="zaq-layout-stack">
             <section class="zaq-layout-stack" aria-label="Messages">
               <p :if={transcript.parent_id && is_nil(root)} class="zaq-field-helper">
@@ -190,7 +190,7 @@
               </p>
               <ConversationDetail.message_timeline
                 :let={message}
-                messages={timeline_messages(root, messages)}
+                messages={timeline_messages(root, messages ++ detail.pending_messages)}
               >
                 <div id={
                   if message[:root_context?],
@@ -205,17 +205,19 @@
                       align={:right}
                       author_name={message.display_name}
                       person_id={message.person_id}
+                      msg_id={message.message_id}
+                      delivery_state={message[:delivery] && message.delivery.state}
                     >
                       <:actions>
                         <ChatMessage.copy_action_button text={message.content} />
                         <ChatMessage.feedback_positive_button
-                          :if={!message[:root_context?]}
+                          :if={!message[:root_context?] && is_nil(message[:delivery])}
                           message_id={message.message_id}
                           feedback={message.feedback}
                           count={message.rating_summary.positive}
                         />
                         <ChatMessage.feedback_negative_button
-                          :if={!message[:root_context?]}
+                          :if={!message[:root_context?] && is_nil(message[:delivery])}
                           message_id={message.message_id}
                           feedback={message.feedback}
                           count={message.rating_summary.negative}
@@ -259,10 +261,15 @@
                 </div>
               </ConversationDetail.message_timeline>
               <Button.button
-                :if={length(messages) == 50}
+                :if={detail.has_more}
                 variant={:secondary}
-                patch={~p"/bo/channels/history/#{transcript.id}?after=#{next_cursor(messages)}"}
+                patch={~p"/bo/channels/history/#{transcript.id}?after=#{detail.next_cursor}"}
               >Next 50 messages</Button.button>
+              <Button.button
+                :if={detail.pending_has_more}
+                variant={:secondary}
+                phx-click="load_pending"
+              >Load more outstanding messages</Button.button>
             </section>
             <BOModal.modal_shell
               :if={@show_access}
@@ -357,6 +364,7 @@
             close_event="close_message_info"
             toggle_event="toggle_trace"
           />
+          <ChatMessage.delivery_details :if={@delivery_info} message={@delivery_info} />
         <% {:error, :unauthorized} -> %>
           <EmptyState.empty_state
             title="Not authorized"

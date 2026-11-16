@@ -71,6 +71,14 @@ async function waitForLiveViewSettled(page, options = {}) {
 }
 
 async function gotoBackOfficeLive(page, path, options = {}) {
+  // Cancel the outgoing view's recovery reload before starting a full navigation.
+  await page.evaluate(() => new Promise(resolve => {
+    if (typeof window.liveSocket?.disconnect === "function") {
+      window.liveSocket.disconnect(resolve);
+    } else {
+      resolve();
+    }
+  }));
   await page.goto(path);
 
   if (options.ensureConnected !== false) {

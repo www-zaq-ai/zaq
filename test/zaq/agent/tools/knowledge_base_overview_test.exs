@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
-  use Zaq.DataCase, async: true
+  # Chunk DDL locks shared tables until the sandbox transaction rolls back.
+  use Zaq.DataCase, async: true, group: :ingestion_chunk_schema
 
   alias Zaq.Agent.Tools.KnowledgeBaseOverview
   alias Zaq.Event

@@ -6,6 +6,8 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   - Resolve provider -> bridge mappings through `Zaq.Channels.Bridge`.
   - Delegate provider interaction operations (typing/reactions/thread watches).
+  - Delegate delivery-error interpretation to the selected communication bridge,
+    with conservative fallback for unrecognized or unavailable classifications.
   - Coordinate runtime sync delegation (`sync_config_runtime/2`,
      `sync_provider_runtime/1,2`) with fallback behavior when optional callbacks
     are not implemented by a bridge.
@@ -33,6 +35,12 @@ defmodule Zaq.Channels.CommunicationBridge do
   # message's id/anchor) back to the caller; bridges without receipts return `:ok`,
   # which `Zaq.Channels.Api` normalizes to `{:ok, %{}}`.
   @callback send_reply(term(), map()) :: :ok | {:ok, receipt :: map()} | {:error, term()}
+  @doc """
+  Purely projects a bridge error into `outcome`, allowlisted `reason` and optional
+  bounded `provider_code` facts. Returns nil for unrecognized responses. This
+  callback must not send, persist, or return raw provider payloads.
+  """
+  @callback delivery_observation(Outgoing.t(), term()) :: map() | nil
   @callback upsert_message(map() | atom() | String.t(), map(), map()) ::
               {:ok, map()} | {:error, term()}
   @callback send_typing(map() | atom() | String.t(), String.t(), map()) :: :ok | {:error, term()}
@@ -71,7 +79,8 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback fetch_room_message(map(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   @callback incoming_routing(map()) :: %{incoming?: boolean(), topics: [String.t()]}
 
-  @optional_callbacks send_typing: 3,
+  @optional_callbacks delivery_observation: 2,
+                      send_typing: 3,
                       upsert_message: 3,
                       add_reaction: 5,
                       remove_reaction: 5,
@@ -105,6 +114,33 @@ defmodule Zaq.Channels.CommunicationBridge do
         to: Zaq.Channels.CommunicationBridge
     end
   end
+
+  @doc "Delegates error interpretation to the selected communication bridge without affecting delivery."
+  def delivery_observation(bridge, outgoing, response)
+      when is_tuple(response) and tuple_size(response) in [2, 3] and elem(response, 0) == :error do
+    observation =
+      if bridge_supports?(bridge, :delivery_observation, 2),
+        do: bridge.delivery_observation(outgoing, response)
+
+    observation || common_delivery_observation(response)
+  rescue
+    _ -> common_delivery_observation(response)
+  catch
+    _kind, _ -> common_delivery_observation(response)
+  end
+
+  def delivery_observation(_bridge, _outgoing, _response), do: nil
+
+  defp common_delivery_observation({:error, :timeout}),
+    do: %{outcome: :unconfirmed, reason: :timeout}
+
+  defp common_delivery_observation({:error, :missing_connection_details}),
+    do: %{outcome: :failed, reason: :missing_configuration}
+
+  defp common_delivery_observation({:error, {:unsupported_provider, _}}),
+    do: %{outcome: :failed, reason: :unsupported_provider}
+
+  defp common_delivery_observation(_response), do: %{outcome: :unconfirmed, reason: :unknown}
 
   @doc "Routes a verified materialization payload back to its source bridge."
   @spec materialize_record(map(), keyword()) :: {:ok, map()} | {:error, term()}

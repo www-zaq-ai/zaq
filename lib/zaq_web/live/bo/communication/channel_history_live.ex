@@ -5,6 +5,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
   The Engine verifies the current BO user's super-admin role on every
   confidential read. This LiveView never queries a Repo or accepts a Person
   identity from the browser as authority.
+  Scoped PubSub messages are UI invalidation hints only. Their handlers reread
+  authorized persisted rows and never perform delivery or history mutations.
   """
 
   use ZaqWeb, :live_view
@@ -12,6 +14,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.{BOModal, ChannelIcons, ChatMessage, PersonAvatar}
+  alias ZaqWeb.History.ChannelTimeline
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
 
   alias ZaqWeb.Components.DesignSystem.{
@@ -33,6 +36,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
      |> assign(:message_info_id, nil)
      |> assign(:message_info, MessageHelpers.empty_message_info())
      |> assign(:expanded_trace_ids, MapSet.new())
+     |> assign(:delivery_info, nil)
+     |> assign(:history_subscription, nil)
+     |> assign(:history_update_ids, MapSet.new())
+     |> assign(:history_update_scheduled, false)
      |> assign(:search, "")}
   end
 
@@ -57,19 +64,27 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
 
         {:noreply,
          socket
+         |> unsubscribe_history()
          |> assign(:list_offset, offset)
          |> assign(:result, response)
          |> assign(:detail, nil)}
 
       :detail ->
         cursor = parse_cursor(params["after"])
-        response = dispatch(user, %{op: :detail, id: params["id"], cursor: cursor})
+
+        {socket, response} =
+          case subscribe_history(socket, params["id"]) do
+            {:ok, subscribed} ->
+              {subscribed, dispatch(user, %{op: :detail, id: params["id"], cursor: cursor})}
+
+            {:error, reason, unsubscribed} ->
+              {unsubscribed, {:error, reason}}
+          end
 
         {:noreply,
          socket
          |> assign(:detail_cursor, cursor)
-         |> assign(:result, response)
-         |> assign(:detail, response)}
+         |> assign_detail(response)}
     end
   end
 
@@ -98,13 +113,51 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
          |> assign(:message_info, MessageHelpers.message_info_from_message(message))
          |> assign(:expanded_trace_ids, MapSet.new())}
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Message information unavailable")}
+      error ->
+        {:noreply, history_error(socket, error, "Message information unavailable")}
     end
   end
 
   def handle_event("close_message_info", _params, socket),
     do: {:noreply, assign(socket, :message_info_id, nil)}
+
+  def handle_event("open_delivery_info", %{"id" => id}, socket) do
+    case message_request(socket, %{op: :message_changes, message_ids: [id]}) do
+      {:ok, changes} ->
+        socket = apply_history_changes(socket, changes)
+        message = Enum.find(changes.pending_messages, &(&1.message_id == id))
+        {:noreply, assign(socket, :delivery_info, message)}
+
+      error ->
+        {:noreply, history_error(socket, error, "Delivery information unavailable")}
+    end
+  end
+
+  def handle_event("close_delivery_info", _params, socket),
+    do: {:noreply, assign(socket, :delivery_info, nil)}
+
+  def handle_event(
+        "load_pending",
+        _params,
+        %{assigns: %{detail: {:ok, %{pending_has_more: true} = detail}}} = socket
+      ) do
+    request = %{
+      op: :detail,
+      cursor: socket.assigns.detail_cursor,
+      pending_cursor: detail.pending_next_cursor
+    }
+
+    case message_request(socket, request) do
+      {:ok, page} ->
+        {:noreply,
+         assign_detail(socket, {:ok, ChannelTimeline.append_pending_page(detail, page)})}
+
+      error ->
+        {:noreply, history_error(socket, error, "Outstanding messages unavailable")}
+    end
+  end
+
+  def handle_event("load_pending", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle_trace", %{"trace_id" => id}, socket),
     do:
@@ -119,13 +172,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
       when type in ["positive", "negative"] do
     rating = if type == "positive", do: 5, else: 1
 
-    case message_request(socket, %{op: :rate, message_id: id, rating: rating}) do
-      {:ok, _} ->
-        response = message_request(socket, %{op: :detail, cursor: socket.assigns.detail_cursor})
-        {:noreply, socket |> assign(:result, response) |> assign(:detail, response)}
-
-      _ ->
-        {:noreply, put_flash(socket, :error, "Could not save feedback")}
+    with {:ok, _} <- message_request(socket, %{op: :rate, message_id: id, rating: rating}),
+         {:ok, changes} <- message_request(socket, %{op: :message_changes, message_ids: [id]}) do
+      {:noreply, apply_history_changes(socket, changes)}
+    else
+      error -> {:noreply, history_error(socket, error, "Could not save feedback")}
     end
   end
 
@@ -146,16 +197,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
       case dispatch(socket.assigns.current_user, %{op: :refresh, id: transcript.id}) do
         {:ok, %{members: count}} ->
           {:noreply,
-           socket
-           |> assign(
-             :detail,
-             dispatch(socket.assigns.current_user, %{op: :detail, id: transcript.id})
-           )
-           |> put_flash(:info, "Provider access refreshed (#{count} linked People)")}
+           refresh_history_context(socket, "Provider access refreshed (#{count} linked People)")}
 
-        {:error, _} ->
+        error ->
           {:noreply,
-           put_flash(socket, :error, "Provider access unchanged: refresh failed or incomplete")}
+           history_error(socket, error, "Provider access unchanged: refresh failed or incomplete")}
       end
     else
       {:noreply, put_flash(socket, :error, "Provider refresh is unsupported for this transcript")}
@@ -163,6 +209,146 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
   end
 
   def handle_event("refresh", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info({:channel_history_updated, id, ids}, socket) when is_list(ids) do
+    if socket.assigns.history_subscription && socket.assigns.history_subscription.id == id do
+      updates = ids |> Enum.filter(&is_binary/1) |> MapSet.new()
+
+      unless socket.assigns.history_update_scheduled, do: send(self(), :flush_history_updates)
+
+      {:noreply,
+       socket
+       |> assign(:history_update_ids, MapSet.union(socket.assigns.history_update_ids, updates))
+       |> assign(:history_update_scheduled, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(:flush_history_updates, %{assigns: %{detail: {:ok, detail}}} = socket) do
+    ids = MapSet.to_list(socket.assigns.history_update_ids)
+
+    socket =
+      socket
+      |> assign(:history_update_ids, MapSet.new())
+      |> assign(:history_update_scheduled, false)
+
+    result =
+      ids
+      |> Enum.chunk_every(50)
+      |> Enum.reduce_while({:ok, detail}, fn batch, {:ok, current} ->
+        case message_request(socket, %{op: :message_changes, message_ids: batch}) do
+          {:ok, changes} ->
+            {:cont,
+             {:ok, ChannelTimeline.merge_changes(current, changes, socket.assigns.detail_cursor)}}
+
+          error ->
+            {:halt, error}
+        end
+      end)
+
+    case result do
+      {:ok, updated} ->
+        {:noreply, socket |> assign_detail({:ok, updated}) |> update_delivery_info(updated)}
+
+      {:error, :unauthorized} ->
+        {:noreply, assign_detail(socket, {:error, :unauthorized})}
+
+      _ ->
+        {:noreply,
+         put_flash(socket, :error, "Realtime update unavailable. Reload to refresh history.")}
+    end
+  end
+
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  defp subscribe_history(socket, id) do
+    cond do
+      socket.assigns.history_subscription && socket.assigns.history_subscription.id == id ->
+        {:ok, socket}
+
+      not connected?(socket) ->
+        {:ok, socket}
+
+      true ->
+        socket = unsubscribe_history(socket)
+
+        case dispatch(socket.assigns.current_user, %{op: :subscription, id: id}) do
+          {:ok, %{topic: topic}} ->
+            Phoenix.PubSub.subscribe(Zaq.PubSub, topic)
+            {:ok, assign(socket, :history_subscription, %{id: id, topic: topic})}
+
+          {:error, reason} ->
+            {:error, reason, socket}
+        end
+    end
+  end
+
+  defp unsubscribe_history(socket) do
+    if subscription = socket.assigns.history_subscription do
+      Phoenix.PubSub.unsubscribe(Zaq.PubSub, subscription.topic)
+    end
+
+    socket
+    |> assign(:history_subscription, nil)
+    |> assign(:history_update_ids, MapSet.new())
+    |> assign(:history_update_scheduled, false)
+    |> assign(:delivery_info, nil)
+  end
+
+  defp assign_detail(socket, {:ok, _} = response),
+    do: socket |> assign(:detail, response) |> assign(:result, response)
+
+  defp assign_detail(socket, response) do
+    socket
+    |> unsubscribe_history()
+    |> assign(:detail, response)
+    |> assign(:result, response)
+    |> assign(:message_info_id, nil)
+    |> assign(:message_info, MessageHelpers.empty_message_info())
+    |> assign(:expanded_trace_ids, MapSet.new())
+    |> assign(:show_access, false)
+  end
+
+  defp history_error(socket, {:error, :unauthorized} = error, _message),
+    do: assign_detail(socket, error)
+
+  defp history_error(socket, _error, message), do: put_flash(socket, :error, message)
+
+  defp refresh_history_context(%{assigns: %{detail: {:ok, detail}}} = socket, message) do
+    case message_request(socket, %{op: :detail, cursor: socket.assigns.detail_cursor}) do
+      {:ok, refreshed} ->
+        updated = Map.merge(detail, Map.take(refreshed, [:transcript, :grants, :root_message]))
+        socket |> assign_detail({:ok, updated}) |> put_flash(:info, message)
+
+      error ->
+        history_error(socket, error, "History information unavailable")
+    end
+  end
+
+  defp apply_history_changes(%{assigns: %{detail: {:ok, detail}}} = socket, changes) do
+    updated = ChannelTimeline.merge_changes(detail, changes, socket.assigns.detail_cursor)
+    socket |> assign_detail({:ok, updated}) |> update_delivery_info(updated)
+  end
+
+  defp update_delivery_info(%{assigns: %{delivery_info: nil}} = socket, _detail), do: socket
+
+  defp update_delivery_info(socket, detail) do
+    selected = socket.assigns.delivery_info
+
+    message =
+      Enum.find(detail.pending_messages, &(&1.message_id == selected.message_id)) ||
+        confirmed_delivery_info(selected, detail.messages)
+
+    assign(socket, :delivery_info, message)
+  end
+
+  defp confirmed_delivery_info(selected, messages) do
+    if Enum.any?(messages, &(&1.message_id == selected.message_id)) do
+      %{selected | delivery: %{state: :delivered, reason: "The provider confirmed delivery."}}
+    end
+  end
 
   defp mutate_access(
          %{assigns: %{detail: {:ok, %{transcript: transcript}}}} = socket,
@@ -190,16 +376,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
 
     case result do
       {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(
-           :detail,
-           dispatch(socket.assigns.current_user, %{op: :detail, id: transcript.id})
-         )
-         |> put_flash(:info, "Manual access updated")}
+        {:noreply, refresh_history_context(socket, "Manual access updated")}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not update manual access")}
+      error ->
+        {:noreply, history_error(socket, error, "Could not update manual access")}
     end
   end
 
@@ -239,8 +419,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
       end)
     end)
   end
-
-  defp next_cursor(messages), do: List.last(messages).position
 
   defp page_params(nil, offset), do: %{offset: offset}
   defp page_params(parent, offset), do: %{offset: offset, channel: parent}

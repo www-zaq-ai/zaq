@@ -33,7 +33,7 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
 
     session = "zaq-flow3-#{Ecto.UUID.generate()}"
     # Registered before setup can fail; this closes only our unique session.
-    on_exit(fn ->
+    on_exit({:browser_session, session}, fn ->
       assert {:ok, _} = Command.run(binary, ["close", "--session", session], timeout_ms: 15_000)
     end)
 
@@ -352,6 +352,11 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
       assert [%{"name" => "web_browsing"}] = Jason.decode!(body)["tools"]
     end
 
+    # The successful tool close owns cleanup; closing again races the daemon's exit.
+    if arguments.command == "close" do
+      on_exit({:browser_session, context.session}, fn -> :ok end)
+    end
+
     result["result"]
   end
 
@@ -391,7 +396,7 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
     routes =
       Enum.map(steps, fn {message, arguments} ->
         %{
-          match: &String.ends_with?(&1, message),
+          match: &String.starts_with?(&1, message <> "\n\n[Input context: "),
           tool: "web_browsing",
           arguments: fn _ -> Map.merge(arguments, common(context)) end
         }

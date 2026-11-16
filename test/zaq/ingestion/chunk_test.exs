@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.ChunkTest do
-  use Zaq.DataCase, async: true
+  # Embedding setup takes shared chunks DDL locks until sandbox rollback.
+  use Zaq.DataCase, async: true, group: :ingestion_chunk_schema
 
   alias Zaq.Ingestion.{Chunk, Document}
   alias Zaq.SystemConfigFixtures

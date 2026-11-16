@@ -15,6 +15,8 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     leaf is ever reached).
   - **Mapping**: source keys listed as mapping values are consumed (removed from the
     output); all other keys are passed through unchanged; target keys are added.
+    The engine's `__cascade__` is retained when mapped into an Action input so
+    StepRunner can preserve prior outputs and append the next node's result.
     A mapped value that is (or contains) a struct passes through unnormalized —
     only plain map/list values have their keys atomized.
   - **Output**: `{:ok, transformed_fact}` — the downstream node's `StepRunner`
@@ -176,10 +178,15 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     end
   end
 
-  defp apply_mapping(fact, mapping) when map_size(mapping) == 0, do: fact
+  @doc "Applies the shared edge mapping contract to a fact, including cascade references."
+  @spec apply_mapping(map(), map()) :: map()
+  def apply_mapping(fact, mapping) when map_size(mapping) == 0, do: fact
 
-  defp apply_mapping(fact, mapping) do
-    source_atom_keys = MapSet.new(mapping, fn {_t, s} -> to_key(s) end)
+  def apply_mapping(fact, mapping) do
+    source_atom_keys =
+      mapping
+      |> MapSet.new(fn {_t, s} -> to_key(s) end)
+      |> MapSet.delete(:__cascade__)
 
     base = Map.drop(fact, MapSet.to_list(source_atom_keys))
 

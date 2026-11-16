@@ -30,7 +30,7 @@ DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows 
 | `Zaq.Engine.Workflows.Steps.HumanInTheLoop` | Jido action that suspends a run for human review; creates a `StepApproval` record and returns `{:error, {:waiting_for_human, approval_token}}` |
 | `Zaq.Agent.Tools.Workflow.Batch` | Build-time translator (`@behaviour Zaq.Engine.Workflows.Node`, `enrich/2`) that lowers itself onto a `"map"` node. Not a runtime construct |
 
-> **Removed:** `Iterate`, `PipelineRunner`, the bespoke `Batch` runtime, and the standalone `WorkflowApproval` schema no longer exist. Iteration is the engine `map` primitive; approval is per-step (`StepApproval`).
+> **Removed:** `PipelineRunner`, the bespoke `Batch` runtime, and the standalone `WorkflowApproval` schema no longer exist. Iteration is the engine `map` primitive; approval is per-step (`StepApproval`).
 
 ---
 
@@ -91,9 +91,26 @@ The `steps` column on `Workflow` (and `steps_snapshot` on `WorkflowRun`) must fo
 - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`. When `run_id` is present, wrapped further by `StepRunner`. The `module` must satisfy the `Action` contract at save time.
 - `"workflow"` — references another workflow by `params["workflow_ref"]`. Its steps are spliced inline at run creation by `Composition` (single entry/exit, namespaced node names, acyclicity validated at save). No child run is created.
 
-Iteration is **not** an authorable node type. Authors express it through the `Batch` **action** (`type: "action"`, `module: "Zaq.Agent.Tools.Workflow.Batch"`). A Batch node carries a flat inline `process` pipeline (+ optional `post_process`) and a `delivery` param: `"item"` (one fan-out unit per item) or `"list"` (per chunk of `batch_size`, the default). There is **no** `Iterate` node — delivery mode is the explicit param, not a wrapper. `Batch.enrich/2` lowers it onto the internal `"map"` node at build time; `Batch.validate/1` validates the inline pipeline + delivery at save. The same rule holds for any future orchestration primitive — it ships as an `action` tool that enriches onto an internal node type, so the authoring surface stays `action`/`agent`/`workflow`.
+Iteration is **not** an authorable node type. Authors express it through the `Batch` **action** (`type: "action"`, `module: "Zaq.Agent.Tools.Workflow.Batch"`). A Batch node carries a flat inline `process` pipeline (+ optional `post_process`) and a `delivery` param: `"item"` (one fan-out unit per item) or `"list"` (per chunk of `batch_size`, the default). `Zaq.Agent.Tools.Workflow.Iterate` is a separate action for sequential execution in input order. It finishes each item’s process and post-process before starting the next. Batch owns delivery modes and chunk sizes; Iterate has no chunking parameters. Both reuse StepRunner and the internal map machinery, including persistence, error strategies, and cascade mappings. `Batch.enrich/2` lowers it onto the internal `"map"` node at build time; `Batch.validate/1` validates the inline pipeline + delivery at save. The same rule holds for any future orchestration primitive — it ships as an `action` tool that enriches onto an internal node type, so the authoring surface stays `action`/`agent`/`workflow`.
 
 **Internal `"map"` node** (produced only by a translator's `enrich/2`, never authored): the iteration primitive (Runic `FanOut`/`FanIn`). Runs an inline `params["body"]` pipeline once per item of the upstream collection named by `params["over"]`. Each item writes its own per-fork `Step.Run`; the trailing `MapCollect` writes the single aggregate `Step.Run`. A fan-out cap applies: `params["max_items"]` or the global default `Application.get_env(:zaq, Zaq.Engine.Workflows)[:map_max_items]` (defaults to `10_000`). Exceeding it surfaces `{:error, {:map_over_limit, …}}` (read back via `Workflows.map_over_limit/1`). `DagBuilder` still accepts `"map"` in a run's `steps_snapshot` because that is where lowering writes it.
+
+**Batch body mappings:** A `process` or `post_process` node may carry an incoming
+`"mapping"` beside `"params"`, using the same target/source pairs and lookup rules
+as workflow edges. For example, `"mapping": {"input": "pass_item.input.question"}`
+binds a prior body node's output to the next Action. A pipeline with mappings
+inherits the parent cascade (including `start`) and records each body output
+under its local node name, isolated per item. Body names shadow identical parent
+names after that body node completes; persisted step identities remain
+`<batch>/<node>[index]`. Static node params take precedence over mapped values,
+as they do over the incoming fact in existing Batch pipelines. Pipelines without
+mappings retain their existing cascade and payload behavior. For mapped pipelines,
+collection preserves the parent cascade alongside the aggregate results/errors,
+including empty and all-failed batches; local item aliases do not escape the Batch.
+Lua nodes can receive the cascade explicitly with `"mapping": {"data": "__cascade__"}`
+and read named outputs from `data`. LuaEval does not inject request/input globals
+or fetch workflow state.
+In workflow JSON, LuaEval accepts `"return_mode": "first"` (the default) or `"return_mode": "list"` to expose one or all returned values under `result`.
 
 **Edge fields:**
 - `"from"` / `"to"` — node names (strings, matched to node `"name"` field).
@@ -108,7 +125,7 @@ Iteration is **not** an authorable node type. Authors express it through the `Ba
     %{"key" => "last_sent_at", "type" => "datetime", "op" => "lt",
       "value" => %{"from" => "now", "days" => -7}}
     ```
-- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through); all other keys pass through unchanged. A mapped value that is (or contains) a struct passes through unnormalized — only plain map/list values have their keys atomized.
+- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through), except `__cascade__`, which remains available to StepRunner when copied into an Action input; all other keys pass through unchanged. This preservation also applies to Batch and Iterate body mappings through the shared mapper. A mapped value that is (or contains) a struct passes through unnormalized — only plain map/list values have their keys atomized.
 
 ---
 

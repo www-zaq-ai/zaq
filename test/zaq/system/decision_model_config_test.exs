@@ -1,5 +1,6 @@
 defmodule Zaq.System.DecisionModelConfigTest do
-  use Zaq.DataCase, async: true
+  # Fixed configuration keys retain unique-index locks until sandbox rollback.
+  use Zaq.DataCase, async: true, group: :system_model_config
 
   alias Zaq.Engine.{Api, Events}
   alias Zaq.System
