@@ -1,11 +1,23 @@
 # Changelog
 
-## [0.19.1](https://github.com/www-zaq-ai/zaq/compare/v0.19.0...v0.19.1) (2026-11-16)
+## [0.19.1](https://github.com/www-zaq-ai/zaq/compare/v0.19.0...v0.19.1) (2026-11-17)
 
+Recovery of the original `0.19.1` release, whose container builds failed because the Docker build context excluded the database TLS helper. The version remains `0.19.1`.
 
 ### Bug Fixes
 
 * **database:** add verified TLS support for application connections ([#943](https://github.com/www-zaq-ai/zaq/issues/943)) ([721fb11](https://github.com/www-zaq-ai/zaq/commit/721fb112ab2186dcb4328406d50b991f35f94b60))
+* **docker:** include the TLS helper in the build context and share bootstrap packaging inputs with a required CI check ([#947](https://github.com/www-zaq-ai/zaq/pull/947)) ([dacd91c](https://github.com/www-zaq-ai/zaq/commit/dacd91c74dfdd1e19f0adb9514daa6a3ad03aaab)).
+
+### CI and Test Maintenance
+
+* **ci:** run Chromium-only E2E in the merge queue while retaining all three browser engines on pull requests ([#945](https://github.com/www-zaq-ai/zaq/pull/945)) ([dd9ec6a](https://github.com/www-zaq-ai/zaq/commit/dd9ec6a87113e67ef221c4d73e60fa361893ac54)).
+* **workflows:** stabilize Lua functional test budgets and assert persisted cascade success, preserving the production timeout default and dedicated timeout coverage ([#947](https://github.com/www-zaq-ai/zaq/pull/947)).
+
+### Release Maintenance
+
+* Record the original `0.19.1` version bump ([#946](https://github.com/www-zaq-ai/zaq/pull/946)) ([8b91bde](https://github.com/www-zaq-ai/zaq/commit/8b91bde3c0a6213f980ec780c0e753a69bd5ad34)).
+* Complete this changelog with all changes since `v0.19.0`, including CI, test, and release maintenance omitted from the generated notes.
 
 ## [0.19.0](https://github.com/www-zaq-ai/zaq/compare/v0.18.0...v0.19.0) (2026-11-13)
 
