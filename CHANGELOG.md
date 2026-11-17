@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/www-zaq-ai/zaq/compare/v0.19.1...v0.19.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **docker:** include TLS helper and validate bootstrap packaging ([#947](https://github.com/www-zaq-ai/zaq/issues/947)) ([dacd91c](https://github.com/www-zaq-ai/zaq/commit/dacd91c74dfdd1e19f0adb9514daa6a3ad03aaab))
+
 ## [0.19.1](https://github.com/www-zaq-ai/zaq/compare/v0.19.0...v0.19.1) (2026-11-16)
 
 
