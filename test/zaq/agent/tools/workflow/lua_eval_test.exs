@@ -5,6 +5,9 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
   alias Zaq.Agent.Tools.Workflow.LuaEval
   alias Zaq.Engine.Workflows.Action
 
+  # Conversion scenarios verify results, not the production evaluation deadline.
+  @eval_timeout_ms 10_000
+
   setup_all do
     # Lua loads its compiler and shared sandbox template lazily. Prepare them
     # before the per-evaluation deadline used by the conversion assertions.
@@ -14,6 +17,10 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
 
   test "satisfies the workflow Action contract" do
     assert :ok = Action.validate(LuaEval)
+  end
+
+  test "retains the one-second production evaluation default" do
+    assert {:ok, %{eval_timeout_ms: 1000}} = LuaEval.validate_params(%{code: "return true"})
   end
 
   test "normalizes nested objects and arrays from Lua" do
@@ -104,7 +111,10 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
 
   test "propagates invalid Lua and evaluation timeouts" do
     assert {:error, _reason} = evaluate("not valid Lua !")
-    assert {:error, error} = evaluate("while true do end", %{}, eval_timeout_ms: 20)
+
+    assert {:error, %Jido.Action.Error.TimeoutError{timeout: 20} = error} =
+             evaluate("while true do end", %{}, eval_timeout_ms: 20)
+
     assert Exception.message(error) =~ ~r/timeout|timed out/i
   end
 
@@ -118,7 +128,8 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
   test "reads context only from explicit data without injecting globals or loading a run" do
     params = %{
       code: "return {agent_id = data.item.agent_id, range = data.job.target_range}",
-      data: %{item: %{agent_id: 42}, job: %{target_range: "D2:D3"}}
+      data: %{item: %{agent_id: 42}, job: %{target_range: "D2:D3"}},
+      eval_timeout_ms: @eval_timeout_ms
     }
 
     context = %{run_id: "not-a-persisted-run", source_request: %{"target_range" => "wrong"}}
@@ -127,7 +138,10 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
              Jido.Exec.run(LuaEval, params, context, max_retries: 0)
 
     assert {:ok, %{result: ["nil", "nil"]}} =
-             Jido.Exec.run(LuaEval, %{code: "return {type(input), type(request)}"}, context,
+             Jido.Exec.run(
+               LuaEval,
+               %{code: "return {type(input), type(request)}", eval_timeout_ms: @eval_timeout_ms},
+               context,
                max_retries: 0
              )
   end
@@ -187,6 +201,7 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
   end
 
   defp evaluate(code, data \\ %{}, opts \\ []) do
-    Jido.Exec.run(LuaEval, Map.new([code: code, data: data] ++ opts), %{}, max_retries: 0)
+    params = Map.new([code: code, data: data, eval_timeout_ms: @eval_timeout_ms] ++ opts)
+    Jido.Exec.run(LuaEval, params, %{}, max_retries: 0)
   end
 end
