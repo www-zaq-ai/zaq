@@ -18,6 +18,7 @@ scripts/*
 !scripts/setup_database_begin.sql
 !scripts/setup_database_finish.sql
 !scripts/docker_entrypoint.sh
+!scripts/database_url.py
 !scripts/provision_database.sh
 !scripts/docker_database_setup.sql
 !scripts/docker_database_authenticate.sql

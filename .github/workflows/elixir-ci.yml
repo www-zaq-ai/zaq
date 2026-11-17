@@ -19,6 +19,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Keep packaging failures in an existing required PR and merge-queue check.
+      - name: Check image bootstrap packaging
+        timeout-minutes: 5
+        run: docker buildx build --target db-bootstrap --output=type=cacheonly --progress=plain .
+
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
