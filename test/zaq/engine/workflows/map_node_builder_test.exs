@@ -8,6 +8,9 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilderTest do
 
   @capture_module "Zaq.Engine.Workflows.Test.CaptureValue"
 
+  # Cascade correctness must not depend on the one-second Lua evaluation default.
+  @eval_timeout_ms 10_000
+
   test "mapping the cascade into Lua data preserves it for subsequent body nodes" do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
 
@@ -28,7 +31,10 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilderTest do
                   "name" => "lua",
                   "type" => "action",
                   "module" => "Zaq.Agent.Tools.Workflow.LuaEval",
-                  "params" => %{"code" => "return data.start.marker"},
+                  "params" => %{
+                    "code" => "return data.start.marker",
+                    "eval_timeout_ms" => @eval_timeout_ms
+                  },
                   "mapping" => %{"data" => "__cascade__"}
                 },
                 %{
@@ -49,9 +55,13 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilderTest do
     assert {:ok, run} = Workflows.create_and_start_run(workflow, source)
     assert run.status == "completed"
     steps = Workflows.list_step_runs(run.id)
+    lua_step = Enum.find(steps, &(&1.step_name == "batch/lua[0]"))
+    capture_step = Enum.find(steps, &(&1.step_name == "batch/capture[0]"))
 
-    assert Enum.find(steps, &(&1.step_name == "batch/lua[0]")).results["result"] == "parent"
-    assert Enum.find(steps, &(&1.step_name == "batch/capture[0]")).results["captured"] == "parent"
+    assert lua_step.status == "completed", "Lua execution failed: #{inspect(lua_step.errors)}"
+    assert lua_step.results["result"] == "parent"
+    assert capture_step.status == "completed"
+    assert capture_step.results["captured"] == "parent"
   end
 
   test "collection preserves only the parent cascade for successful, failed and empty batches" do

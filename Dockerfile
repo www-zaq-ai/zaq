@@ -94,15 +94,9 @@ RUN useradd --system --uid 1000 --create-home --home-dir /app appuser && \
 COPY --from=agent-browser /opt/agent-browser/bin/agent-browser /usr/local/bin/agent-browser
 RUN agent-browser --version && chromium --version
 
-# Keep app last: an ordinary docker build still produces the production release.
-FROM browser-runtime AS app
+# CI builds this independent stage to check the release build-context allowlist.
+FROM scratch AS db-bootstrap
 
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends postgresql-client && \
-    rm -rf /var/lib/apt/lists/*
-
-ENV MIX_ENV=prod PHX_SERVER=true
-COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
 COPY scripts/setup_postgres_extensions.sql scripts/setup_paradedb_extensions.sql \
      scripts/install_vector_extension.sql scripts/install_pg_search_extension.sql \
      scripts/setup_database_begin.sql scripts/setup_database_finish.sql \
@@ -112,6 +106,17 @@ COPY scripts/setup_postgres_extensions.sql scripts/setup_paradedb_extensions.sql
       scripts/docker_database_adopt.sql scripts/docker_database_adopt_validate.sql \
       scripts/transfer_legacy_database.sh scripts/transfer_legacy_database.sql \
       scripts/provision_database.sh scripts/database_url.py /app/db-bootstrap/
+
+# Keep app last: an ordinary docker build still produces the production release.
+FROM browser-runtime AS app
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV MIX_ENV=prod PHX_SERVER=true
+COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
+COPY --from=db-bootstrap /app/db-bootstrap/ /app/db-bootstrap/
 
 RUN python3 -m venv /app/.venv && \
     /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \
