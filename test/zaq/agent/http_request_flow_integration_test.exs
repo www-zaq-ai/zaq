@@ -101,9 +101,9 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
     assert :ok =
              :telemetry.attach(
                handler,
-               [:finch, :queue, :stop],
+               [:zaq, :channels, :http_client, :connect, :start],
                fn _, _, metadata, _ ->
-                 if metadata.request.port == port, do: send(owner, {:retiring_http, self()})
+                 if metadata.port == port, do: send(owner, {:retiring_http, self()})
                end,
                nil
              )

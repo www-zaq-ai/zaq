@@ -21,7 +21,9 @@ defmodule Zaq.Channels.HttpClient do
 
   This module accepts only `%Zaq.HttpRequest.Prepared{}` values returned by
   Engine. It resolves DNS on the channels node and checks every resolved
-  address before opening a socket.
+  IPv4 and IPv6 address before opening a socket. The transport connects only to
+  that approved snapshot, retaining the original HTTP authority and TLS hostname.
+  Request-scoped workers prevent reuse of a peer approved under a previous policy.
 
   Redirects are **not** followed yet: a redirect would send the request to a
   host that never passed destination validation.
@@ -51,19 +53,17 @@ defmodule Zaq.Channels.HttpClient do
   validation as headers; absent trailers are an empty map. Both modes filter
   credential/cookie response headers.
 
-  Finch 0.24.0 misclassifies trailers on empty, chunked HTTP/1.1 entities, allowing
-  Req to overwrite initial headers and leave trailers empty. That response shape
-  is not metadata-safe until [Finch #408](https://github.com/sneako/finch/issues/408)
-  is fixed and the dependency updated (`zaq-bjp`). HTTP/2 trailers and non-empty
-  HTTP/1.1 entities with trailers are unaffected.
+  The shared connection adapter distinguishes initial headers from Mint's trailer
+  events directly, including empty entities. The previous Finch-specific empty
+  trailer regression remains tracked separately (`zaq-bjp`).
 
   Raw requests send `accept-encoding: identity`. A peer may still send encoded
   content; its bytes and encoding header are returned unchanged. The caller owns
   signature verification and protocol interpretation.
   """
 
-  alias Zaq.HttpRequest.{AddressPolicy, Prepared}
-  alias Zaq.System.OutboundHttpPolicy
+  alias Zaq.Channels.HttpClient.{Resolver, Transport}
+  alias Zaq.HttpRequest.Prepared
 
   @default_max_response_bytes 100_000
   @redacted_response_headers ~w(set-cookie authorization proxy-authorization)
@@ -83,25 +83,35 @@ defmodule Zaq.Channels.HttpClient do
   Sends `request`.
 
   Only a `%Zaq.HttpRequest.Prepared{}` is accepted.
+  Trusted runtime `opts` may select the external DNS `:lookup` function;
+  this is never read from the request specification.
   """
   @spec request(Prepared.t() | term()) :: {:ok, response()} | {:error, term()}
-  def request(request)
+  @spec request(Prepared.t() | term(), keyword()) :: {:ok, response()} | {:error, term()}
+  def request(request, opts \\ [])
 
-  def request(%Prepared{} = prepared), do: perform(prepared)
+  def request(%Prepared{} = prepared, opts), do: perform(prepared, opts)
 
-  def request(_request),
+  def request(_request, _opts),
     do: {:error, :unprepared_request, "request was not prepared by Engine"}
 
   # -- Execution --------------------------------------------------------------
 
-  defp perform(%Prepared{policy: policy} = request) do
-    with :ok <- validate_destination_addresses(request.uri.host, policy) do
+  defp perform(%Prepared{policy: policy} = request, opts) do
+    opts = Keyword.put(opts, :deadline, System.monotonic_time(:millisecond) + request.timeout_ms)
+
+    with {:ok, addresses} <-
+           Resolver.resolve(
+             request.uri.host,
+             policy,
+             Keyword.put(opts, :timeout, request.timeout_ms)
+           ) do
       max_bytes = policy.max_response_bytes || @default_max_response_bytes
 
       request
       |> request_options()
       |> response_options(request.response_format, max_bytes)
-      |> Req.request()
+      |> Transport.request(addresses, opts)
       |> handle_response(request, max_bytes)
     end
   end
@@ -162,35 +172,6 @@ defmodule Zaq.Channels.HttpClient do
         end
     end)
   end
-
-  defp validate_destination_addresses(host, %OutboundHttpPolicy{} = policy) do
-    case AddressPolicy.parse_ip(host) do
-      {:ok, ip} ->
-        AddressPolicy.validate(ip, policy)
-
-      {:error, :invalid_ip} ->
-        host
-        |> resolve_host()
-        |> validate_resolved_addresses(policy)
-    end
-  end
-
-  defp resolve_host(host), do: :inet.getaddrs(String.to_charlist(host), :inet)
-
-  defp validate_resolved_addresses({:ok, []}, _policy),
-    do: {:error, :dns_failed, "host resolved to no addresses"}
-
-  defp validate_resolved_addresses({:ok, addresses}, policy) do
-    Enum.reduce_while(addresses, :ok, fn address, :ok ->
-      case AddressPolicy.validate(address, policy) do
-        :ok -> {:cont, :ok}
-        {:error, _reason, _message} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp validate_resolved_addresses({:error, _reason}, _policy),
-    do: {:error, :dns_failed, "could not resolve host"}
 
   defp maybe_put(opts, key, value, predicate) do
     if predicate.(value), do: Keyword.put(opts, key, value), else: opts
