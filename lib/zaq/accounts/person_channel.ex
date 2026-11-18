@@ -28,6 +28,7 @@ defmodule Zaq.Accounts.PersonChannel do
     field :phone, :string
     field :last_interaction_at, :utc_datetime
     field :dm_channel_id, :string
+    field :dm_channel_observed_at, :utc_datetime_usec
     field :weight, :integer, default: 0
     field :metadata, :map, default: %{}
 
@@ -97,6 +98,14 @@ defmodule Zaq.Accounts.PersonChannel do
     if get_field(changeset, :channel_config_id) == channel.channel_config_id,
       do: changeset,
       else: add_error(changeset, :channel_config_id, "cannot be changed")
+  end
+
+  @doc "Records a direct-message delivery reference and when its message was sent."
+  @spec dm_channel_changeset(t(), map()) :: Ecto.Changeset.t()
+  def dm_channel_changeset(channel, attrs) do
+    channel
+    |> cast(attrs, [:dm_channel_id, :dm_channel_observed_at, :last_interaction_at])
+    |> validate_required([:dm_channel_id])
   end
 
   @doc "Changes priority alone without normalizing identity or recording communication activity."

@@ -139,6 +139,22 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapperTest do
     end
   end
 
+  describe "to_rating/2 Teams reaction types" do
+    test "rates like and heart high, sad and angry low, and ignores the rest" do
+      for {type, expected} <- [
+            {"like", {:ok, 5}},
+            {"heart", {:ok, 5}},
+            {"sad", {:ok, 1}},
+            {"angry", {:ok, 1}},
+            {"laugh", :ignored},
+            {"surprised", :ignored},
+            {"Like", :ignored}
+          ] do
+        assert ReactionMapper.to_rating(:teams, type) == expected
+      end
+    end
+  end
+
   describe "to_rating/2 totality" do
     test "ignores unmapped emoji" do
       assert :ignored = ReactionMapper.to_rating(:mattermost, "tada")

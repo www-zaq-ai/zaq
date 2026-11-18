@@ -81,6 +81,16 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
     end
   end
 
+  defmodule StubChatModuleCapturingWebhookOpts do
+    def handle_webhook_request(chat, _provider, _request, opts) do
+      if pid = Process.whereis(:state_test_observer) do
+        send(pid, {:webhook_opts, opts})
+      end
+
+      {:ok, chat, nil, %{status: 200, headers: %{}, body: "ok"}}
+    end
+  end
+
   setup do
     previous_channels = Application.get_env(:zaq, :channels, %{})
 
@@ -498,6 +508,47 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
 
     after_state = :sys.get_state(pid)
     assert after_state.chat == before_state.chat
+  end
+
+  test "process_webhook_request/3 passes the connector credentials to webhook verification", %{
+    pid: pid,
+    config: config
+  } do
+    previous_chat_module = Application.get_env(:zaq, :chat_bridge_chat_module)
+
+    Application.put_env(:zaq, :chat_bridge_chat_module, StubChatModuleCapturingWebhookOpts)
+
+    Application.put_env(:zaq, :channels, %{
+      teams: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    on_exit(fn ->
+      if previous_chat_module do
+        Application.put_env(:zaq, :chat_bridge_chat_module, previous_chat_module)
+      else
+        Application.delete_env(:zaq, :chat_bridge_chat_module)
+      end
+    end)
+
+    Process.register(self(), :state_test_observer)
+
+    teams_config = %{
+      config
+      | provider: "teams",
+        settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+    }
+
+    payload = %{"method" => "POST", "path" => "/channels/webhook/conversation/teams"}
+
+    assert {:ok, _result} = State.process_webhook_request(pid, teams_config, payload)
+
+    assert_receive {:webhook_opts, opts}
+    assert opts[:adapters] == %{teams: StubAdapter}
+    assert opts[:app_id] == "app-1"
+    assert opts[:app_password] == config.token
+    assert opts[:app_tenant_id] == "tenant-1"
+
+    Process.unregister(:state_test_observer)
   end
 
   defp assert_eventually(fun, deadline \\ System.monotonic_time(:millisecond) + 500) do

@@ -131,7 +131,15 @@ defmodule Zaq.Channels.RetrievalChannelTest do
 
   test "active_channel_ids/1 filters by provider, active flag, and config enabled flag" do
     mattermost = insert_channel_config(%{provider: "mattermost", enabled: true})
-    teams = insert_channel_config(%{provider: "teams", enabled: true})
+
+    teams =
+      insert_channel_config(%{
+        provider: "teams",
+        enabled: true,
+        settings: %{
+          "jido_chat" => %{"app_id" => "app-1", "tenant_id" => "contoso.onmicrosoft.com"}
+        }
+      })
 
     insert_retrieval_channel(mattermost.id, %{
       channel_id: "mm-active",

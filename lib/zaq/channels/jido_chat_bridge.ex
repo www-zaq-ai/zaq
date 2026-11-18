@@ -29,6 +29,9 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Zaq.Channels.{
     Bridge,
+    CommunicationBridge,
+    MessageTimestamp,
+    ProviderCatalog,
     RetrievalChannel,
     Supervisor,
     WebhookUrl
@@ -37,7 +40,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.ConnectorConfig.Settings
   alias Zaq.Engine.ChannelConfig
 
-  alias Jido.Chat.ReactionEvent
+  alias Jido.Chat.{MessageDeletedEvent, MessageUpdatedEvent, ReactionEvent}
   alias Jido.Chat.Thread
   alias Zaq.Channels.JidoChatBridge.AdapterOptions
   alias Zaq.Channels.JidoChatBridge.DeliveryResult
@@ -205,15 +208,22 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   def sync_runtime(_before, _after), do: :ok
 
-  @doc "Tests adapter connectivity by sending a test message."
+  @doc """
+  Tests adapter connectivity. An adapter that exports `verify_credentials/1`
+  checks its credentials without posting; otherwise a test message is sent.
+  """
   @impl true
   def test_connection(config, channel_id) do
     with {:ok, adapter} <- adapter_for(config.provider) do
-      adapter.send_message(
-        channel_id,
-        @test_message,
-        AdapterOptions.build(config.provider, config)
-      )
+      check_connection(adapter, channel_id, AdapterOptions.build(config.provider, config))
+    end
+  end
+
+  defp check_connection(adapter, channel_id, opts) do
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :verify_credentials, 1) do
+      with :ok <- adapter.verify_credentials(opts), do: {:ok, :credentials_valid}
+    else
+      adapter.send_message(channel_id, @test_message, opts)
     end
   end
 
@@ -326,6 +336,8 @@ defmodule Zaq.Channels.JidoChatBridge do
       |> Chat.on_reaction(fn _thread, reaction ->
         handle_reaction_event(config, reaction)
       end)
+      |> Chat.on_message_updated(&handle_message_revision(config, :edit, &1))
+      |> Chat.on_message_deleted(&handle_message_revision(config, :delete, &1))
 
     Enum.reduce(message_patterns, chat, fn pattern, acc ->
       Chat.on_new_message(acc, pattern, fn thread, incoming ->
@@ -385,6 +397,47 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   def handle_reaction_event(_config, _reaction), do: :ok
+
+  @doc """
+  Sends a provider edit, restore or deletion of a captured message to Engine.
+
+  Registered as the `Jido.Chat.on_message_updated/2` and
+  `Jido.Chat.on_message_deleted/2` handler in `register_handlers/3`. It finds the
+  stored message by the same source identity as capture and never starts an answer.
+  """
+  @spec handle_message_revision(
+          map(),
+          :edit | :delete,
+          MessageUpdatedEvent.t() | MessageDeletedEvent.t()
+        ) :: :ok
+  def handle_message_revision(config, change, event) do
+    provider = provider_to_atom(config.provider) || :unknown
+    room_id = ConversationIdentity.normalize(event.channel_id)
+
+    revision = %{
+      provider: to_string(provider),
+      channel_config_id: Map.get(config, :id),
+      source_scope: message_source_scope(provider, room_id),
+      external_message_id: ConversationIdentity.normalize(event.message_id),
+      author_id: event.author && event.author.user_id,
+      change: change,
+      content: event.message && event.message.text,
+      revised_at: MessageTimestamp.normalize(event.timestamp, :iso8601)
+    }
+
+    case CommunicationBridge.revise_message(revision, node_router: node_router_module()) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[JidoChatBridge] Message #{change} not applied " <>
+            "message=#{inspect(event.message_id)} provider=#{provider} reason=#{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
 
   defp reaction_room_id(%ReactionEvent{thread: %{external_room_id: id}}) when not is_nil(id),
     do: ConversationIdentity.normalize(id)
@@ -490,8 +543,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
-    do_send_reply(outgoing, %{url: url, token: token})
+  def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
+    do_send_reply(outgoing, connection_details)
   end
 
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
@@ -523,7 +576,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          true <- is_atom(provider_atom) || {:error, {:unsupported_provider, provider}},
          true <- supports_message_updates?(adapter) || {:ok, %{action: :noop, message_id: nil}} do
       thread_id = Map.get(request, :thread_id)
-      channel_id = Map.get(request, :channel_id)
+      channel_id = delivery_room_id(request)
       body = Map.get(request, :body)
       request_metadata = Map.get(request, :metadata, request)
 
@@ -712,8 +765,10 @@ defmodule Zaq.Channels.JidoChatBridge do
         channel_config_id: channel_config_id,
         conversation_type: facts[:conversation_type],
         source_scope: facts[:source_scope],
+        identity_platform: identity_platform(provider),
         sender_membership: sender_membership(incoming, provider, facts),
-        provider_sent_at: facts[:provider_sent_at]
+        provider_sent_at: facts[:provider_sent_at],
+        attributes: delivery_attributes(incoming)
       },
       attachments:
         media_records(
@@ -728,6 +783,23 @@ defmodule Zaq.Channels.JidoChatBridge do
       metadata: incoming.metadata || %{}
     })
   end
+
+  defp delivery_attributes(%Chat.Incoming{delivery_external_room_id: reference})
+       when is_binary(reference) and reference != "",
+       do: %{"delivery_external_room_id" => reference}
+
+  defp delivery_attributes(_incoming), do: %{}
+
+  defp delivery_room_id(%{
+         routing_context: %{attributes: %{"delivery_external_room_id" => reference}}
+       })
+       when is_binary(reference) and reference != "",
+       do: reference
+
+  defp delivery_room_id(request), do: Map.get(request, :channel_id)
+
+  defp identity_platform(nil), do: nil
+  defp identity_platform(provider), do: ProviderCatalog.person_platform(to_string(provider))
 
   defp normalized_communication_facts(%Chat.Incoming{} = incoming, provider) do
     metadata = incoming.channel_meta
@@ -751,7 +823,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          sender_id: id
        })
        when is_binary(id) and id != "" do
-    %{identity_platform: to_string(provider), member_id: id}
+    %{identity_platform: ProviderCatalog.person_platform(to_string(provider)), member_id: id}
   end
 
   defp sender_membership(_, _, _), do: nil
@@ -777,12 +849,11 @@ defmodule Zaq.Channels.JidoChatBridge do
     max_bytes = max_media_bytes(config_opts)
     size = Map.get(request, :size) || Map.get(request, "size")
 
-    with :ok <- enforce_media_size(size, max_bytes),
+    with :ok <- check_declared_size(size, max_bytes),
          true <- present_reference?(reference) || {:error, :invalid_media_reference},
          {:ok, adapter} <- resolve_adapter_for_provider(provider, config_opts),
-         true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
          {:ok, content} when is_binary(content) <-
-           adapter.fetch_media(reference, media_opts(details)),
+           download_media(adapter, reference, size, max_bytes, media_opts(provider, details)),
          :ok <- enforce_media_size(byte_size(content), max_bytes) do
       {:ok,
        %{
@@ -1428,6 +1499,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     if ingress_mode_for(config.provider) == :webhook do
       case ensure_ingress_subscription(config, %{}) do
         {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
         {:error, reason} -> {:error, {:ingress_ensure_failed, reason}}
       end
     else
@@ -1439,6 +1511,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     if ingress_mode_for(before_config.provider) == :webhook do
       case delete_ingress_subscription(after_config, %{}) do
         {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
         {:error, reason} -> {:error, reason}
       end
     else
@@ -1763,6 +1836,21 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp maybe_put_source_scope_value(attributes, key, value),
     do: Map.put(attributes, key, to_string(value))
 
+  defp check_declared_size(nil, _max_bytes), do: :ok
+  defp check_declared_size(size, max_bytes), do: enforce_media_size(size, max_bytes)
+
+  defp download_media(adapter, reference, nil, max_bytes, opts) do
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :fetch_bounded_media, 3),
+      do: adapter.fetch_bounded_media(reference, max_bytes, opts),
+      else: {:error, :unknown_media_size}
+  end
+
+  defp download_media(adapter, reference, _size, _max_bytes, opts) do
+    if function_exported?(adapter, :fetch_media, 2),
+      do: adapter.fetch_media(reference, opts),
+      else: {:error, :unsupported}
+  end
+
   defp enforce_media_size(size, max_bytes) when is_integer(size) and size > max_bytes,
     do: {:error, :media_too_large}
 
@@ -1776,12 +1864,10 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp media_opts(details) do
-    Enum.reduce(details, [], fn
-      {key, _value}, opts when key in [:config, :config_opts] -> opts
-      {key, value}, opts when is_atom(key) and not is_nil(value) -> Keyword.put(opts, key, value)
-      _, opts -> opts
-    end)
+  defp media_opts(provider, details) do
+    provider
+    |> AdapterOptions.build(details)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
   defp config_opts(%{config_opts: opts}) when is_list(opts), do: opts
@@ -1873,7 +1959,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            edit_message(
              outgoing.provider,
              adapter_module,
-             outgoing.channel_id,
+             delivery_room_id(outgoing),
              message_id,
              outgoing.body,
              connection,
@@ -1903,7 +1989,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            create_message(
              outgoing.provider,
              adapter_module,
-             outgoing.channel_id,
+             delivery_room_id(outgoing),
              outgoing.thread_id,
              outgoing.body,
              connection,

@@ -4,7 +4,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
 
   alias Jido.Chat.ReactionEvent
   alias Zaq.Accounts.People
-  alias Zaq.Channels.{CommunicationBridge, JidoChatBridge}
+  alias Zaq.Channels.{CommunicationBridge, JidoChatBridge, ProviderCatalog}
   alias Zaq.Engine.{Api, ChannelHistoryAdmin, Conversations, HistoryIngress}
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations.{ExecutionRecord, Message}
@@ -57,18 +57,19 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
           provider: provider,
           kind: "retrieval",
           url: "https://example.invalid",
-          token: "token"
+          token: "token",
+          settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
         })
         |> Repo.insert!()
 
       {:ok, person} =
-        People.find_or_create_from_channel(provider, %{
+        People.find_or_create_from_channel(ProviderCatalog.person_platform(provider), %{
           channel_id: "rater",
           channel_config_id: config.id,
           display_name: "Rater"
         })
 
-      scope = if provider == "telegram", do: "room"
+      scope = if provider in ["telegram", "teams"], do: "room"
 
       incoming =
         Incoming.new(%{
@@ -80,6 +81,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
           routing_context: %{
             channel_config_id: config.id,
             conversation_type: if(kind == :direct, do: :one_to_one, else: :room),
+            identity_platform: ProviderCatalog.person_platform(provider),
             source_scope: scope
           }
         })
@@ -165,7 +167,12 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
         ReactionEvent.new(%{
           message_id: external_id,
           channel_id: "room",
-          emoji: if(provider == "mattermost", do: "+1_medium_skin_tone", else: "👍"),
+          emoji:
+            case provider do
+              "mattermost" -> "+1_medium_skin_tone"
+              "teams" -> "like"
+              _ -> "👍"
+            end,
           user: %{user_id: "rater", user_name: "Rater"}
         })
 
@@ -219,7 +226,8 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
           provider: provider,
           kind: "retrieval",
           url: "https://example.invalid",
-          token: "token"
+          token: "token",
+          settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
         })
         |> Repo.insert!()
 
@@ -228,7 +236,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
       {:ok, _} =
         People.add_channel(%{
           person_id: person.id,
-          platform: provider,
+          platform: ProviderCatalog.person_platform(provider),
           channel_identifier: "rater",
           channel_config_id: config.id
         })
@@ -242,7 +250,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
           actor_person_id: person.id
         })
 
-      scope = if provider == "telegram", do: "room"
+      scope = if provider in ["telegram", "teams"], do: "room"
 
       {:ok, captured} =
         Conversations.capture_canonical_message(
@@ -316,7 +324,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
       {:ok, _} =
         People.add_channel(%{
           person_id: outsider.id,
-          platform: provider,
+          platform: ProviderCatalog.person_platform(provider),
           channel_identifier: "outsider",
           channel_config_id: config.id
         })
@@ -327,6 +335,80 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
       config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
       assert {:error, :invalid_connector} = rate(ref, "rater")
     end
+  end
+
+  test "a deleted message can no longer be rated" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Teams",
+        provider: "teams",
+        kind: "retrieval",
+        url: "https://example.invalid",
+        token: "token",
+        settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+      })
+      |> Repo.insert!()
+
+    {:ok, person} = People.create_person(%{full_name: "Teams rater"})
+
+    {:ok, _} =
+      People.add_channel(%{
+        person_id: person.id,
+        platform: "microsoft_teams",
+        channel_identifier: "rater",
+        channel_config_id: config.id
+      })
+
+    {:ok, facts} =
+      Facts.new(%{
+        provider: "teams",
+        channel_config_id: config.id,
+        channel_id: "room",
+        kind: :channel,
+        actor_person_id: person.id
+      })
+
+    {:ok, _captured} =
+      Conversations.capture_canonical_message(
+        facts,
+        %{
+          role: "external",
+          content: "Captured",
+          external_message_id: "post",
+          author_id: "author"
+        },
+        %{
+          provider: "teams",
+          channel_config_id: config.id,
+          provenance: "channel_adapter",
+          source_scope: "room"
+        }
+      )
+
+    ref = %{
+      provider: "teams",
+      channel_config_id: config.id,
+      channel_id: "room",
+      source_scope: "room",
+      message_id: "post"
+    }
+
+    assert {:ok, _rating} = rate(ref, "rater")
+
+    assert {:ok, :revised} =
+             Conversations.revise_canonical_message(
+               %{
+                 provider: "teams",
+                 channel_config_id: config.id,
+                 source_scope: "room",
+                 external_message_id: "post",
+                 author_id: "author"
+               },
+               {:delete, DateTime.utc_now()}
+             )
+
+    assert {:error, :not_found} = rate(ref, "rater")
   end
 
   property "identical Telegram message IDs remain isolated by connector and native chat scope" do
