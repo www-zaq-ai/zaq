@@ -405,6 +405,33 @@ defmodule Zaq.AccountsTest do
       assert Bcrypt.verify_pass("StrongPass1!", updated.password_hash)
     end
 
+    test "rejects a second registration without changing the account" do
+      user = user_fixture()
+
+      assert {:ok, completed} =
+               Accounts.complete_registration(user, %{
+                 email: "first@example.com",
+                 password: "StrongPass1!"
+               })
+
+      completed = Accounts.get_user!(completed.id)
+      refute completed.must_change_password
+
+      assert {:error, %Ecto.Changeset{valid?: false} = changeset} =
+               Accounts.complete_registration(completed, %{
+                 email: "second@example.com",
+                 password: "DifferentPass2!"
+               })
+
+      assert errors_on(changeset) == %{base: ["Registration is already complete"]}
+
+      retried = Accounts.get_user!(completed.id)
+      assert retried.email == completed.email
+      assert retried.password_hash == completed.password_hash
+      assert retried.bo_session_nonce == completed.bo_session_nonce
+      refute retried.must_change_password
+    end
+
     test "requires email even when the user already has one" do
       user = user_fixture(%{email: "person@example.com"})
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])

@@ -12,6 +12,11 @@
 - Migration seeds a bootstrap super admin user (hashed password, `must_change_password: true`)
 - Login POSTs to `BOSessionController`, which sets session and redirects
 - Users with `must_change_password: true` are redirected to `/bo/change-password`
+- Completing the seeded administrator through either setup path rotates its BO session
+  nonce in the registration write. Only the completing browser receives the renewed
+  session; other bootstrap browsers must sign in again, even if another user was
+  added after bootstrap login. The password LiveView uses a
+  short-lived browser-bound handoff in a CSRF-protected POST to renew the cookie.
 - Auth plug protects all `/bo/*` routes except `/bo/login` and `/bo/session`
 - Auth plug enforces `must_change_password` — users cannot skip `/bo/change-password`
 - `on_mount` AuthHook passes `current_user` to all protected LiveViews

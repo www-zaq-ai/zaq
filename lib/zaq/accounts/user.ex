@@ -18,6 +18,7 @@ defmodule Zaq.Accounts.User do
     field :password_hash, :string
     field :must_change_password, :boolean, default: true
     field :portal_consent, :string
+    field :bo_session_nonce, Ecto.UUID, redact: true
 
     belongs_to :role, Zaq.Accounts.Role
 

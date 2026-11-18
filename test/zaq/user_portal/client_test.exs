@@ -65,6 +65,109 @@ defmodule Zaq.UserPortal.ClientTest do
     :ok
   end
 
+  test "connect exchanges the token without sending email, plan or password" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer one-use"]
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      assert %{"machine_signals" => %{}, "network" => %{}} = params = Jason.decode!(body)
+
+      assert Enum.sort(Map.keys(params)) == ~w(machine_signals network)
+
+      Req.Test.json(conn, %{
+        user: %{email: "admin@example.com", litellm_api_key: "router-key"},
+        confirmation_token: "ack",
+        installation_url: "https://instance.example.com",
+        deploy_on_own_cluster: true
+      })
+    end)
+
+    assert {:ok,
+            %{
+              email: "admin@example.com",
+              litellm_api_key: "router-key",
+              confirmation_token: "ack",
+              installation_url: "https://instance.example.com",
+              deploy_on_own_cluster: true
+            }} = Client.connect("one-use")
+  end
+
+  test "connect returns the portal status without exposing its rejection body" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer one-use"]
+
+      conn
+      |> Plug.Conn.put_status(401)
+      |> Req.Test.json(%{error: "invalid_token", detail: "portal-only detail"})
+    end)
+
+    assert Client.connect("one-use") == {:error, {:portal_status, 401}}
+    Req.Test.verify!(Client)
+  end
+
+  test "connect normalizes a transport failure" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      Req.Test.transport_error(conn, :econnrefused)
+    end)
+
+    assert Client.connect("one-use") == {:error, :portal_unavailable}
+    Req.Test.verify!(Client)
+  end
+
+  test "connect rejects a success response with an invalid field type" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+
+      Req.Test.json(conn, %{
+        user: %{email: "admin@example.com", litellm_api_key: "router-key"},
+        confirmation_token: "ack",
+        installation_url: "https://instance.example.com",
+        deploy_on_own_cluster: "true"
+      })
+    end)
+
+    assert Client.connect("one-use") == {:error, :invalid_portal_response}
+    Req.Test.verify!(Client)
+  end
+
+  test "confirmation posts only its token" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      assert Plug.Conn.get_req_header(conn, "authorization") == []
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      assert Jason.decode!(body) == %{"confirmation_token" => "ack"}
+      Req.Test.json(conn, %{status: "connected"})
+    end)
+
+    assert :ok = Client.confirm_connection("ack")
+  end
+
+  test "confirmation rejects a 200 without the connected status" do
+    Req.Test.expect(Client, fn conn -> Req.Test.json(conn, %{status: "pending"}) end)
+
+    assert {:error, :invalid_portal_response} = Client.confirm_connection("ack")
+  end
+
+  test "confirmation rejects a success status other than 200" do
+    Req.Test.expect(Client, fn conn -> Plug.Conn.send_resp(conn, 204, "") end)
+
+    assert {:error, {:portal_status, 204}} = Client.confirm_connection("ack")
+  end
+
+  test "confirmation reports transport failure without returning request details" do
+    Req.Test.stub(Client, fn conn -> Req.Test.transport_error(conn, :econnrefused) end)
+
+    assert {:error, :portal_unavailable} = Client.confirm_connection("ack")
+  end
+
   # -- fetch_onboarding/1 --
 
   describe "fetch_onboarding/1" do

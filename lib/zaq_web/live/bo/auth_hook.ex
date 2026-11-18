@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.AuthHook do
   import Phoenix.Component
 
   alias Zaq.Accounts
+  alias ZaqWeb.BOSession
 
   def on_mount(:default, _params, session, socket) do
     case session["user_id"] do
@@ -18,12 +19,12 @@ defmodule ZaqWeb.Live.BO.AuthHook do
         {:halt, push_navigate(socket, to: ~p"/bo/login")}
 
       user_id ->
-        case Accounts.get_user(user_id) do
-          nil ->
-            {:halt, push_navigate(socket, to: ~p"/bo/login")}
+        user = Accounts.get_user(user_id)
 
-          user ->
-            authorize_user(socket, user)
+        cond do
+          is_nil(user) -> {:halt, push_navigate(socket, to: ~p"/bo/login")}
+          BOSession.valid?(user, session["bo_session_nonce"]) -> authorize_user(socket, user)
+          true -> {:halt, redirect(socket, to: ~p"/bo/login")}
         end
     end
   end

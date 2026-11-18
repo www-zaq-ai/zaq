@@ -22,12 +22,11 @@ for (const [name, browserType] of Object.entries({ chromium, firefox, webkit }))
           body: '<div data-phx-main class="phx-connected">Ready</div><script>window.liveSocket = {isConnected: () => true}</script>',
         })
       })
+      await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+      await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'))
       await page.goto('http://navigation.test/original')
       await page.addScriptTag({ path: path.resolve(__dirname, '../../../deps/phoenix/priv/static/phoenix.js') })
       await page.addScriptTag({ path: path.resolve(__dirname, '../../../deps/phoenix_live_view/priv/static/phoenix_live_view.js') })
-      const now = new Date('2026-01-01T00:00:00Z')
-      await page.clock.install({ time: now })
-      await page.clock.pauseAt(now)
       await page.evaluate(() => {
         window.liveSocket = new window.LiveView.LiveSocket('/live', window.Phoenix.Socket, {
           reloadJitterMin: 1000,

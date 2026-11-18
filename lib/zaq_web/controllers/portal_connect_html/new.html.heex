@@ -1,0 +1,28 @@
+<AuthLayout.auth_layout
+  heading="Connect your Portal account"
+  subtitle="Set the password for your ZAQ administrator account."
+>
+  <:header_icon>
+    <img src={~p"/images/zaq.png"} alt="ZAQ" class="zaq-auth-logo-img" />
+  </:header_icon>
+
+  <p :if={@error} role="alert" class="zaq-feedback-banner zaq-danger zaq-text-body">{@error}</p>
+
+  <.form for={%{}} action={~p"/bo/connect"} class="zaq-layout-stack">
+    <SecretInput.secret_input
+      id="password"
+      name="password"
+      label="New Password"
+      autocomplete="new-password"
+      required
+    />
+    <SecretInput.secret_input
+      id="password-confirmation"
+      name="password_confirmation"
+      label="Confirm Password"
+      autocomplete="new-password"
+      required
+    />
+    <Button.button type="submit" variant={:primary} class="w-full">Connect Portal</Button.button>
+  </.form>
+</AuthLayout.auth_layout>

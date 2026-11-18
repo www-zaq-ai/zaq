@@ -411,4 +411,55 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert unchanged_user.must_change_password
     assert is_nil(unchanged_user.password_hash)
   end
+
+  test "a user who no longer needs a password change cannot restart onboarding", %{conn: conn} do
+    user = user_fixture(%{username: "already_registered_user", must_change_password: false})
+    nonce = Ecto.UUID.generate()
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [bo_session_nonce: nonce])
+    conn = init_test_session(conn, %{user_id: user.id, bo_session_nonce: nonce})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+    original = Accounts.get_user!(user.id)
+
+    render_submit(view, "change_password", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+
+    html = render(view)
+    assert has_element?(view, "#change-password-form")
+    refute html =~ "To create your ZAQ account..."
+    refute has_element?(view, "#change-password-error")
+    refute has_element?(view, "#bootstrap-session-form")
+
+    unchanged = Accounts.get_user!(user.id)
+    assert unchanged.password_hash == original.password_hash
+    assert unchanged.email == original.email
+    assert unchanged.portal_consent == original.portal_consent
+    assert unchanged.bo_session_nonce == nonce
+  end
+
+  test "a queued decline after closing consent does nothing", %{conn: conn} do
+    user = user_fixture(%{username: "stale_decline_user"})
+    original = Accounts.get_user!(user.id)
+    conn = init_test_session(conn, %{user_id: user.id})
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    render_submit(view, "change_password", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
+    render_click(view, "close_consent_modal")
+    render_click(view, "decline_portal_consent")
+
+    assert has_element?(view, "#change-password-form")
+    refute has_element?(view, "[phx-click='accept_portal_consent']")
+    refute has_element?(view, "#bootstrap-session-form")
+    unchanged = Accounts.get_user!(user.id)
+    assert unchanged.must_change_password
+    assert unchanged.password_hash == original.password_hash
+    assert unchanged.portal_consent == original.portal_consent
+  end
 end

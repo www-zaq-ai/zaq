@@ -37,12 +37,7 @@ defmodule Zaq.UserPortal.Client do
     req_opts =
       [
         url: base_url <> "/onboarding",
-        json: %{
-          email: email,
-          machine_signals: MachineSignals.collect(),
-          plan: "free",
-          network: build_network_payload()
-        },
+        json: Map.merge(installation_signals(), %{email: email, plan: "free"}),
         retry: false
       ]
       |> Keyword.merge(req_options())
@@ -61,6 +56,66 @@ defmodule Zaq.UserPortal.Client do
         {:error, reason}
     end
   end
+
+  @impl Zaq.UserPortal.ClientBehaviour
+  def connect(portal_token) when is_binary(portal_token) do
+    case post_connect(installation_signals(), [{"authorization", "Bearer " <> portal_token}]) do
+      {:ok, %{status: 200, body: body}} -> parse_connection(body)
+      {:ok, %{status: status}} -> {:error, {:portal_status, status}}
+      {:error, _reason} -> {:error, :portal_unavailable}
+    end
+  end
+
+  @impl Zaq.UserPortal.ClientBehaviour
+  def confirm_connection(token) when is_binary(token) do
+    case post_connect(%{confirmation_token: token}, []) do
+      {:ok, %{status: 200, body: %{"status" => "connected"}}} -> :ok
+      {:ok, %{status: 200}} -> {:error, :invalid_portal_response}
+      {:ok, %{status: status}} -> {:error, {:portal_status, status}}
+      {:error, _reason} -> {:error, :portal_unavailable}
+    end
+  end
+
+  defp post_connect(payload, headers) do
+    base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
+
+    req_options()
+    |> Keyword.merge(
+      url: base_url <> "/connect",
+      json: payload,
+      headers: headers,
+      retry: false,
+      redirect: false
+    )
+    |> Req.post()
+  end
+
+  defp parse_connection(%{
+         "user" => %{"email" => email, "litellm_api_key" => key},
+         "confirmation_token" => token,
+         "installation_url" => url,
+         "deploy_on_own_cluster" => own_cluster?
+       })
+       when is_binary(email) and is_binary(key) and is_binary(token) and is_binary(url) and
+              is_boolean(own_cluster?) do
+    if Enum.all?([email, key, token, url], &(String.trim(&1) != "")) do
+      {:ok,
+       %{
+         email: email,
+         litellm_api_key: key,
+         confirmation_token: token,
+         installation_url: url,
+         deploy_on_own_cluster: own_cluster?
+       }}
+    else
+      {:error, :invalid_portal_response}
+    end
+  end
+
+  defp parse_connection(_), do: {:error, :invalid_portal_response}
+
+  defp installation_signals,
+    do: %{machine_signals: MachineSignals.collect(), network: build_network_payload()}
 
   @impl Zaq.UserPortal.ClientBehaviour
   def update_email(_email, nil), do: {:error, :portal_sync_failed}
