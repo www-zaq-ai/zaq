@@ -1,3 +1,18 @@
+defmodule ZaqWeb.PortalConnectControllerTestFixtures do
+  def success_response(attrs \\ %{}) do
+    Map.merge(
+      %{
+        email: "admin@example.com",
+        litellm_api_key: "router-key",
+        confirmation_token: "ack-token",
+        installation_url: "https://instance.example.com",
+        deploy_on_own_cluster: false
+      },
+      attrs
+    )
+  end
+end
+
 defmodule ZaqWeb.PortalConnectControllerTest do
   use ZaqWeb.ConnCase, async: true
   use Oban.Testing, repo: Zaq.Repo
@@ -307,20 +322,5 @@ defmodule ZaqWeb.PortalConnectControllerLocalSetupFailureTest do
       password: "StrongPass1!",
       password_confirmation: "StrongPass1!"
     })
-  end
-end
-
-defmodule ZaqWeb.PortalConnectControllerTestFixtures do
-  def success_response(attrs \\ %{}) do
-    Map.merge(
-      %{
-        email: "admin@example.com",
-        litellm_api_key: "router-key",
-        confirmation_token: "ack-token",
-        installation_url: "https://instance.example.com",
-        deploy_on_own_cluster: false
-      },
-      attrs
-    )
   end
 end
