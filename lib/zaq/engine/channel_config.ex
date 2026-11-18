@@ -57,6 +57,7 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_imap_settings()
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
+    |> maybe_validate_max_file_size()
     |> maybe_validate_live_updates()
     |> preserve_live_update_policy()
     |> maybe_require_widget_base_url_on_persist()
@@ -64,6 +65,39 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_encrypt_token()
     |> reject_archived_reactivation()
   end
+
+  defp maybe_validate_max_file_size(changeset) do
+    settings = get_field(changeset, :settings)
+
+    if is_map(settings) and Map.has_key?(settings, "max_file_size"),
+      do: validate_max_file_size(changeset, settings),
+      else: changeset
+  end
+
+  defp validate_max_file_size(changeset, settings) do
+    case normalize_max_file_size(Map.get(settings, "max_file_size")) do
+      {:ok, nil} ->
+        put_change(changeset, :settings, Map.delete(settings, "max_file_size"))
+
+      {:ok, bytes} ->
+        put_change(changeset, :settings, Map.put(settings, "max_file_size", bytes))
+
+      :error ->
+        add_error(changeset, :settings, "max_file_size must be a positive integer in bytes")
+    end
+  end
+
+  defp normalize_max_file_size(size) when size in [nil, ""], do: {:ok, nil}
+  defp normalize_max_file_size(size) when is_integer(size) and size > 0, do: {:ok, size}
+
+  defp normalize_max_file_size(size) when is_binary(size) do
+    case Integer.parse(size) do
+      {bytes, ""} when bytes > 0 -> {:ok, bytes}
+      _ -> :error
+    end
+  end
+
+  defp normalize_max_file_size(_size), do: :error
 
   defp maybe_validate_live_updates(changeset) do
     case fetch_change(changeset, :settings) do

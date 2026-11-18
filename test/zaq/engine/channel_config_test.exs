@@ -8,6 +8,44 @@ defmodule Zaq.Engine.ChannelConfigTest do
   alias Zaq.System.SecretConfig
   alias Zaq.SystemConfigFixtures
 
+  test "max_file_size validates consistently across channel providers" do
+    for provider <- ["mattermost", "discord", "telegram", "email:smtp"] do
+      config = %ChannelConfig{
+        provider: provider,
+        name: "Upload test",
+        kind: "retrieval",
+        url: "https://example.test",
+        token: "test-token"
+      }
+
+      changeset =
+        ChannelConfig.changeset(config, %{
+          settings: %{"max_file_size" => "307200", "custom" => "retained"}
+        })
+
+      assert Ecto.Changeset.get_field(changeset, :settings) == %{
+               "max_file_size" => 307_200,
+               "custom" => "retained"
+             }
+
+      refute Keyword.has_key?(changeset.errors, :settings)
+
+      for invalid <- [0, -1, "0", "-1", "1.5", "300KB", false] do
+        invalid_cs = ChannelConfig.changeset(config, %{settings: %{"max_file_size" => invalid}})
+
+        assert {"max_file_size must be a positive integer in bytes", _} =
+                 invalid_cs.errors[:settings]
+      end
+
+      blank =
+        ChannelConfig.changeset(config, %{
+          settings: %{"max_file_size" => "", "custom" => "retained"}
+        })
+
+      assert Ecto.Changeset.get_field(blank, :settings) == %{"custom" => "retained"}
+    end
+  end
+
   # ── Token encryption ────────────────────────────────────────────────────
 
   test "token is stored encrypted in DB on insert" do
