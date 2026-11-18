@@ -70,9 +70,7 @@ defmodule Zaq.UserPortal.Onboarding do
          {:ok, connection} <- client.connect(portal_token),
          true <- InstallationWorker.valid_url?(connection.installation_url),
          {:ok, registered} <-
-           Accounts.complete_registration(user, %{email: connection.email, password: password},
-             rotate_bo_session: true
-           ) do
+           Accounts.complete_registration(user, %{email: connection.email, password: password}) do
       finish_connection(client, registered, connection)
     else
       {:error, %Ecto.Changeset{}} -> {:error, :registration_failed}

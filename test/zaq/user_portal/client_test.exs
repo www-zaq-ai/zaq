@@ -69,12 +69,12 @@ defmodule Zaq.UserPortal.ClientTest do
     Req.Test.expect(Client, fn conn ->
       assert conn.method == "POST"
       assert conn.request_path == "/connect"
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer one-use"]
       {:ok, body, conn} = Plug.Conn.read_body(conn)
 
-      assert %{"portal_token" => "one-use", "machine_signals" => %{}, "network" => %{}} =
-               params = Jason.decode!(body)
+      assert %{"machine_signals" => %{}, "network" => %{}} = params = Jason.decode!(body)
 
-      assert Enum.sort(Map.keys(params)) == ~w(machine_signals network portal_token)
+      assert Enum.sort(Map.keys(params)) == ~w(machine_signals network)
 
       Req.Test.json(conn, %{
         user: %{email: "admin@example.com", litellm_api_key: "router-key"},
@@ -98,9 +98,10 @@ defmodule Zaq.UserPortal.ClientTest do
     Req.Test.expect(Client, fn conn ->
       assert conn.method == "POST"
       assert conn.request_path == "/connect"
+      assert Plug.Conn.get_req_header(conn, "authorization") == []
       {:ok, body, conn} = Plug.Conn.read_body(conn)
       assert Jason.decode!(body) == %{"confirmation_token" => "ack"}
-      Plug.Conn.send_resp(conn, 204, "")
+      Req.Test.json(conn, %{status: "connected"})
     end)
 
     assert :ok = Client.confirm_connection("ack")

@@ -104,6 +104,7 @@ defmodule ZaqWeb.Router do
 
     live "/login", Live.BO.LoginLive
     get "/bootstrap-login", BOSessionController, :bootstrap_login
+    post "/bootstrap-session", BOSessionController, :complete_bootstrap
     get "/connect", PortalConnectController, :new
     post "/connect", PortalConnectController, :create
     live "/forgot-password", Live.BO.System.ForgotPasswordLive

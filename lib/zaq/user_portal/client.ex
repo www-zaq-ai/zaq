@@ -59,7 +59,7 @@ defmodule Zaq.UserPortal.Client do
 
   @impl Zaq.UserPortal.ClientBehaviour
   def connect(portal_token) when is_binary(portal_token) do
-    case post_connect(Map.put(installation_signals(), :portal_token, portal_token)) do
+    case post_connect(installation_signals(), [{"authorization", "Bearer " <> portal_token}]) do
       {:ok, %{status: 200, body: body}} -> parse_connection(body)
       {:ok, %{status: status}} -> {:error, {:portal_status, status}}
       {:error, _reason} -> {:error, :portal_unavailable}
@@ -68,18 +68,24 @@ defmodule Zaq.UserPortal.Client do
 
   @impl Zaq.UserPortal.ClientBehaviour
   def confirm_connection(token) when is_binary(token) do
-    case post_connect(%{confirmation_token: token}) do
+    case post_connect(%{confirmation_token: token}, []) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: status}} -> {:error, {:portal_status, status}}
       {:error, _reason} -> {:error, :portal_unavailable}
     end
   end
 
-  defp post_connect(payload) do
+  defp post_connect(payload, headers) do
     base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
 
     req_options()
-    |> Keyword.merge(url: base_url <> "/connect", json: payload, retry: false, redirect: false)
+    |> Keyword.merge(
+      url: base_url <> "/connect",
+      json: payload,
+      headers: headers,
+      retry: false,
+      redirect: false
+    )
     |> Req.post()
   end
 

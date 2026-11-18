@@ -42,6 +42,7 @@ defmodule ZaqWeb.PortalConnectControllerTest do
     rejected = submit(invalid)
     assert html_response(rejected, 422) =~ "Get a new link"
     assert Accounts.get_user!(user.id).must_change_password
+    assert is_nil(Accounts.get_user!(user.id).bo_session_nonce)
     refute_enqueued(worker: InstallationWorker)
   end
 

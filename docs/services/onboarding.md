@@ -85,7 +85,8 @@ setup form. ZAQ removes the token from the URL before showing the form and
 validates the password and its confirmation locally before calling the Portal.
 An existing administrator cannot be replaced using this route.
 
-The first `POST /connect` sends `portal_token`, `machine_signals` and `network`.
+The first `POST /connect` sends `Authorization: Bearer <portal_token>`. Its JSON
+body contains only `machine_signals` and `network`.
 The Portal returns `user.email`, `user.litellm_api_key`, `confirmation_token`,
 `installation_url` and `deploy_on_own_cluster`. ZAQ never sends the password,
 email or plan in this request. If the exchange fails, the form shows an error
@@ -95,7 +96,8 @@ ZAQ completes the seeded administrator and runs the same synchronous credential,
 assistant, routing and model setup using the returned key. Next it queues a job
 with only the installation URL and cluster flag in its arguments. After a
 successful enqueue it sends a second `POST /connect` containing only
-`confirmation_token`. This acknowledges queued setup, not job completion. ZAQ
+`{"confirmation_token":"…"}` in the JSON body and no bearer header. Portal
+acknowledges queued setup, not job completion, with `200 {"status":"connected"}`. ZAQ
 does not persist the confirmation token. If acknowledgement fails, local setup
 continues, but that acknowledgement cannot be recovered after a restart.
 

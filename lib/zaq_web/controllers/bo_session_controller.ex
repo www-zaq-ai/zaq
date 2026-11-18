@@ -41,6 +41,24 @@ defmodule ZaqWeb.BOSessionController do
     conn
     |> delete_session(:user_id)
     |> delete_session(:bo_session_nonce)
+    |> delete_session(:bootstrap_browser)
     |> redirect(to: ~p"/bo/login")
   end
+
+  def complete_bootstrap(conn, %{"handoff_token" => token}) when is_binary(token) do
+    case BOSession.finish_bootstrap(conn, token) do
+      {:ok, conn, {:welcome, metadata}} ->
+        conn
+        |> put_flash(:bootstrap_welcome, metadata)
+        |> redirect(to: ~p"/bo/change-password")
+
+      {:ok, conn, {:dashboard, message}} ->
+        conn |> put_flash(:info, message) |> redirect(to: ~p"/bo/dashboard")
+
+      :error ->
+        redirect(conn, to: ~p"/bo/login")
+    end
+  end
+
+  def complete_bootstrap(conn, _params), do: redirect(conn, to: ~p"/bo/login")
 end
