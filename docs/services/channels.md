@@ -372,6 +372,41 @@ for cache refresh/expiry and eventual-consistency limitations.
 
 ---
 
+## Outbound HTTP destination binding
+
+`Channels.HttpClient.Resolver` resolves IPv4 before IPv6 on the executing Channels
+node. An absent family is allowed; lookup errors other than absence fail closed.
+Every returned address must pass `HttpRequest.AddressPolicy`, including IPv4
+restrictions for IPv4-mapped IPv6 addresses. One blocked answer rejects the whole
+destination. Literal addresses skip DNS and receive the same checks.
+
+`Channels.HttpClient.Transport` retains Req's request and response steps and uses
+`HttpClient.Connection` for one synchronous Mint connection to a numeric peer
+from that snapshot. HTTP Host/authority, TLS SNI and certificate
+verification retain the original destination identity. Request encoding and
+credential placement run against the original URL; response shaping returns that
+URL. Proxy and Unix-socket overrides cannot replace the approved TCP destination.
+
+The first outbound request starts `Channels.HttpClient.Supervisor` under the
+existing `Channels.BridgeSupervisor`; the generic parent keeps its two children.
+The HTTP supervisor owns request workers and their lease manager with
+`:one_for_all` restart isolation. `Pool` admits at most 64 concurrent attempts,
+using reference-tagged leases bound to immutable worker PIDs.
+Saturation fails with `:pool_timeout`. Sockets close after each request, on borrower
+death, and on subtree restart. A later request recreates the HTTP runtime after a
+bridge subtree restart. There is no cross-request reuse: the performance
+cost is a fresh TCP/TLS connection per request. DNS and establishment share the
+request's finite timeout budget, including time waiting in the manager mailbox.
+Expired grants cannot execute. The worker checks the deadline again after TLS and
+before sending HTTP; the existing receive timeout still applies after sending.
+
+Fallback only tries approved addresses after refused or unreachable connections
+and before Mint begins sending the request. A request-local send flag makes
+that boundary explicit. HTTP/2 establishment returns its first error without
+background retries. TLS identity failures, timeouts, response failures and
+failures after sending do not trigger fallback. Redirects and automatic request
+retries remain disabled. Raw and decoded callers share these guarantees.
+
 ## Outbound HTTP response formats
 
 The registered `general.http_request` Action accepts `response_format: "decoded"`
@@ -390,14 +425,11 @@ same filtering. Raw mode rejects retained non-UTF-8 header or trailer values wit
 `:invalid_response_headers` so the result remains JSON-safe without rewriting
 signing metadata.
 
-Known limitation with Finch 0.24.0: an empty, chunked HTTP/1.1 response carrying
-trailers is not metadata-safe. Finch classifies its trailers as initial headers,
-and Req can overwrite the original headers while leaving `trailers` empty. Callers
-must not rely on signing metadata from that response shape pending an upstream
-fix ([Finch #408](https://github.com/sneako/finch/issues/408), follow-up `zaq-bjp`).
-HTTP/2 trailers, non-empty HTTP/1.1 entities with trailers, and empty responses
-without trailers are unaffected. The empty HTTP/1.1 trailer regression remains
-explicitly skipped until the dependency is fixed and updated.
+The previous Finch adapter misclassified empty HTTP/1.1 chunked trailers
+([Finch #408](https://github.com/sneako/finch/issues/408), follow-up `zaq-bjp`).
+The shared adapter now consumes Mint header events directly, distinguishing initial
+headers from trailers. The existing Finch-specific regression remains skipped;
+changing that test's behavior is outside this review fix.
 
 Raw bytes are the HTTP entity after transfer framing, before content decoding or
 decompression. Raw requests send `accept-encoding: identity`; if the peer sends

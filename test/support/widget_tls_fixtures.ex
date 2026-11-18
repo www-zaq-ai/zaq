@@ -1,14 +1,15 @@
 defmodule Zaq.WidgetTLSFixtures do
   @moduledoc false
 
-  def certificates(directory) do
+  def certificates(directory, opts \\ []) do
     key = Path.join(directory, "widget-key.pem")
     cert = Path.join(directory, "widget-cert.pem")
     ca = Path.join(directory, "widget-ca.pem")
     ca_key = Path.join(directory, "widget-ca-key.pem")
     request = Path.join(directory, "widget-request.pem")
     extensions = Path.join(directory, "widget-extensions.cnf")
-    File.write!(extensions, "subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\n")
+    subject_alt_name = Keyword.get(opts, :subject_alt_name, "DNS:localhost")
+    File.write!(extensions, "subjectAltName=#{subject_alt_name}\nbasicConstraints=CA:FALSE\n")
 
     commands = [
       [

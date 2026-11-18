@@ -1,6 +1,9 @@
 defmodule Zaq.HttpRequest.AddressPolicy do
   @moduledoc """
   IP and CIDR policy checks for outbound HTTP destinations.
+
+  IPv4-mapped IPv6 addresses must pass both their literal IPv6 checks and the
+  corresponding IPv4 restrictions, including blacklists and CIDRs.
   """
 
   alias Zaq.System.OutboundHttpPolicy
@@ -23,8 +26,17 @@ defmodule Zaq.HttpRequest.AddressPolicy do
 
   @doc "Returns `:ok` when `ip` is allowed by policy."
   @spec validate(ip(), OutboundHttpPolicy.t()) :: :ok | {:error, atom(), String.t()}
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   def validate(ip, %OutboundHttpPolicy{} = policy) do
+    with :ok <- validate_address(ip, policy), do: validate_mapped(ip, policy)
+  end
+
+  defp validate_mapped({0, 0, 0, 0, 0, 0xFFFF, high, low}, policy),
+    do: validate_address({high >>> 8, high &&& 255, low >>> 8, low &&& 255}, policy)
+
+  defp validate_mapped(_ip, _policy), do: :ok
+
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp validate_address(ip, policy) do
     cond do
       blocked_literal?(ip, policy.blacklisted_ips) ->
         {:error, :ip_blacklisted, "IP address is blacklisted"}
@@ -105,7 +117,7 @@ defmodule Zaq.HttpRequest.AddressPolicy do
   defp private?(_), do: false
 
   defp link_local?({169, 254, _, _}), do: true
-  defp link_local?({0xFE80, b, _, _, _, _, _, _}) when b in 0..0x03FF, do: true
+  defp link_local?({prefix, _, _, _, _, _, _, _}) when prefix in 0xFE80..0xFEBF, do: true
   defp link_local?(_), do: false
 
   defp cloud_metadata?({169, 254, 169, 254}), do: true

@@ -210,6 +210,9 @@ see [People authentication](services/people-access.md#rate-topology-and-retry-be
 retains the Channels role-discovery name and delegates the existing runtime API;
 the dynamic child reloads enabled bridge configs on every startup.
 
+The outbound HTTP transport starts lazily under the dynamic subtree and closes
+with it; see [outbound destination binding](services/channels.md#outbound-http-destination-binding).
+
 Engine is the largest service. It owns several internal subsystems:
 
 ### Connect mutation delivery (`lib/zaq/engine/connect/`)

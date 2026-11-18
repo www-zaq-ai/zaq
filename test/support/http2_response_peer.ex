@@ -17,7 +17,7 @@ defmodule Zaq.TestSupport.Http2ResponsePeer do
          {:ok, socket} = :gen_tcp.accept(listener, 5_000)
          assert {:ok, @preface} = :gen_tcp.recv(socket, byte_size(@preface), 5_000)
          :ok = :gen_tcp.send(socket, frame(4, 0, 0, ""))
-         stream_id = receive_request(socket)
+         stream_id = receive_request(socket, owner, Keyword.get(options, :capture_headers, false))
          send(owner, {:http2_request, stream_id})
 
          headers = [{":status", "200"} | Keyword.get(options, :headers, [])]
@@ -55,22 +55,33 @@ defmodule Zaq.TestSupport.Http2ResponsePeer do
     "http://127.0.0.1:#{port}/signed"
   end
 
-  defp receive_request(socket) do
+  defp receive_request(socket, owner, capture_headers?) do
     assert {:ok, <<length::24, type::8, flags::8, _reserved::1, stream_id::31>>} =
              :gen_tcp.recv(socket, 9, 5_000)
 
-    if length > 0, do: assert(match?({:ok, _}, :gen_tcp.recv(socket, length, 5_000)))
+    payload =
+      if length > 0 do
+        assert {:ok, payload} = :gen_tcp.recv(socket, length, 5_000)
+        payload
+      else
+        ""
+      end
 
     case {type, flags, stream_id} do
       {4, 0, 0} ->
         :ok = :gen_tcp.send(socket, frame(4, 1, 0, ""))
-        receive_request(socket)
+        receive_request(socket, owner, capture_headers?)
 
       {1, _, id} when id > 0 ->
+        if capture_headers? do
+          assert {:ok, headers, _table} = HPAX.decode(payload, HPAX.new(4_096))
+          send(owner, {:http2_request_headers, headers})
+        end
+
         id
 
       _ ->
-        receive_request(socket)
+        receive_request(socket, owner, capture_headers?)
     end
   end
 

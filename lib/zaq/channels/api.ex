@@ -984,7 +984,7 @@ defmodule Zaq.Channels.Api do
       |> NodeRouter.dispatch()
       |> Map.fetch!(:response)
       |> case do
-        {:ok, prepared} -> HttpClient.request(prepared)
+        {:ok, prepared} -> HttpClient.request(prepared, event.opts)
         {:error, _reason, _message} = error -> error
         {:error, reason} -> {:error, reason}
         other -> {:error, {:invalid_preparation_response, other}}
