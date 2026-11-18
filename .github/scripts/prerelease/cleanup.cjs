@@ -1,7 +1,8 @@
 const { appendFileSync } = require('node:fs');
-const { githubRequest } = require('./candidate.cjs');
-const { candidateVersionPattern, digestPattern } = require('./versions.cjs');
-const { listTags, loadLedger, resolveTag, fetchManifest } = require('./registry.cjs');
+const {
+  githubRequest, candidateVersionPattern, digestPattern,
+  listTags, loadLedger, resolveTag, fetchManifest,
+} = require('./candidate.cjs');
 
 const retentionMs = 7 * 24 * 60 * 60 * 1000;
 const minimumPerChannel = 3;
