@@ -124,10 +124,20 @@ defmodule Zaq.Accounts do
   success `must_change_password` is set to false. This is a single registration
   write — portal consent and provisioning are owned by `Zaq.UserPortal.Onboarding`.
   """
-  def complete_registration(user, attrs) do
+  def complete_registration(user, attrs, opts \\ []) do
     user
+    |> Ecto.Changeset.optimistic_lock(:must_change_password, fn _ -> false end)
     |> User.bootstrap_onboarding_changeset(attrs)
-    |> Repo.update()
+    |> maybe_rotate_bo_session(opts)
+    |> Repo.update(stale_error_field: :must_change_password)
+  end
+
+  defp maybe_rotate_bo_session(changeset, opts) do
+    if Keyword.get(opts, :rotate_bo_session, false) do
+      Ecto.Changeset.put_change(changeset, :bo_session_nonce, Ecto.UUID.generate())
+    else
+      changeset
+    end
   end
 
   @doc """

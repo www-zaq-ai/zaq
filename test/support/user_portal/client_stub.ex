@@ -13,5 +13,11 @@ defmodule Zaq.UserPortal.ClientStub do
   def onboard_user(_email), do: {:error, :econnrefused}
 
   @impl true
+  def connect(_token), do: {:error, :portal_unavailable}
+
+  @impl true
+  def confirm_connection(_token), do: {:error, :portal_unavailable}
+
+  @impl true
   def update_email(_email, _api_key), do: {:error, :econnrefused}
 end

@@ -30,6 +30,7 @@ defmodule Zaq.UserPortal.Onboarding do
   alias Zaq.Accounts
   alias Zaq.Accounts.User
   alias Zaq.Repo
+  alias Zaq.UserPortal.InstallationWorker
   alias Zaq.UserPortal.Provisioner
 
   require Logger
@@ -58,6 +59,45 @@ defmodule Zaq.UserPortal.Onboarding do
     with {:ok, registered_user} <- Accounts.complete_registration(user, attrs) do
       apply_consent(registered_user, consent)
     end
+  end
+
+  @doc "Redeems a Portal link for the pending bootstrap administrator and queues local settings."
+  def connect_bootstrap(%User{id: id}, portal_token, password) do
+    client = Zaq.UserPortal.client()
+
+    with %User{id: ^id, must_change_password: true} = user <-
+           Accounts.bootstrap_admin_pending_onboarding(),
+         {:ok, connection} <- client.connect(portal_token),
+         true <- InstallationWorker.valid_url?(connection.installation_url),
+         {:ok, registered} <-
+           Accounts.complete_registration(user, %{email: connection.email, password: password},
+             rotate_bo_session: true
+           ) do
+      finish_connection(client, registered, connection)
+    else
+      {:error, %Ecto.Changeset{}} -> {:error, :registration_failed}
+      {:error, reason} -> {:error, reason}
+      false -> {:error, :invalid_portal_response}
+      _ -> {:error, :bootstrap_unavailable}
+    end
+  end
+
+  defp finish_connection(client, user, connection) do
+    with {:ok, _credential} <-
+           Provisioner.provision_with_key(%{litellm_api_key: connection.litellm_api_key}),
+         {:ok, user} <- user |> User.portal_consent_changeset("accepted") |> Repo.update(),
+         {:ok, job} <- enqueue_installation(user, connection) do
+      {:ok, user, job, client.confirm_connection(connection.confirmation_token)}
+    else
+      _ -> {:error, :local_setup_failed, user}
+    end
+  end
+
+  defp enqueue_installation(user, connection) do
+    connection
+    |> Map.take([:installation_url, :deploy_on_own_cluster])
+    |> InstallationWorker.new(meta: %{"admin_id" => user.id})
+    |> Oban.insert()
   end
 
   @doc """

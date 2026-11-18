@@ -65,6 +65,47 @@ defmodule Zaq.UserPortal.ClientTest do
     :ok
   end
 
+  test "connect exchanges the token without sending email, plan or password" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      assert %{"portal_token" => "one-use", "machine_signals" => %{}, "network" => %{}} =
+               params = Jason.decode!(body)
+
+      assert Enum.sort(Map.keys(params)) == ~w(machine_signals network portal_token)
+
+      Req.Test.json(conn, %{
+        user: %{email: "admin@example.com", litellm_api_key: "router-key"},
+        confirmation_token: "ack",
+        installation_url: "https://instance.example.com",
+        deploy_on_own_cluster: true
+      })
+    end)
+
+    assert {:ok,
+            %{
+              email: "admin@example.com",
+              litellm_api_key: "router-key",
+              confirmation_token: "ack",
+              installation_url: "https://instance.example.com",
+              deploy_on_own_cluster: true
+            }} = Client.connect("one-use")
+  end
+
+  test "confirmation posts only its token" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      assert Jason.decode!(body) == %{"confirmation_token" => "ack"}
+      Plug.Conn.send_resp(conn, 204, "")
+    end)
+
+    assert :ok = Client.confirm_connection("ack")
+  end
+
   # -- fetch_onboarding/1 --
 
   describe "fetch_onboarding/1" do

@@ -10,6 +10,19 @@ defmodule Zaq.UserPortal.ClientBehaviour do
   @callback onboard_user(email :: String.t()) ::
               {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
 
+  @callback connect(portal_token :: String.t()) ::
+              {:ok,
+               %{
+                 email: String.t(),
+                 litellm_api_key: String.t(),
+                 confirmation_token: String.t(),
+                 installation_url: String.t(),
+                 deploy_on_own_cluster: boolean()
+               }}
+              | {:error, term()}
+
+  @callback confirm_connection(confirmation_token :: String.t()) :: :ok | {:error, term()}
+
   @callback fetch_onboarding(slug :: String.t()) :: {:ok, map()} | :unavailable
 
   @callback update_email(email :: String.t(), api_key :: String.t() | nil) ::
