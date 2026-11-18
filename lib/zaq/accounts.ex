@@ -139,14 +139,9 @@ defmodule Zaq.Accounts do
      |> Ecto.Changeset.add_error(:base, "Registration is already complete")}
   end
 
-  defp maybe_rotate_bootstrap_session(changeset, %User{id: id, username: "admin"}) do
-    case bootstrap_admin_pending_onboarding() do
-      %User{id: ^id} ->
-        Ecto.Changeset.put_change(changeset, :bo_session_nonce, Ecto.UUID.generate())
-
-      _ ->
-        changeset
-    end
+  defp maybe_rotate_bootstrap_session(changeset, %User{username: "admin"}) do
+    # A bootstrap session may already exist even if another user has since been added.
+    Ecto.Changeset.put_change(changeset, :bo_session_nonce, Ecto.UUID.generate())
   end
 
   defp maybe_rotate_bootstrap_session(changeset, _user), do: changeset

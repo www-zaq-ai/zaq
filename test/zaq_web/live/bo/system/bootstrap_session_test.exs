@@ -74,6 +74,28 @@ defmodule ZaqWeb.Live.BO.System.BootstrapSessionTest do
     refute has_element?(view, "#bootstrap-session-form")
   end
 
+  test "registration revokes earlier bootstrap sessions after another user is provisioned", %{
+    user: user
+  } do
+    {winner, view} = setup_browser()
+    {earlier, _earlier_view} = setup_browser()
+    stub_portal(:unavailable)
+
+    Repo.insert!(%Accounts.User{
+      username: "operator",
+      role_id: user.role_id,
+      password_hash: "unused"
+    })
+
+    submit_password(view)
+    render_async(view, @portal_async_timeout)
+
+    assert has_element?(view, "#bootstrap-session-form[phx-trigger-action]")
+    renewed = follow_trigger_action(form(view, "#bootstrap-session-form"), recycle(winner))
+    assert html_response(get(recycle(renewed), ~p"/bo/dashboard"), 200)
+    assert redirected_to(get(recycle(earlier), ~p"/bo/dashboard")) == ~p"/bo/login"
+  end
+
   defp setup_browser do
     conn = get(build_conn(), ~p"/bo/bootstrap-login")
     conn = get(recycle(conn), redirected_to(conn))

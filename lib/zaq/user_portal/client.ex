@@ -69,7 +69,8 @@ defmodule Zaq.UserPortal.Client do
   @impl Zaq.UserPortal.ClientBehaviour
   def confirm_connection(token) when is_binary(token) do
     case post_connect(%{confirmation_token: token}, []) do
-      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: 200, body: %{"status" => "connected"}}} -> :ok
+      {:ok, %{status: 200}} -> {:error, :invalid_portal_response}
       {:ok, %{status: status}} -> {:error, {:portal_status, status}}
       {:error, _reason} -> {:error, :portal_unavailable}
     end

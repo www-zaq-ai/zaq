@@ -8,10 +8,10 @@ defmodule Zaq.UserPortal.Onboarding do
   provisioning live here so success/failure of provisioning can drive the recorded
   consent value.
 
-  Registration is committed **before** the portal is contacted, so a portal
-  failure never blocks account creation — the admin always ends up with a usable
-  ZAQ account and can complete portal activation later from the dashboard retry
-  flow (`activate_portal/2`).
+  In standard onboarding, registration is committed **before** provisioning
+  contacts the Portal, so a provisioning failure does not block account creation.
+  Existing-account connections exchange a one-time link first and only commit
+  registration if local provisioning succeeds and the installation job is queued.
 
   On acceptance, provisioning runs synchronously after the account is written. If
   it fails, consent is recorded as `"declined"`, the keyless ZAQ Router credential
@@ -29,6 +29,7 @@ defmodule Zaq.UserPortal.Onboarding do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.User
+  alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.UserPortal.InstallationWorker
   alias Zaq.UserPortal.Provisioner
@@ -69,9 +70,8 @@ defmodule Zaq.UserPortal.Onboarding do
            Accounts.bootstrap_admin_pending_onboarding(),
          {:ok, connection} <- client.connect(portal_token),
          true <- InstallationWorker.valid_url?(connection.installation_url),
-         {:ok, registered} <-
-           Accounts.complete_registration(user, %{email: connection.email, password: password}) do
-      finish_connection(client, registered, connection)
+         {:ok, {registered, job_id}} <- register_and_enqueue(user, connection, password) do
+      {:ok, registered, job_id, client.confirm_connection(connection.confirmation_token)}
     else
       {:error, %Ecto.Changeset{}} -> {:error, :registration_failed}
       {:error, reason} -> {:error, reason}
@@ -80,22 +80,52 @@ defmodule Zaq.UserPortal.Onboarding do
     end
   end
 
-  defp finish_connection(client, user, connection) do
-    with {:ok, _credential} <-
-           Provisioner.provision_with_key(%{litellm_api_key: connection.litellm_api_key}),
-         {:ok, user} <- user |> User.portal_consent_changeset("accepted") |> Repo.update(),
-         {:ok, job} <- enqueue_installation(user, connection) do
-      {:ok, user, job, client.confirm_connection(connection.confirmation_token)}
-    else
-      _ -> {:error, :local_setup_failed, user}
-    end
+  defp register_and_enqueue(user, connection, password) do
+    attrs = %{email: connection.email, password: password}
+
+    Repo.transact(fn ->
+      with {:ok, registered} <- Accounts.complete_registration(user, attrs),
+           {:ok, job} <- enqueue_installation(registered.id, connection),
+           {:ok, accepted} <-
+             registered |> User.portal_consent_changeset("accepted") |> Repo.update(),
+           :ok <- provision_connection(connection.litellm_api_key) do
+        {:ok, {accepted, job.id}}
+      end
+    end)
   end
 
-  defp enqueue_installation(user, connection) do
-    connection
-    |> Map.take([:installation_url, :deploy_on_own_cluster])
-    |> InstallationWorker.new(meta: %{"admin_id" => user.id})
-    |> Oban.insert()
+  defp enqueue_installation(admin_id, connection) do
+    job =
+      connection
+      |> Map.take([:installation_url, :deploy_on_own_cluster])
+      |> InstallationWorker.new(meta: %{"admin_id" => admin_id})
+
+    case Oban.insert(job) do
+      {:ok, _job} = queued -> queued
+      {:error, _reason} -> {:error, :installation_enqueue_failed}
+    end
+  rescue
+    _ in [Ecto.ConstraintError, Postgrex.Error, DBConnection.ConnectionError] ->
+      {:error, :installation_enqueue_failed}
+  end
+
+  defp provision_connection(api_key) do
+    provision = fn -> Provisioner.provision_with_key(%{litellm_api_key: api_key}) end
+
+    result =
+      if NodeRouter.find_node(Zaq.Engine.Supervisor) == node() and
+           NodeRouter.find_node(Zaq.Agent.Supervisor) == node() do
+        provision.()
+      else
+        # In a split deployment a remote role must see writes made by a local role.
+        # A separate DB checkout keeps those writes outside the registration transaction.
+        provision |> Task.async() |> Task.await(:infinity)
+      end
+
+    case result do
+      {:ok, _credential} -> :ok
+      {:error, _reason} -> {:error, :local_setup_failed}
+    end
   end
 
   @doc """

@@ -46,6 +46,45 @@ defmodule ZaqWeb.PortalConnectControllerTest do
     refute_enqueued(worker: InstallationWorker)
   end
 
+  test "password feedback reports the maximum length without echoing the password", %{conn: conn} do
+    password = "StrongPass1!" <> String.duplicate("a", 61)
+
+    result =
+      conn
+      |> open_form()
+      |> recycle()
+      |> post(~p"/bo/connect", %{password: password, password_confirmation: password})
+
+    html = html_response(result, 422)
+    assert html =~ "No more than 72 characters"
+    refute html =~ password
+    refute_enqueued(worker: InstallationWorker)
+  end
+
+  test "a failed Portal acknowledgement warns without removing the queued job", %{conn: conn} do
+    expect(ClientMock, :connect, fn "one-use-test-token" ->
+      {:ok,
+       %{
+         email: "admin@example.com",
+         litellm_api_key: "router-key",
+         confirmation_token: "ack-token",
+         installation_url: "https://instance.example.com",
+         deploy_on_own_cluster: false
+       }}
+    end)
+
+    expect(ClientMock, :confirm_connection, fn "ack-token" ->
+      {:error, :invalid_portal_response}
+    end)
+
+    result = conn |> open_form() |> submit()
+    [job] = all_enqueued(worker: InstallationWorker)
+    assert redirected_to(result) == ~p"/bo/connect/status/#{job.id}"
+
+    assert {:ok, _view, html} = live(recycle(result), redirected_to(result))
+    assert html =~ "the Portal did not acknowledge the connection"
+  end
+
   test "registers locally and confirms only after the additional configuration is enqueued", %{
     conn: conn,
     user: user

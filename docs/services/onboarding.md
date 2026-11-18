@@ -92,14 +92,18 @@ The Portal returns `user.email`, `user.litellm_api_key`, `confirmation_token`,
 email or plan in this request. If the exchange fails, the form shows an error
 without completing registration.
 
-ZAQ completes the seeded administrator and runs the same synchronous credential,
-assistant, routing and model setup using the returned key. Next it queues a job
-with only the installation URL and cluster flag in its arguments. After a
-successful enqueue it sends a second `POST /connect` containing only
+ZAQ completes the seeded administrator, queues a job with only the installation
+URL and cluster flag, and records consent in one transaction. It runs the same
+synchronous credential, assistant, routing and model setup using the returned key
+before committing registration. If ZAQ cannot queue the job, registration remains
+pending and no confirmation is sent. Return to Portal to request a new connection
+link and try again.
+
+After the transaction commits, ZAQ sends a second `POST /connect` containing only
 `{"confirmation_token":"…"}` in the JSON body and no bearer header. Portal
-acknowledges queued setup, not job completion, with `200 {"status":"connected"}`. ZAQ
-does not persist the confirmation token. If acknowledgement fails, local setup
-continues, but that acknowledgement cannot be recovered after a restart.
+acknowledges queued setup, not job completion, with `200 {"status":"connected"}`.
+Any other response leaves the connection unconfirmed without blocking local setup.
+ZAQ does not persist the confirmation token.
 
 The job sets Global URL and, for own-cluster installations, enables Disk with
 `Documents` as the default volume at relative path `.`. It creates `.web_browser`

@@ -27,6 +27,24 @@ defmodule Zaq.UserPortal.InstallationWorkerTest do
     assert System.get_global_base_url() == nil
   end
 
+  test "an unavailable Engine makes the Global URL step retryable" do
+    supervisor = Zaq.Engine.Supervisor
+    pid = Process.whereis(supervisor)
+    Process.unregister(supervisor)
+
+    try do
+      assert {:error, :global_url} =
+               perform_job(InstallationWorker, %{
+                 installation_url: "https://instance.example.com",
+                 deploy_on_own_cluster: false
+               })
+
+      assert System.get_global_base_url() == nil
+    after
+      Process.register(pid, supervisor)
+    end
+  end
+
   @tag :tmp_dir
   test "cluster provisioning creates the destinations and reuses them on retry", %{tmp_dir: root} do
     previous = Application.get_env(:zaq, Zaq.Storage)

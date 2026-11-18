@@ -8,7 +8,6 @@ defmodule Zaq.UserPortal.InstallationWorker do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Storage.VolumeConfig
-  alias Zaq.System
 
   @actor %{kind: :system, subject: "portal-installation"}
   @volume "Documents"
@@ -31,7 +30,10 @@ defmodule Zaq.UserPortal.InstallationWorker do
   def perform(%Oban.Job{args: %{"installation_url" => url, "deploy_on_own_cluster" => own?}})
       when is_boolean(own?) do
     with true <- valid_url?(url),
-         :ok <- required(:global_url, fn -> System.set_global_base_url(url) end) do
+         :ok <-
+           required(:global_url, fn ->
+             dispatch_engine(:system_config_set_global_base_url, %{base_url: url})
+           end) do
       configure_cluster(own?)
     else
       false -> {:cancel, :invalid_installation}
@@ -50,7 +52,7 @@ defmodule Zaq.UserPortal.InstallationWorker do
          {:ok, skills} <- required(:skills_folder, fn -> folder(config, ".SKILLS") end),
          {:ok, _} <-
            required(:screenshot_destination, fn ->
-             System.save_web_browsing_config(screenshots)
+             dispatch_engine(:system_config_save_web_browsing_config, %{attrs: screenshots})
            end),
          {:ok, _} <- required(:skills_destination, fn -> save_skills(skills) end) do
       :ok
@@ -58,10 +60,17 @@ defmodule Zaq.UserPortal.InstallationWorker do
   end
 
   defp save_skills(destination) do
-    case System.save_skill_resource_config(destination) do
+    case dispatch_engine(:system_config_save_skill_resource_config, %{attrs: destination}) do
       {:ok, ^destination} = saved -> saved
       _ -> {:error, :skills_destination_not_saved}
     end
+  end
+
+  defp dispatch_engine(action, request) do
+    request
+    |> Event.new(:engine, actor: @actor, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.fetch!(:response)
   end
 
   defp enable_disk do

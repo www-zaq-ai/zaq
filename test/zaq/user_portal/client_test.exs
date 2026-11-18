@@ -107,6 +107,24 @@ defmodule Zaq.UserPortal.ClientTest do
     assert :ok = Client.confirm_connection("ack")
   end
 
+  test "confirmation rejects a 200 without the connected status" do
+    Req.Test.expect(Client, fn conn -> Req.Test.json(conn, %{status: "pending"}) end)
+
+    assert {:error, :invalid_portal_response} = Client.confirm_connection("ack")
+  end
+
+  test "confirmation rejects a success status other than 200" do
+    Req.Test.expect(Client, fn conn -> Plug.Conn.send_resp(conn, 204, "") end)
+
+    assert {:error, {:portal_status, 204}} = Client.confirm_connection("ack")
+  end
+
+  test "confirmation reports transport failure without returning request details" do
+    Req.Test.stub(Client, fn conn -> Req.Test.transport_error(conn, :econnrefused) end)
+
+    assert {:error, :portal_unavailable} = Client.confirm_connection("ack")
+  end
+
   # -- fetch_onboarding/1 --
 
   describe "fetch_onboarding/1" do

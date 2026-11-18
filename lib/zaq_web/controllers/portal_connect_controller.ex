@@ -37,20 +37,16 @@ defmodule ZaqWeb.PortalConnectController do
     with {:ok, user, token} <- pending_setup(conn),
          {:ok, password} <- validate_password(params) do
       case Onboarding.connect_bootstrap(user, token, password) do
-        {:ok, user, job, confirmation} ->
+        {:ok, user, job_id, confirmation} ->
           conn
           |> complete_session(user)
           |> report_confirmation(confirmation)
-          |> redirect(to: ~p"/bo/connect/status/#{job.id}")
+          |> redirect(to: ~p"/bo/connect/status/#{job_id}")
 
-        {:error, :local_setup_failed, user} ->
+        {:error, reason} when reason in [:installation_enqueue_failed, :local_setup_failed] ->
           conn
-          |> complete_session(user)
-          |> put_flash(
-            :error,
-            "Your admin account is ready, but ZAQ could not finish Portal setup. Check your configuration before continuing."
-          )
-          |> redirect(to: ~p"/bo/dashboard")
+          |> delete_session(:portal_setup)
+          |> form_error(message(reason))
 
         {:error, :bootstrap_unavailable} ->
           unavailable(conn)
@@ -76,10 +72,14 @@ defmodule ZaqWeb.PortalConnectController do
     end
   end
 
-  defp validate_password(%{"password" => password, "password_confirmation" => password}) do
-    if PasswordPolicy.valid_password?(password),
-      do: {:ok, password},
-      else: {:error, :weak_password}
+  defp validate_password(%{"password" => password, "password_confirmation" => password})
+       when is_binary(password) do
+    unmet = password |> PasswordPolicy.requirements_with_status() |> Enum.reject(& &1.met?)
+
+    case unmet do
+      [] -> {:ok, password}
+      requirements -> {:error, {:weak_password, Enum.map(requirements, & &1.label)}}
+    end
   end
 
   defp validate_password(_), do: {:error, :password_mismatch}
@@ -118,8 +118,8 @@ defmodule ZaqWeb.PortalConnectController do
 
   defp message(:password_mismatch), do: "Passwords do not match."
 
-  defp message(:weak_password),
-    do: "Use at least 8 characters with uppercase, lowercase, a digit and a symbol."
+  defp message({:weak_password, labels}),
+    do: "Password requirements not met: #{Enum.join(labels, "; ")}."
 
   defp message({:portal_status, status}) when status in 400..499,
     do: "The Portal rejected this link. Get a new link and try again."
@@ -129,6 +129,13 @@ defmodule ZaqWeb.PortalConnectController do
 
   defp message(:registration_failed),
     do: "ZAQ could not complete registration. Get a new link and try again."
+
+  defp message(:installation_enqueue_failed),
+    do: "ZAQ couldn’t queue setup. Return to Portal and request a new connection link."
+
+  defp message(:local_setup_failed),
+    do:
+      "ZAQ couldn’t finish local setup. Check your configuration and request a new connection link."
 
   defp message(_), do: "Could not connect to the Portal. Try again."
 end
