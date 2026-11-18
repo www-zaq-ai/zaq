@@ -109,4 +109,27 @@ defmodule ZaqWeb.BOSessionControllerTest do
       assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid username or password"
     end
   end
+
+  describe "POST /bo/bootstrap-session" do
+    @tag :bootstrap_only
+    test "redirects to login when handoff token is missing", %{conn: conn} do
+      conn = post(conn, ~p"/bo/bootstrap-session", %{})
+
+      assert redirected_to(conn, 302) == ~p"/bo/login"
+      refute get_session(conn, :user_id)
+      refute get_session(conn, :bo_session_nonce)
+    end
+
+    @tag :bootstrap_only
+    test "redirects to login when handoff token is not a binary", %{conn: conn} do
+      conn =
+        post(conn, ~p"/bo/bootstrap-session", %{
+          "handoff_token" => %{"value" => "not-a-token"}
+        })
+
+      assert redirected_to(conn, 302) == ~p"/bo/login"
+      refute get_session(conn, :user_id)
+      refute get_session(conn, :bo_session_nonce)
+    end
+  end
 end

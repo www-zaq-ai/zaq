@@ -61,6 +61,83 @@ defmodule ZaqWeb.PortalConnectControllerTest do
     refute_enqueued(worker: InstallationWorker)
   end
 
+  test "empty and oversized setup tokens clear the setup session", %{conn: conn} do
+    forbid_portal_calls()
+
+    for token <- ["", String.duplicate("a", 2049)] do
+      conn = conn |> open_form() |> recycle()
+      result = get(conn, ~p"/bo/connect?#{[portal_token: token]}")
+      assert redirected_to(result) == ~p"/bo/login"
+      refute get_session(result, :portal_setup)
+    end
+  end
+
+  test "missing and stale setup state redirects to login without redeeming", %{conn: conn} do
+    forbid_portal_calls()
+
+    missing_form = get(conn, ~p"/bo/connect")
+    assert redirected_to(missing_form) == ~p"/bo/login"
+
+    missing_submit =
+      post(recycle(conn), ~p"/bo/connect", %{
+        password: "StrongPass1!",
+        password_confirmation: "StrongPass1!"
+      })
+
+    assert redirected_to(missing_submit) == ~p"/bo/login"
+    refute get_session(missing_submit, :portal_setup)
+
+    stale = open_form(conn)
+    role = Repo.get_by!(Accounts.Role, name: "super_admin")
+    Repo.insert!(%User{username: "second-admin", role_id: role.id, password_hash: "bootstrap"})
+    stale = submit(stale)
+
+    assert redirected_to(stale) == ~p"/bo/login"
+    refute get_session(stale, :portal_setup)
+    assert Repo.get_by!(User, username: "admin").must_change_password
+    refute_enqueued(worker: InstallationWorker)
+  end
+
+  test "invalid installation URLs are rejected before registration", %{conn: conn, user: user} do
+    forbid_portal_calls()
+
+    expect(ClientMock, :connect, fn "one-use-test-token" ->
+      {:ok,
+       ZaqWeb.PortalConnectControllerTestFixtures.success_response(%{
+         installation_url: "https://instance.example.com/?invalid=yes"
+       })}
+    end)
+
+    result = conn |> open_form() |> submit()
+    assert html_response(result, 422) =~ "incomplete or invalid setup details"
+    assert Accounts.get_user!(user.id).must_change_password
+    refute_enqueued(worker: InstallationWorker)
+  end
+
+  test "malformed email is rejected during registration", %{conn: conn, user: user} do
+    forbid_portal_calls()
+
+    expect(ClientMock, :connect, fn "one-use-test-token" ->
+      {:ok, ZaqWeb.PortalConnectControllerTestFixtures.success_response(%{email: "not-an-email"})}
+    end)
+
+    result = conn |> open_form() |> submit()
+    assert html_response(result, 422) =~ "could not complete registration"
+    assert Accounts.get_user!(user.id).must_change_password
+    refute_enqueued(worker: InstallationWorker)
+  end
+
+  test "Portal unavailability preserves the setup session for retry", %{conn: conn, user: user} do
+    forbid_portal_calls()
+
+    expect(ClientMock, :connect, fn "one-use-test-token" -> {:error, :portal_unavailable} end)
+    result = conn |> open_form() |> submit()
+    assert html_response(result, 422) =~ "Could not connect to the Portal. Try again."
+    assert get_session(result, :portal_setup)
+    assert Accounts.get_user!(user.id).must_change_password
+    refute_enqueued(worker: InstallationWorker)
+  end
+
   test "a failed Portal acknowledgement warns without removing the queued job", %{conn: conn} do
     expect(ClientMock, :connect, fn "one-use-test-token" ->
       {:ok,
@@ -149,10 +226,101 @@ defmodule ZaqWeb.PortalConnectControllerTest do
     get(recycle(conn), ~p"/bo/connect")
   end
 
+  defp forbid_portal_calls do
+    stub(ClientMock, :connect, fn _ -> flunk("unexpected Portal redemption") end)
+    stub(ClientMock, :confirm_connection, fn _ -> flunk("unexpected Portal confirmation") end)
+  end
+
   defp submit(conn) do
     post(recycle(conn), ~p"/bo/connect", %{
       password: "StrongPass1!",
       password_confirmation: "StrongPass1!"
     })
+  end
+end
+
+defmodule ZaqWeb.PortalConnectControllerLocalSetupFailureTest do
+  use ZaqWeb.ConnCase, async: false
+  use Oban.Testing, repo: Zaq.Repo
+
+  import Mox
+  alias Zaq.Accounts
+  alias Zaq.Accounts.User
+  alias Zaq.Agent
+  alias Zaq.Agent.ZAQRouter
+  alias Zaq.Repo
+  alias Zaq.UserPortal.{ClientMock, InstallationWorker}
+
+  setup :verify_on_exit!
+
+  setup do
+    stub(ClientMock, :connect, fn _ -> flunk("unexpected Portal redemption") end)
+    stub(ClientMock, :confirm_connection, fn _ -> flunk("unexpected Portal confirmation") end)
+
+    Repo.delete_all(User)
+    role = Repo.get_by!(Accounts.Role, name: "super_admin")
+    user = Repo.insert!(%User{username: "admin", role_id: role.id, password_hash: "bootstrap"})
+    %{user: user}
+  end
+
+  test "local setup failure rolls back registration, consent, and installation job", %{
+    conn: conn,
+    user: user
+  } do
+    snapshot = LLMDB.Store.snapshot()
+    previous_opts = LLMDB.Store.last_opts()
+    on_exit(fn -> LLMDB.Store.put!(snapshot, previous_opts) end)
+
+    opts = ZAQRouter.llmdb_opts()
+    custom = opts[:custom]
+    model_id = ZAQRouter.default_chat_model()
+    custom = update_in(custom, [:zaq_router, :models], &Map.delete(&1, model_id))
+    assert {:ok, _} = LLMDB.load(Keyword.put(opts, :custom, custom))
+    assert {:error, _} = LLMDB.model(:zaq_router, model_id)
+
+    expect(ClientMock, :connect, fn "one-use-test-token" ->
+      {:ok, ZaqWeb.PortalConnectControllerTestFixtures.success_response()}
+    end)
+
+    form = open_form(conn)
+    result = submit(form)
+
+    assert html_response(result, 422) =~
+             "ZAQ couldn’t finish local setup. Check your configuration and request a new connection link."
+
+    assert is_nil(get_session(result, :portal_setup))
+    assert Accounts.get_user!(user.id).must_change_password
+    assert is_nil(Accounts.get_user!(user.id).email)
+    assert is_nil(Accounts.get_user!(user.id).portal_consent)
+    assert {:error, :agent_not_found} = Agent.get_agent_by_name("ZAQ Assistant")
+    refute_enqueued(worker: InstallationWorker)
+  end
+
+  defp open_form(conn) do
+    conn = get(conn, ~p"/bo/connect?#{[portal_token: "one-use-test-token"]}")
+    assert redirected_to(conn) == ~p"/bo/connect"
+    get(recycle(conn), ~p"/bo/connect")
+  end
+
+  defp submit(conn) do
+    post(recycle(conn), ~p"/bo/connect", %{
+      password: "StrongPass1!",
+      password_confirmation: "StrongPass1!"
+    })
+  end
+end
+
+defmodule ZaqWeb.PortalConnectControllerTestFixtures do
+  def success_response(attrs \\ %{}) do
+    Map.merge(
+      %{
+        email: "admin@example.com",
+        litellm_api_key: "router-key",
+        confirmation_token: "ack-token",
+        installation_url: "https://instance.example.com",
+        deploy_on_own_cluster: false
+      },
+      attrs
+    )
   end
 end

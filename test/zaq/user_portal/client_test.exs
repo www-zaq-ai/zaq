@@ -94,6 +94,49 @@ defmodule Zaq.UserPortal.ClientTest do
             }} = Client.connect("one-use")
   end
 
+  test "connect returns the portal status without exposing its rejection body" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer one-use"]
+
+      conn
+      |> Plug.Conn.put_status(401)
+      |> Req.Test.json(%{error: "invalid_token", detail: "portal-only detail"})
+    end)
+
+    assert Client.connect("one-use") == {:error, {:portal_status, 401}}
+    Req.Test.verify!(Client)
+  end
+
+  test "connect normalizes a transport failure" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+      Req.Test.transport_error(conn, :econnrefused)
+    end)
+
+    assert Client.connect("one-use") == {:error, :portal_unavailable}
+    Req.Test.verify!(Client)
+  end
+
+  test "connect rejects a success response with an invalid field type" do
+    Req.Test.expect(Client, fn conn ->
+      assert conn.method == "POST"
+      assert conn.request_path == "/connect"
+
+      Req.Test.json(conn, %{
+        user: %{email: "admin@example.com", litellm_api_key: "router-key"},
+        confirmation_token: "ack",
+        installation_url: "https://instance.example.com",
+        deploy_on_own_cluster: "true"
+      })
+    end)
+
+    assert Client.connect("one-use") == {:error, :invalid_portal_response}
+    Req.Test.verify!(Client)
+  end
+
   test "confirmation posts only its token" do
     Req.Test.expect(Client, fn conn ->
       assert conn.method == "POST"
