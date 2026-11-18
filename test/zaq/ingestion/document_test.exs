@@ -1,6 +1,7 @@
 defmodule Zaq.Ingestion.DocumentTest do
   use Zaq.DataCase, async: true
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
 
@@ -87,6 +88,54 @@ defmodule Zaq.Ingestion.DocumentTest do
   end
 
   describe "insert_new/1" do
+    test "returns validation errors without raising" do
+      assert {:error, changeset} = Document.insert_new(%{content: "missing source"})
+      refute changeset.valid?
+    end
+
+    test "concurrent identity ensure and first ingestion keep one document and ingested content" do
+      source = "ensure-race-#{Ecto.UUID.generate()}"
+      owner = self()
+
+      on_exit(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          import Ecto.Query
+          Repo.delete_all(from d in Document, where: d.source == ^source)
+        end)
+      end)
+
+      tasks =
+        for operation <- [:ensure, :ingest] do
+          Task.async(fn ->
+            Sandbox.unboxed_run(Repo, fn ->
+              send(owner, {:identity_ready, self()})
+              receive do: (:start_identity_write -> :ok)
+
+              case operation do
+                :ensure -> Document.insert_new(%{source: source})
+                :ingest -> Document.upsert(%{source: source, content: "materialized"})
+              end
+            end)
+          end)
+        end
+
+      writers =
+        for _ <- tasks,
+            do:
+              (
+                assert_receive {:identity_ready, pid}
+                pid
+              )
+
+      Enum.each(writers, &send(&1, :start_identity_write))
+      assert [{:ok, ensured}, {:ok, ingested}] = Enum.map(tasks, &Task.await/1)
+      assert ensured.id == ingested.id
+
+      Sandbox.unboxed_run(Repo, fn ->
+        assert Document.get_by_source(source).content == "materialized"
+      end)
+    end
+
     test "returns existing document on source conflict without overwriting content" do
       source = "tracked/existing-#{System.unique_integer([:positive])}.md"
 

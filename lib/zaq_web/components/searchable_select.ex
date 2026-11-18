@@ -12,6 +12,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
   Use `label_position` to place it `inline` (default) or `block` (above the control).
   """
   use Phoenix.Component
+  import ZaqWeb.Components.DesignSystem.Button, only: [button: 1]
 
   @type option ::
           {String.t(), term()}
@@ -27,6 +28,16 @@ defmodule ZaqWeb.Components.SearchableSelect do
   attr :allow_create, :boolean, default: false
   attr :on_create_event, :string, default: "create_and_assign_team"
   attr :on_search, :string, default: nil
+  attr :target, :any, default: nil
+  attr :event_context, :map, default: %{}
+  attr :disabled, :boolean, default: false
+  attr :maxlength, :integer, default: nil
+  attr :create_on_no_exact_match, :boolean, default: false
+
+  attr :clearable, :boolean,
+    default: false,
+    doc: "Allow clearing through the normal form change event."
+
   attr :compact, :boolean, default: false
   attr :searchable, :boolean, default: true
   attr :label, :string, default: nil
@@ -82,15 +93,21 @@ defmodule ZaqWeb.Components.SearchableSelect do
       id={@id}
       phx-hook="SearchableSelect"
       data-server-search={@on_search}
+      data-event-target={@target}
+      data-event-context={Jason.encode!(@event_context)}
+      data-create-on-no-exact-match={to_string(@create_on_no_exact_match)}
+      data-empty-label={@empty_label}
       class="zaq-searchable-select-root"
     >
-      <input type="hidden" name={@name} value={@value} data-select-value />
+      <input type="hidden" name={@name} value={@value} data-select-value disabled={@disabled} />
       <button
         type="button"
         id={"#{@id}-trigger"}
         data-select-trigger
+        disabled={@disabled}
         class={[
           "zaq-control-combobox-trigger transition-colors",
+          @clearable && "zaq-searchable-select-clearable",
           if(@compact, do: "zaq-control-combobox-trigger--compact")
         ]}
       >
@@ -113,6 +130,18 @@ defmodule ZaqWeb.Components.SearchableSelect do
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+      <.button
+        :if={@clearable}
+        variant={:ghost}
+        icon="hero-x-mark"
+        icon_only
+        data-select-clear
+        hidden={@value in [nil, ""]}
+        disabled={@disabled}
+        aria-label="Clear value"
+        title="Clear value"
+        class="zaq-searchable-select-clear"
+      />
       <div
         data-select-panel
         class="zaq-searchable-select-panel absolute z-50 mt-1 hidden w-full overflow-hidden"
@@ -121,6 +150,8 @@ defmodule ZaqWeb.Components.SearchableSelect do
           <input
             type="text"
             data-select-search
+            maxlength={@maxlength}
+            disabled={@disabled}
             placeholder={@placeholder}
             class={[
               "zaq-control-text w-full transition-colors zaq-text-body-sm",
@@ -147,6 +178,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
           :if={@allow_create}
           type="button"
           data-select-create
+          disabled={@disabled}
           data-create-event={@on_create_event}
           class="zaq-text-body-sm zaq-searchable-select-create hidden"
         >

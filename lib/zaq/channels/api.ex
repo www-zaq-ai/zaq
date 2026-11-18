@@ -556,6 +556,20 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
+        %Event{request: %{source_ref: source_ref, right: right}} = event,
+        :data_source_record_context,
+        _context
+      ) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+
+    %{
+      event
+      | response:
+          data_source_module.record_context(source_ref, right, TrustedContext.from_event(event))
+    }
+  end
+
+  def handle_event(
         %Event{request: %{record: %Record{} = record, params: params}} = event,
         :data_source_update_file,
         _context

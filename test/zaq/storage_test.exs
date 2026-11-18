@@ -82,6 +82,65 @@ defmodule Zaq.StorageTest do
     {:ok, root: root, storage_opts: opts}
   end
 
+  test "source ancestry requires update on the target and read on each ancestor", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.mkdir_p!(Path.join(root, "folder"))
+    File.write!(Path.join(root, "folder/file.md"), "unchanged")
+    {:ok, file} = Storage.file_info("archives", "folder/file.md", opts)
+    {:ok, folder} = EntryCatalog.ensure("archives", "folder", :directory)
+    root_entry = EntryCatalog.get_active("archives", "")
+    person = person_fixture()
+    opts = Keyword.put(opts, :actor, %{person_id: person.id})
+
+    {:ok, _} =
+      Permissions.grant(%StorageEntry{id: root_entry.id}, %{
+        person_id: person.id,
+        access_rights: ["read"]
+      })
+
+    assert {:ok, ancestors} = Storage.document_ancestors(file.id, :read, opts)
+    assert Enum.map(ancestors, & &1.id) == [folder.id, root_entry.id]
+    assert {:error, :unauthorized} = Storage.document_ancestors(file.id, :update, opts)
+
+    {:ok, _} =
+      Permissions.grant(%StorageEntry{id: file.id}, %{
+        person_id: person.id,
+        access_rights: ["update"]
+      })
+
+    {{:ok, ^ancestors}, queries} =
+      capture_resource_permission_queries(fn ->
+        Storage.document_ancestors(file.id, :update, opts)
+      end)
+
+    assert length(queries) == 1
+    assert File.read!(Path.join(root, "folder/file.md")) == "unchanged"
+  end
+
+  test "source ancestry fails without exposing unreadable or tombstoned ancestors", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.mkdir_p!(Path.join(root, "private"))
+    File.write!(Path.join(root, "private/file.md"), "unchanged")
+    {:ok, file} = Storage.file_info("archives", "private/file.md", opts)
+    person = person_fixture()
+    opts = Keyword.put(opts, :actor, %{person_id: person.id})
+
+    {:ok, _} =
+      Permissions.grant(%StorageEntry{id: file.id}, %{
+        person_id: person.id,
+        access_rights: ["read", "update"]
+      })
+
+    assert {:error, :incomplete_ancestry} = Storage.document_ancestors(file.id, :update, opts)
+    root_entry = EntryCatalog.get_active("archives", "")
+    root_entry |> Ecto.Changeset.change(deleted_at: DateTime.utc_now(:second)) |> Repo.update!()
+    assert {:error, :incomplete_ancestry} = Storage.document_ancestors(file.id, :read, opts)
+  end
+
   test "list_documents/1 paginates directory entries with a signed cursor", %{
     root: root,
     storage_opts: opts

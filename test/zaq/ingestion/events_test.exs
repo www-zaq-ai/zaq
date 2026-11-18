@@ -3,7 +3,43 @@ defmodule Zaq.Ingestion.EventsTest do
 
   alias Zaq.Event
   alias Zaq.EventHop
+  alias Zaq.Ingestion.Api
   alias Zaq.Ingestion.Events
+
+  defmodule ProjectionReceiver do
+    def sync_data_source_permission_projection(_provider, _config, _ids, context) do
+      send(self(), {:projection_context, context})
+      :ok
+    end
+  end
+
+  test "source mutation confirmation comes only from trusted event opts" do
+    request = %{
+      provider: "disk",
+      config_id: 12,
+      affected_file_ids: ["file"],
+      source_acl_mutation_committed: true
+    }
+
+    event =
+      Event.new(request, :ingestion,
+        actor: %{person_id: 7},
+        opts: [ingestion_module: ProjectionReceiver]
+      )
+
+    assert %{response: :ok} =
+             Api.handle_event(event, :sync_data_source_permission_projection, nil)
+
+    assert_received {:projection_context, %{source_acl_mutation_committed: false}}
+
+    confirmed = %{event | opts: Keyword.put(event.opts, :source_acl_mutation_committed, true)}
+
+    assert %{response: :ok} =
+             Api.handle_event(confirmed, :sync_data_source_permission_projection, nil)
+
+    assert_received {:projection_context,
+                     %{source_acl_mutation_committed: true, actor: %{person_id: 7}}}
+  end
 
   defmodule StubNodeRouter do
     def dispatch(event) do

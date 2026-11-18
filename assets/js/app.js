@@ -32,6 +32,7 @@ import { WorkflowExport } from "./hooks/workflow_export"
 import JsonTree from "./hooks/json_tree"
 import MarkdownHighlight from "./hooks/markdown_highlight"
 import { SearchableSelectHook } from "./hooks/searchable_select_hook"
+import LabelPicker from "./hooks/label_picker"
 import PeoplePermissions from "./hooks/people_permissions"
 import { PeopleAuthForm, PeopleOTP } from "./hooks/people_auth"
 import { preserveSidebarState } from "./layout"
@@ -42,6 +43,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
   dom: { onBeforeElUpdated: preserveSidebarState },
   hooks: {
+    LabelPicker,
     OntologyTree,
     ChartTooltip,
     liveViewHooks,

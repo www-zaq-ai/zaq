@@ -4,6 +4,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
 
   alias Zaq.Accounts.{People, Person, PersonChannel, Team}
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.ExternalPermissions
@@ -21,6 +22,268 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
 
   defp permissions_for(doc) do
     Ingestion.list_document_permissions(doc.id)
+  end
+
+  defp canonical_source(permissions) do
+    id = "permission-source-#{System.unique_integer([:positive])}"
+
+    record = %Record{
+      id: id,
+      kind: :file,
+      permissions: permissions,
+      attributes: %{"provider" => "google_drive", "config_id" => "12"}
+    }
+
+    {:ok, record} = Provenance.seal(record, %{"provider" => "google_drive", "config_id" => "12"})
+    {:ok, document} = Document.insert_new(%{source: "data_source/google_drive/12/#{id}"})
+    {record, document}
+  end
+
+  defp person_permission(person, rights) do
+    %Record{
+      id: "permission-#{System.unique_integer([:positive])}",
+      kind: :permission,
+      attributes: %{
+        "type" => "person",
+        "target_id" => to_string(person.id),
+        "access_rights" => rights
+      }
+    }
+  end
+
+  defp source_snapshot(record, permissions) do
+    {:ok, updated} =
+      Provenance.seal(
+        %{record | permissions: permissions},
+        %{"provider" => "google_drive", "config_id" => "12"}
+      )
+
+    updated
+  end
+
+  test "canonical snapshots preserve manual and other-source grants through refresh and revocation" do
+    {:ok, person} = People.create_person(%{full_name: "Source editor"})
+    {record, doc} = canonical_source([person_permission(person, ["read", "edit"])])
+    {:ok, manual} = Permissions.grant(doc, %{person_id: person.id, access_rights: ["delete"]})
+
+    {:ok, other} =
+      Permissions.grant(doc, %{
+        person_id: person.id,
+        source_key: "unrelated-provider",
+        access_rights: ["read"]
+      })
+
+    assert :ok = ExternalPermissions.apply(record, [doc])
+    source = Enum.find(permissions_for(doc), &String.starts_with?(&1.source_key, "source:"))
+    assert source.source_key == "source:#{doc.source}"
+    assert Enum.sort(source.access_rights) == ["read", "update"]
+
+    assert :ok = ExternalPermissions.apply(record, [doc])
+    assert Enum.any?(permissions_for(doc), &(&1.id == source.id))
+
+    assert :ok = ExternalPermissions.apply(source_snapshot(record, nil), [doc])
+    assert Enum.any?(permissions_for(doc), &(&1.id == source.id))
+    assert :ok = ExternalPermissions.apply(source_snapshot(record, []), [doc])
+    assert Enum.sort(Enum.map(permissions_for(doc), & &1.id)) == Enum.sort([manual.id, other.id])
+  end
+
+  test "canonical mapping unions principal rights and never widens write or move into update" do
+    {:ok, person} = People.create_person(%{full_name: "Source writer"})
+
+    {record, doc} =
+      canonical_source([
+        person_permission(person, ["read"]),
+        person_permission(person, ["write", "move"])
+      ])
+
+    assert :ok = ExternalPermissions.apply(record, [doc])
+    [grant] = permissions_for(doc)
+    assert Enum.sort(grant.access_rights) == ["read", "write"]
+    refute Permissions.can?(person, :update, doc)
+
+    assert :ok =
+             ExternalPermissions.apply(
+               source_snapshot(record, [person_permission(person, ["edit"])]),
+               [doc]
+             )
+
+    assert Permissions.can?(person, :update, doc)
+
+    assert :ok =
+             ExternalPermissions.apply(
+               source_snapshot(record, [person_permission(person, ["manage"])]),
+               [doc]
+             )
+
+    assert [grant] = permissions_for(doc)
+    assert grant.access_rights == ["manage"]
+    assert Permissions.can?(person, :manage, doc)
+    refute Permissions.can?(person, :update, doc)
+  end
+
+  test "canonical projection rejects mismatched and unverified source identity without touching grants" do
+    {:ok, person} = People.create_person(%{full_name: "Source reader"})
+    {record, doc} = canonical_source([person_permission(person, ["read"])])
+    assert :ok = ExternalPermissions.apply(record, [doc])
+    before = permissions_for(doc)
+    other = create_document()
+
+    assert {:error, :source_mismatch} = ExternalPermissions.apply(record, [other])
+
+    assert {:error, :invalid_source_record} =
+             ExternalPermissions.apply(%{record | provenance_ref: nil}, [doc])
+
+    assert {:error, :invalid_source_record} =
+             ExternalPermissions.apply(%Record{id: "legacy", kind: :file, permissions: []}, [doc])
+
+    assert permissions_for(doc) == before
+  end
+
+  test "canonical projection rolls back all grants when a principal cannot be persisted" do
+    {:ok, person} = People.create_person(%{full_name: "Source transaction"})
+    {record, doc} = canonical_source([person_permission(person, ["read"])])
+    assert :ok = ExternalPermissions.apply(record, [doc])
+    before = permissions_for(doc)
+    missing = %{id: 2_000_000_000}
+
+    invalid =
+      source_snapshot(record, [
+        person_permission(person, ["edit"]),
+        person_permission(missing, ["read"])
+      ])
+
+    assert {:error, _} = ExternalPermissions.apply(invalid, [doc])
+    assert permissions_for(doc) == before
+  end
+
+  test "canonical projection ignores unsigned owner and permission raw authority" do
+    {:ok, person} = People.create_person(%{full_name: "Authenticated reader"})
+    {:ok, attacker} = People.create_person(%{full_name: "Unsigned owner"})
+    {record, doc} = canonical_source([person_permission(person, ["read"])])
+    [permission] = record.permissions
+
+    tampered = %{
+      record
+      | owners: [%{"type" => "person", "target_id" => to_string(attacker.id)}],
+        permissions: [
+          %{
+            permission
+            | raw: %{
+                "type" => "team",
+                "target_id" => to_string(Permissions.everyone_team_id()),
+                "access_rights" => ["update"]
+              }
+          }
+        ]
+    }
+
+    assert {:ok, _} = Provenance.verify(tampered)
+    assert :ok = ExternalPermissions.apply(tampered, [doc])
+    [grant] = permissions_for(doc)
+    assert grant.person_id == person.id
+    assert grant.access_rights == ["read"]
+    refute Permissions.can?(attacker, :read, doc)
+    refute Permissions.can?(person, :update, doc)
+  end
+
+  test "canonical provider email principals reuse existing People identity" do
+    {:ok, person} =
+      People.create_person(%{
+        full_name: "Existing source person",
+        email: "canonical-#{System.unique_integer([:positive])}@example.com"
+      })
+
+    permission = %Record{
+      id: "provider-user",
+      kind: :permission,
+      attributes: %{
+        "principal_type" => "user",
+        "principal_key" => person.email,
+        "access_rights" => ["read", "edit"]
+      }
+    }
+
+    {record, document} = canonical_source([permission])
+
+    assert :ok = ExternalPermissions.apply(record, [document])
+    [grant] = permissions_for(document)
+    assert grant.person_id == person.id
+    assert Enum.sort(grant.access_rights) == ["read", "update"]
+  end
+
+  test "canonical empty rights do not acquire authority from roles or unsigned attributes" do
+    {:ok, person} = People.create_person(%{full_name: "Explicit zero rights"})
+    permission = person_permission(person, [])
+    permission = %{permission | attributes: Map.put(permission.attributes, "role", "writer")}
+    {record, document} = canonical_source([permission])
+
+    assert :ok = ExternalPermissions.apply(record, [document])
+    assert permissions_for(document) == []
+
+    [permission] = record.permissions
+
+    tampered = %{
+      record
+      | permissions: [
+          %{permission | attributes: Map.delete(permission.attributes, "access_rights")}
+        ]
+    }
+
+    assert {:ok, _} = Provenance.verify(tampered)
+    assert :ok = ExternalPermissions.apply(tampered, [document])
+    assert permissions_for(document) == []
+  end
+
+  test "canonical group principals cannot become an individual Person grant by email coincidence" do
+    {:ok, person} =
+      People.create_person(%{
+        full_name: "Group-shaped identity",
+        email: "group-#{System.unique_integer([:positive])}@example.com"
+      })
+
+    permission = %Record{
+      id: "group-permission",
+      kind: :permission,
+      attributes: %{
+        "principal_type" => "group",
+        "principal_key" => person.email,
+        "access_rights" => ["read"]
+      }
+    }
+
+    {record, document} = canonical_source([permission])
+
+    assert {:error, {:permission_projection_failed, :unsupported_target_type}} =
+             ExternalPermissions.apply(record, [document])
+
+    assert permissions_for(document) == []
+    refute Permissions.can?(person, :read, document)
+  end
+
+  property "canonical duplicate rights are order-independent and refreshes are idempotent" do
+    {:ok, person} = People.create_person(%{full_name: "Source rights invariant"})
+    {record, document} = canonical_source([])
+
+    check all(
+            rights <-
+              list_of(member_of(["read", "write", "edit", "move", "create", "delete"]),
+                min_length: 1,
+                max_length: 8
+              ),
+            max_runs: 12
+          ) do
+      permissions = Enum.map(rights, &person_permission(person, [&1]))
+      assert :ok = ExternalPermissions.apply(source_snapshot(record, permissions), [document])
+      first = Enum.map(permissions_for(document), &{&1.id, Enum.sort(&1.access_rights)})
+
+      assert :ok =
+               ExternalPermissions.apply(source_snapshot(record, Enum.reverse(permissions)), [
+                 document
+               ])
+
+      assert Enum.map(permissions_for(document), &{&1.id, Enum.sort(&1.access_rights)}) == first
+      refute Permissions.can?(person, :update, document) and "edit" not in rights
+    end
   end
 
   test "imports plain map permission by canonical Person reference with default read rights" do

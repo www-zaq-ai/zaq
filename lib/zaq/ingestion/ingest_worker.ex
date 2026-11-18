@@ -54,21 +54,25 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp process_materialized_input(input, job, telemetry_dimensions, attempt, max) do
     case prepare_chunks(input.path, job, input.processor_opts || []) do
-      {:ok, document, :legacy_completed} ->
-        import_external_permissions(input, document)
-        finalize_legacy_job(job, document, telemetry_dimensions)
-
       {:ok, _document, []} ->
         handle_error(job, :no_searchable_content, attempt, max, telemetry_dimensions)
 
       {:ok, document, indexed_payloads} ->
-        import_external_permissions(input, document)
-        schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions)
+        case import_external_permissions(input, document) do
+          :ok -> complete_prepared_job(indexed_payloads, job, document, telemetry_dimensions)
+          {:error, reason} -> handle_error(job, reason, attempt, max, telemetry_dimensions)
+        end
 
       {:error, reason} ->
         handle_error(job, reason, attempt, max, telemetry_dimensions)
     end
   end
+
+  defp complete_prepared_job(:legacy_completed, job, document, telemetry_dimensions),
+    do: finalize_legacy_job(job, document, telemetry_dimensions)
+
+  defp complete_prepared_job(payloads, job, document, telemetry_dimensions),
+    do: schedule_chunk_jobs(job, document, payloads, telemetry_dimensions)
 
   defp handle_error(job, reason, attempt, max, telemetry_dimensions) do
     error_msg = format_error(reason)

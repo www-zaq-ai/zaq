@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.Resources.RegistryTest do
 
   alias Zaq.Agent.Tools.Resources.Registry
 
-  @expected_keys ~w(agent mcp skill user person ai_provider channel_config incoming_message_routing_rule)
+  @expected_keys ~w(agent mcp skill user person ai_provider channel_config incoming_message_routing_rule label document)
   @required_descriptor_keys [
     :key,
     :module,

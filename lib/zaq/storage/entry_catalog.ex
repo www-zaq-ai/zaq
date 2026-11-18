@@ -30,6 +30,8 @@ defmodule Zaq.Storage.EntryCatalog do
     timestamps(type: :utc_datetime)
   end
 
+  @type t :: %__MODULE__{}
+
   @required ~w(volume relative_path kind)a
 
   def changeset(entry, attrs) do
@@ -69,7 +71,13 @@ defmodule Zaq.Storage.EntryCatalog do
     ancestors_many([id]) |> Map.get(id, [])
   end
 
-  @doc "Returns active ancestors from nearest parent to root for many entries."
+  @doc """
+  Returns active ancestors nearest-first, bounded to 64 rows per entry.
+
+  Repeated IDs stop traversal. Consumers that need a complete chain must verify
+  its final parent is nil; a non-nil parent signals a cycle, depth limit or missing
+  ancestor. This keeps malformed catalogs from causing unbounded recursion.
+  """
   def ancestors_many(ids) when is_list(ids) do
     ids = ids |> Enum.filter(&is_binary/1) |> Enum.uniq()
 
@@ -81,17 +89,19 @@ defmodule Zaq.Storage.EntryCatalog do
       %{rows: rows} =
         Repo.query!(
           """
-          WITH RECURSIVE ancestors(target_id, id, parent_id, depth) AS (
-            SELECT child.id, parent.id, parent.parent_id, 1
+          WITH RECURSIVE ancestors(target_id, id, parent_id, depth, visited) AS (
+            SELECT child.id, parent.id, parent.parent_id, 1, ARRAY[child.id, parent.id]
             FROM storage_entries child
             JOIN storage_entries parent
               ON parent.id = child.parent_id AND parent.deleted_at IS NULL
             WHERE child.id = ANY($1::uuid[]) AND child.deleted_at IS NULL
             UNION ALL
-            SELECT ancestors.target_id, parent.id, parent.parent_id, ancestors.depth + 1
+            SELECT ancestors.target_id, parent.id, parent.parent_id, ancestors.depth + 1,
+                   ancestors.visited || parent.id
             FROM ancestors
             JOIN storage_entries parent
               ON parent.id = ancestors.parent_id AND parent.deleted_at IS NULL
+            WHERE NOT parent.id = ANY(ancestors.visited) AND ancestors.depth < 64
           )
           SELECT target_id::text, id::text, parent_id::text, depth
           FROM ancestors

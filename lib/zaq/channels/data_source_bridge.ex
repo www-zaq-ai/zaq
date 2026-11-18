@@ -48,14 +48,17 @@ defmodule Zaq.Channels.DataSourceBridge do
   Record permissions.
   """
 
+  alias Zaq.Accounts.Person
   alias Zaq.Channels.Bridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Authorization
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Contracts.SourceRecordContext
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Events.Helper
   alias Zaq.Events.TrustedContext
+  alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
 
   @callback auth_handshake(map(), map()) :: {:ok, term()} | {:error, term()}
   @callback list_resources(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
@@ -100,6 +103,8 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback sheet_clear_values(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_delete_tab(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback owns_permission_checks?() :: boolean()
+  @callback record_ancestors(map(), map(), TrustedContext.t()) ::
+              {:ok, [Record.t()]} | {:error, term()}
 
   # Every callback above is optional. This module already dispatches through
   # `supports_callback?/3` and answers `{:error, :unsupported}` for anything a bridge does
@@ -109,6 +114,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   # bridge (`Zaq.Channels.DiskBridge`) still get compile-time checking on the callbacks it
   # does implement.
   @optional_callbacks auth_handshake: 2,
+                      record_ancestors: 3,
                       list_resources: 2,
                       download_resource: 3,
                       setup_listener: 2,
@@ -464,6 +470,212 @@ defmodule Zaq.Channels.DataSourceBridge do
       )
       |> authorize_response(bridge, :read, trusted_context)
       |> seal_response(config)
+    end
+  end
+
+  @doc """
+  Resolves a canonical source reference with current permissions and readable ancestry.
+
+  The requested right is `:read` or `:update`; update requires the provider's edit
+  authority (Storage update authority for disk). Identity comes from the trusted
+  context, never reference fields. Reads do not create documents, ingest content,
+  or alter source permissions. Ambiguous, inaccessible, cyclic or incomplete
+  ancestry fails without returning any partial ancestor metadata.
+  """
+  @spec record_context(map(), :read | :update, TrustedContext.t() | map()) ::
+          {:ok, SourceRecordContext.t()} | {:error, term()}
+  def record_context(reference, right \\ :read, context \\ %{}) do
+    trusted = TrustedContext.normalize(context)
+
+    with {:ok, reference} <- source_reference(reference, right),
+         true <- source_context_actor?(trusted.actor) || {:error, :unauthorized},
+         {:ok, bridge} <- Bridge.resolve_bridge(reference.provider),
+         {:ok, config} <- resolve_data_source_config(reference.provider, reference),
+         {:ok, record} <- context_record(reference, trusted),
+         :ok <- authorize_context_record(bridge, record, right, trusted),
+         {:ok, ancestors} <- context_ancestors(bridge, config, reference, record, right, trusted),
+         {:ok, permissions} <- context_permissions(reference, record, trusted),
+         {:ok, record} <- seal_value(%{record | permissions: permissions}, config) do
+      {:ok,
+       %SourceRecordContext{
+         reference: reference,
+         record: record,
+         permissions: record.permissions,
+         ancestors: ancestors
+       }}
+    end
+  end
+
+  defp source_context_actor?(%Person{id: id}),
+    do: not is_nil(ActorNormalizer.normalize_id(id))
+
+  defp source_context_actor?(actor) when is_map(actor) do
+    match?({:ok, _}, ExecutionActor.identity(actor)) or
+      not is_nil(
+        ActorNormalizer.normalize_id(Map.get(actor, :user_id) || Map.get(actor, "user_id"))
+      )
+  end
+
+  defp source_context_actor?(_actor), do: false
+
+  defp source_reference(%{provider: provider, config_id: config_id, record_id: id}, right)
+       when is_binary(provider) and provider != "" and is_binary(id) and id != "" and
+              right in [:read, :update] do
+    with {:ok, value} when value > 0 <- normalize_config_id(%{config_id: config_id}),
+         {:ok, id} <- source_record_id(provider, id) do
+      {:ok, %{provider: provider, config_id: to_string(value), record_id: id}}
+    else
+      _ -> {:error, :invalid_source_reference}
+    end
+  end
+
+  defp source_reference(_reference, _right), do: {:error, :invalid_source_reference}
+
+  defp source_record_id("disk", id) when byte_size(id) == 36, do: Ecto.UUID.cast(id)
+  defp source_record_id("disk", _id), do: :error
+  defp source_record_id(_provider, id), do: {:ok, id}
+
+  defp context_record(reference, context) do
+    params = %{
+      "config_id" => reference.config_id,
+      "file_id" => reference.record_id,
+      "include_permissions" => true
+    }
+
+    case get_file(reference.provider, params, context) do
+      {:ok, %{record: %Record{} = record}} -> canonical_context_record(reference, record)
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_source_reference}
+    end
+  end
+
+  defp canonical_context_record(reference, record) do
+    with {:ok, claims} <- Provenance.verify(record),
+         true <-
+           matching_source_claims?(reference, record, claims) ||
+             {:error, :invalid_source_reference},
+         true <- record.kind in [:file, :folder] || {:error, :invalid_source_reference},
+         true <-
+           (record.lifecycle_state not in [:deleted, :removed] and is_nil(record.deleted_at)) ||
+             {:error, :not_found} do
+      attributes =
+        Map.merge(record.attributes || %{}, %{
+          "provider" => reference.provider,
+          "config_id" => reference.config_id,
+          "provider_record_id" => reference.record_id
+        })
+
+      Provenance.seal(%{record | attributes: attributes}, claims)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_source_reference}
+    end
+  end
+
+  defp matching_source_claims?(reference, record, claims) do
+    record.id == reference.record_id and claims["provider"] == reference.provider and
+      to_string(claims["config_id"]) == reference.config_id and
+      claims["provider_record_id"] == reference.record_id
+  end
+
+  defp authorize_context_record(bridge, record, right, context) do
+    authorize_record(bridge, record, [if(right == :update, do: :edit, else: :read)], context)
+  end
+
+  defp context_ancestors(bridge, config, reference, record, right, context) do
+    if supports_callback?(bridge, :record_ancestors, 3) do
+      with {:ok, ancestors} <-
+             bridge.record_ancestors(config, %{file_id: record.id, right: right}, context),
+           {:ok, ancestors} <- seal_list(ancestors, config) do
+        canonical_context_ancestors(ancestors, reference, bridge, context)
+      end
+    else
+      walk_ancestors(reference, record, context, MapSet.new([record.id]), [], 1)
+    end
+  end
+
+  defp canonical_context_ancestors(ancestors, reference, bridge, context) do
+    ancestors
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {ancestor, depth}, {:ok, acc} ->
+      with %Record{kind: :folder} <- ancestor,
+           {:ok, record} <-
+             canonical_context_record(%{reference | record_id: ancestor.id}, ancestor),
+           :ok <- authorize_record(bridge, record, [:read], context) do
+        {:cont, {:ok, [ancestor_origin(reference, record, depth) | acc]}}
+      else
+        _ -> {:halt, {:error, :incomplete_ancestry}}
+      end
+    end)
+    |> case do
+      {:ok, origins} -> {:ok, Enum.reverse(origins)}
+      error -> error
+    end
+  end
+
+  defp walk_ancestors(reference, record, context, seen, ancestors, depth) do
+    case context_parent(record) do
+      {:ok, nil} -> {:ok, Enum.reverse(ancestors)}
+      {:ok, parent} -> walk_parent(reference, parent, context, seen, ancestors, depth)
+      error -> error
+    end
+  end
+
+  defp walk_parent(reference, parent, context, seen, ancestors, depth) do
+    cond do
+      MapSet.member?(seen, parent) ->
+        {:error, :ancestry_cycle}
+
+      depth > 64 ->
+        {:error, :ancestry_depth_exceeded}
+
+      true ->
+        case context_record(%{reference | record_id: parent}, context) do
+          {:ok, %Record{kind: :folder} = record} ->
+            walk_ancestors(
+              reference,
+              record,
+              context,
+              MapSet.put(seen, parent),
+              [ancestor_origin(reference, record, depth) | ancestors],
+              depth + 1
+            )
+
+          _ ->
+            {:error, :incomplete_ancestry}
+        end
+    end
+  end
+
+  defp context_parent(record) do
+    parents =
+      Enum.uniq(
+        Enum.reject([record.parent_id | List.wrap(record.parent_ids)], &(&1 in [nil, ""]))
+      )
+
+    case parents do
+      [] -> {:ok, nil}
+      [parent] when is_binary(parent) -> {:ok, parent}
+      [_] -> {:error, :incomplete_ancestry}
+      _ -> {:error, :ambiguous_ancestry}
+    end
+  end
+
+  defp ancestor_origin(reference, record, depth),
+    do: %{reference: %{reference | record_id: record.id}, record: record, depth: depth}
+
+  defp context_permissions(_reference, %Record{permissions: permissions}, _context)
+       when is_list(permissions), do: {:ok, permissions}
+
+  defp context_permissions(reference, _record, context) do
+    params = %{"config_id" => reference.config_id, "file_id" => reference.record_id}
+
+    case list_permissions(reference.provider, params, context) do
+      {:ok, %{pagination: %{has_more?: true}}} -> {:error, :incomplete_permissions}
+      {:ok, %{pagination: %{truncated?: true}}} -> {:error, :incomplete_permissions}
+      {:ok, %{records: permissions}} when is_list(permissions) -> {:ok, permissions}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :incomplete_permissions}
     end
   end
 
@@ -1040,7 +1252,11 @@ defmodule Zaq.Channels.DataSourceBridge do
             affected_file_ids: affected_file_ids
           },
           :sync_data_source_permission_projection,
-          TrustedContext.event_builder_opts(context)
+          # Only this post-success path attests a completed source ACL mutation.
+          # Ingestion must never infer this authority from request parameters.
+          TrustedContext.event_builder_opts(context,
+            event_opts: [source_acl_mutation_committed: true, confidential: true]
+          )
         )
         |> Map.get(:response)
 

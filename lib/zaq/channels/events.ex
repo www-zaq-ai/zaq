@@ -7,6 +7,43 @@ defmodule Zaq.Channels.Events do
   alias Zaq.{Event, NodeRouter}
   alias Zaq.Events.Helper
 
+  @doc "Dispatches a confidential source-permission snapshot query."
+  @spec build_and_dispatch_data_source_list_permissions_event(String.t(), map(), keyword()) ::
+          Event.t()
+  def build_and_dispatch_data_source_list_permissions_event(provider, params, opts \\ []) do
+    opts =
+      Keyword.update(
+        opts,
+        :event_opts,
+        [confidential: true],
+        &Keyword.put(&1, :confidential, true)
+      )
+
+    provider
+    |> build_data_source_event(params, :data_source_list_permissions, opts)
+    |> node_router(opts).dispatch()
+  end
+
+  @doc "Builds an authorized metadata-only source record context request."
+  @spec build_data_source_record_context_event(map(), :read | :update, keyword()) :: Event.t()
+  def build_data_source_record_context_event(source_ref, right, opts \\ []) do
+    Event.new(%{source_ref: source_ref, right: right}, :channels,
+      actor: Keyword.get(opts, :actor),
+      opts:
+        [action: :data_source_record_context, confidential: true] ++
+          Keyword.get(opts, :event_opts, [])
+    )
+  end
+
+  @doc "Dispatches an authorized source context request through the Channels role."
+  @spec build_and_dispatch_data_source_record_context_event(map(), :read | :update, keyword()) ::
+          Event.t()
+  def build_and_dispatch_data_source_record_context_event(source_ref, right, opts \\ []) do
+    source_ref
+    |> build_data_source_record_context_event(right, opts)
+    |> node_router(opts).dispatch()
+  end
+
   @spec build_deliver_outgoing_event(Outgoing.t(), keyword()) :: Event.t()
   def build_deliver_outgoing_event(%Outgoing{} = outgoing, opts \\ []) do
     event_type = Keyword.get(opts, :type, :sync)

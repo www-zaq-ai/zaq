@@ -234,7 +234,7 @@ test.describe("People", () => {
     expect(registered.sort()).toEqual([
       "AutoExpand", "ChartTooltip", "ContentFilter", "CopyToClipboard",
       "CronCountdown", "DetailsKeepOpen", "DownloadFile", "FlashAutoDismiss",
-      "FocusAndSelect", "FocusInput", "FolderDrop", "JsonTree",
+      "FocusAndSelect", "FocusInput", "FolderDrop", "JsonTree", "LabelPicker",
       "LoadingActionButton", "MarkdownHighlight", "OAuthPopupListener", "OntologyTree",
       "PeopleAuthForm", "PeopleBulkDeleteDialog", "PeopleOTP", "PeoplePermissions", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
       "ToolStepTimer", "WorkflowExport", "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure",
