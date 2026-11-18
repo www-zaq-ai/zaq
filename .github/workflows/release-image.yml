@@ -1,0 +1,248 @@
+name: Build and publish release image
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        required: true
+      workflow_sha:
+        type: string
+        required: true
+      source_branch:
+        type: string
+      source_sha:
+        type: string
+      version:
+        type: string
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: write
+    outputs:
+      version: ${{ steps.stable.outputs.version || steps.candidate.outputs.version }}
+      sha: ${{ steps.stable.outputs.sha || steps.candidate.outputs.sha }}
+      build: ${{ steps.stable.outputs.build || steps.candidate.outputs.build }}
+    steps:
+      - name: Select the stable release
+        id: stable
+        if: ${{ inputs.mode == 'stable' }}
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          printf 'version=%s\nsha=%s\nbuild=true\n' "$VERSION" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: ${{ inputs.mode != 'stable' }}
+        with:
+          ref: ${{ inputs.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.mode != 'stable' }}
+        with:
+          node-version: '22'
+      - uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+        if: ${{ inputs.mode != 'stable' }}
+        with:
+          version: 1.3.0
+      - uses: docker/login-action@v3
+        if: ${{ inputs.mode != 'stable' }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Install the release-please helper
+        if: ${{ inputs.mode != 'stable' }}
+        run: npm ci --ignore-scripts --prefix .github/scripts/prerelease
+      - name: Reserve the candidate version
+        id: candidate
+        if: ${{ inputs.mode == 'rc' || inputs.mode == 'beta' }}
+        env:
+          MODE: ${{ inputs.mode }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/prerelease/candidate.cjs prepare
+      - name: Apply the candidate retention policy
+        if: ${{ inputs.mode == 'cleanup' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELETE_EXPIRED: ${{ vars.DELETE_EXPIRED_PRERELEASES }}
+        run: node .github/scripts/prerelease/cleanup.cjs
+
+  build:
+    name: Build image (${{ matrix.arch }})
+    needs: prepare
+    if: ${{ needs.prepare.outputs.build == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout the selected image source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          path: source
+          persist-credentials: false
+      - name: Checkout the trusted release helper
+        if: ${{ inputs.mode != 'stable' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.workflow_sha }}
+          path: workflow
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.mode != 'stable' }}
+        with:
+          node-version: '22'
+      - name: Set the embedded Elixir candidate version
+        if: ${{ inputs.mode != 'stable' }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --prefix workflow/.github/scripts/prerelease
+          node workflow/.github/scripts/prerelease/candidate.cjs stamp source/mix.exs "$VERSION"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Compute image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Build and push image by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: source
+          file: source/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ inputs.mode == 'stable' && 'release' || 'candidate' }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.mode == 'stable' && 'release' || 'candidate' }}-${{ matrix.arch }}
+      - name: Verify embedded version and export the image digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.image.outputs.name }}
+          MODE: ${{ inputs.mode }}
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          if [[ "$MODE" != stable ]]; then
+            container="$(docker create --platform "$PLATFORM" "${IMAGE}@${DIGEST}")"
+            trap 'docker rm "$container" >/dev/null' EXIT
+            EMBEDDED="$(docker cp "${container}:/app/releases/start_erl.data" - | tar -xO | awk '{print $2}')"
+            [[ "$EMBEDDED" == "$VERSION" ]]
+          fi
+          printf '%s\n' "$DIGEST" > "${RUNNER_TEMP}/${ARCH}.digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/${{ matrix.arch }}.digest
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  publish:
+    name: Publish verified multi-arch image
+    needs: [prepare, build]
+    if: >-
+      ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.version != '' &&
+          (needs.build.result == 'success' || needs.prepare.outputs.build == 'false') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MODE: ${{ inputs.mode }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+        if: ${{ inputs.mode != 'stable' }}
+        with:
+          version: 1.3.0
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ needs.prepare.outputs.build == 'true' }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.prepare.outputs.build == 'true' }}
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: image-digest-*
+          merge-multiple: true
+      - name: Assemble and verify the multi-arch image index
+        if: ${{ needs.prepare.outputs.build == 'true' }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          AMD64="$(cat "${RUNNER_TEMP}/digests/amd64.digest")"
+          ARM64="$(cat "${RUNNER_TEMP}/digests/arm64.digest")"
+          [[ "$AMD64" =~ ^sha256:[a-f0-9]{64}$ && "$ARM64" =~ ^sha256:[a-f0-9]{64}$ ]]
+          ANNOTATIONS=()
+          if [[ "$MODE" != stable ]]; then
+            ANNOTATIONS+=(--annotation "index:org.opencontainers.image.revision=${SOURCE_SHA}")
+            ANNOTATIONS+=(--annotation "index:org.opencontainers.image.version=${VERSION}")
+          fi
+          docker buildx imagetools create --dry-run "${ANNOTATIONS[@]}" \
+            "${IMAGE}@${AMD64}" "${IMAGE}@${ARM64}" > "${RUNNER_TEMP}/index.json"
+          node .github/scripts/prerelease/candidate.cjs verify "${RUNNER_TEMP}/index.json"
+      - name: Publish stable tags
+        if: ${{ inputs.mode == 'stable' }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          AMD64="$(cat "${RUNNER_TEMP}/digests/amd64.digest")"
+          ARM64="$(cat "${RUNNER_TEMP}/digests/arm64.digest")"
+          docker buildx imagetools create --tag "${IMAGE}:v${VERSION}" --tag "${IMAGE}:${VERSION}" \
+            --tag "${IMAGE}:${VERSION%.*}" --tag "${IMAGE}:${VERSION%%.*}" --tag "${IMAGE}:latest" \
+            "${IMAGE}@${AMD64}" "${IMAGE}@${ARM64}"
+          docker buildx imagetools inspect --raw "${IMAGE}:v${VERSION}" > "${RUNNER_TEMP}/published-index.json"
+          node .github/scripts/prerelease/candidate.cjs verify "${RUNNER_TEMP}/published-index.json"
+          oras tag "${IMAGE}:v${VERSION}" "$VERSION" "${VERSION%.*}" "${VERSION%%.*}" latest
+      - name: Publish the exact candidate tag
+        if: ${{ inputs.mode != 'stable' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/prerelease/candidate.cjs finalize "${RUNNER_TEMP}/index.json"
+      - name: Apply the candidate retention policy
+        if: ${{ inputs.mode != 'stable' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELETE_EXPIRED: ${{ vars.DELETE_EXPIRED_PRERELEASES }}
+        run: node .github/scripts/prerelease/cleanup.cjs

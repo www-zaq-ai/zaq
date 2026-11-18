@@ -108,6 +108,34 @@ Releases are automated through a release PR gate using [release-please](https://
 - Merging the release PR updates the version in `mix.exs`, creates the tag, and publishes the GitHub Release.
 - The release workflow builds container images and publishes documentation. See [published image tags](operations/deployment.md#published-container-images).
 
+### Pre-release images
+
+On `main`, the Release workflow publishes an RC to GHCR when release-please has a
+proposal and the push did not publish a stable release. It waits for five quiet
+minutes and skips superseded pushes. `:rc` points to the latest verified RC
+promoted from `main`.
+
+For a beta, open **Actions → Release → Run workflow**, leave **Use workflow
+from** on `main`, select `beta`, and enter the repository branch under
+**Repository branch to build**. The run summary includes the exact image tag and
+source commit. A manual beta never moves `:rc`, even if the source is `main`.
+The `stable` mode runs the usual release-please workflow on demand.
+
+Release-please proposes the upcoming stable version. For example, after
+`v0.19.1`, a fix produces `v0.19.2-rc.1` on `main`; a manual branch with a
+feature produces `v0.20.0-beta.1`. Numbering is independent per version and
+channel. Candidates don't publish Git tags, GitHub Releases, or stable aliases.
+
+Cleanup keeps the newest three RCs and the newest three betas, plus all
+candidates aged seven days or less. Stable tags, aliases, and referenced manifests
+are protected. Cleanup runs daily and after publication. Choose `cleanup` to run
+it on demand without building an image. All cleanup runs default to dry run.
+After validating deletion against a disposable GHCR package, maintainers can set
+the repository Actions variable `DELETE_EXPIRED_PRERELEASES=true`. The workflow
+needs admin access to the GHCR package for deletion. Do not remove the
+`prerelease-ledger` tag: it records reservations so cleanup can't recycle a
+numbered tag.
+
 ### Maintainer setup
 
 GitHub Actions must be allowed to create release pull requests. The workflow uses `RELEASE_PLEASE_TOKEN` when supplied, otherwise `GITHUB_TOKEN`; provision appropriate repository/workflow permissions for a dedicated token if needed. Keep tokens in repository secrets, never tracked files.
