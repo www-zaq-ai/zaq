@@ -108,6 +108,13 @@ jobs:
           otp-version: "28.1"
           elixir-version: "1.20.4"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: test/e2e/package-lock.json
+
       - name: Restore Mix cache
         id: mix-cache
         uses: actions/cache@v4
@@ -162,8 +169,11 @@ jobs:
         if: steps.assets-cache.outputs.cache-hit != 'true'
         run: mix assets.build
 
+      - name: Install E2E dependencies
+        run: npm ci --prefix test/e2e
+
       # mix playwright.install puts the driver in ~/.cache/playwright and the browsers in
-      # ~/.cache/ms-playwright (~/Library/Caches/... on macOS).
+      # ~/.cache/ms-playwright (~/Library/Caches/... on macOS), next to Playwright Test's.
       - name: Cache Playwright driver and browsers
         id: pw-cache
         uses: actions/cache@v4
@@ -171,10 +181,15 @@ jobs:
           path: |
             ${{ runner.os == 'macOS' && '~/Library/Caches/playwright' || '~/.cache/playwright' }}
             ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ matrix.browser }}-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ matrix.browser }}-${{ hashFiles('mix.lock', 'test/e2e/package-lock.json') }}
 
       - name: Install Playwright browser
-        run: mix playwright.install ${{ matrix.browser }} --with-deps
+        run: |
+          mix playwright.install ${{ matrix.browser }} --with-deps
+          npx --prefix test/e2e playwright install ${{ matrix.browser }}
+
+      - name: Verify browser navigation lifecycle
+        run: node --test --test-name-pattern='^${{ matrix.browser }}:' test/e2e/support/bo-navigation.test.cjs
 
       - name: Provision E2E database extensions as DBA
         run: mix run --no-start .github/scripts/provision-test-database.exs postgres

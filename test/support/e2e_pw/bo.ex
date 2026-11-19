@@ -13,15 +13,15 @@ defmodule Zaq.E2EPw.BO do
                      |> String.replace(~r/\nmodule\.exports.*\z/s, "\n")
                      |> then(&("(() => {" <> &1 <> " return installFlashObserver })()"))
 
-  @default_base_url System.get_env("E2E_BASE_URL") || "http://localhost:4002"
-  @default_admin_username System.get_env("E2E_ADMIN_USERNAME") || "e2e_admin"
-  @default_admin_password System.get_env("E2E_ADMIN_PASSWORD") || "StrongPass1!"
+  defp default_base_url, do: System.get_env("E2E_BASE_URL") || "http://localhost:4002"
+  defp default_admin_username, do: System.get_env("E2E_ADMIN_USERNAME") || "e2e_admin"
+  defp default_admin_password, do: System.get_env("E2E_ADMIN_PASSWORD") || "StrongPass1!"
 
   def ci?, do: System.get_env("CI") not in [nil, "", "false"]
   def expect_timeout, do: if(ci?(), do: 20_000, else: 15_000)
 
   def normalize_base_url(base_url \\ nil),
-    do: (base_url || @default_base_url) |> String.replace(~r/\/+$/, "")
+    do: (base_url || default_base_url()) |> String.replace(~r/\/+$/, "")
 
   # --- flash observer -----------------------------------------------------------------------
 
@@ -163,8 +163,8 @@ defmodule Zaq.E2EPw.BO do
   end
 
   def login_via_form(page, opts \\ []) do
-    username = opts[:username] || @default_admin_username
-    password = opts[:password] || @default_admin_password
+    username = opts[:username] || default_admin_username()
+    password = opts[:password] || default_admin_password()
     max_attempts = opts[:max_attempts] || 4
 
     goto_back_office_live(page, "/bo/login", opts)
@@ -519,7 +519,7 @@ defmodule Zaq.E2EPw.BO do
 
   def seed_e2e_prompt_template_defaults(request) do
     response =
-      APIRequestContext.post!(request, @default_base_url <> "/e2e/prompt-template-defaults")
+      APIRequestContext.post!(request, default_base_url() <> "/e2e/prompt-template-defaults")
 
     unless APIResponse.ok(response), do: raise("prompt template defaults request failed")
     APIResponse.json!(response)
@@ -529,7 +529,7 @@ defmodule Zaq.E2EPw.BO do
     response =
       APIRequestContext.post!(
         request,
-        @default_base_url <> "/e2e/prompt-template-defaults/publish",
+        default_base_url() <> "/e2e/prompt-template-defaults/publish",
         data: %{body: body}
       )
 
