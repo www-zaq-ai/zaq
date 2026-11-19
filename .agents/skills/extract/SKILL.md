@@ -98,14 +98,14 @@ Assign a **Recommendation** per row:
 
 ### 2. E2E coverage cross-check (required — before the extraction report)
 
-After steps 1–1b, map each **candidate slice** to its **hosting LiveView(s)** / routes and any **stable hooks** the UI already exposes for tests (`data-testid`, `role`, visible labels referenced in specs).
+After steps 1–1b, map each **candidate slice** to its **hosting LiveView(s)** / routes and any **stable hooks** the UI already exposes for tests (`data-testid`, `role`, visible labels referenced in tests).
 
-For each candidate, determine Playwright coverage using `docs/e2e-testing.md` and `test/e2e/specs/`:
+For each candidate, determine Playwright coverage using `docs/e2e-testing.md` and `test/e2e_pw/`:
 
-- **Spec file:** Derive the slug from the consuming LiveView path (e.g. `…/live/bo/agents_live.ex` → `test/e2e/specs/agents.spec.js`). Note **`—` (none)** when that file does not exist.
-- **Search specs:** Grep the relevant `*.spec.js` (and `test/e2e/support/bo.js` when shared helpers cover the flow) for route navigation, selectors, or test titles that exercise **the same page region or flow** as the slice.
+- **Test module:** Derive the slug from the consuming LiveView path (e.g. `…/live/bo/agents_live.ex` → `test/e2e_pw/agents_test.exs`). Note **`—` (none)** when that file does not exist.
+- **Search tests:** Grep the relevant `*_test.exs` (and `test/support/e2e_pw/bo.ex` when shared helpers cover the flow) for route navigation, selectors, or test titles that exercise **the same page region or flow** as the slice.
 - **Coverage label** — **`covered`**, **`partial`**, or **`none`**.
-- **Tests raw UI** — **`yes`** / **`no`** / **`partial`**: does any **automated e2e** under `test/e2e/` target **this candidate slice’s** DOM or behavior?
+- **Tests raw UI** — **`yes`** / **`no`** / **`partial`**: does any **automated e2e** under `test/e2e_pw/` target **this candidate slice’s** DOM or behavior?
 
 Record results for the step 3 table. For **`replace`** rows, note in **E2E notes** that ids/markup must be preserved when a human later runs **replace**.
 
@@ -115,7 +115,7 @@ After steps 1–2, **stop** and output an **Extraction report** to the human. **
 
 **Only rows with Recommendation `extract` or `extend` are eligible for step 4.** Rows marked **`replace`** or **`skip`** require no extract work — list them so the human can run **replace** or ignore separately.
 
-| # | Proposed slice name | Source location(s) | Occurrences | Function | Existing match | Recommendation | Suggested module / action | Story action | Tests raw UI | E2E spec(s) | E2E coverage | E2E notes |
+| # | Proposed slice name | Source location(s) | Occurrences | Function | Existing match | Recommendation | Suggested module / action | Story action | Tests raw UI | E2E test(s) | E2E coverage | E2E notes |
 |---|---------------------|--------------------|-------------|----------|----------------|----------------|---------------------------|--------------|--------------|--------------|----------------|------------|
 | 1 | … | … | … | … | `—` or module/story path | extract / extend / replace / skip | … | update / create / none + path | yes / no / partial | … | covered / partial / none | … |
 
@@ -130,9 +130,9 @@ After steps 1–2, **stop** and output an **Extraction report** to the human. **
 - **Suggested module / action** — For **`extract`**: new `DesignSystem.<Name>`. For **`extend`**: which existing module to extend and what gap (attrs/slots). For **`replace`**: target component + “human/process: run **replace**”. For **`skip`**: brief reason.
 - **Story action** — From step 1b story search: **`update <path>`** (change `function` to `DesignSystem.*`, add variations — keep folder), **`create <path>`** (no existing story; pick category folder), or **`none`**. Never two stories for the same component.
 - **Tests raw UI** — E2e-only; ExUnit mention goes in **E2E notes**.
-- **E2E spec(s)** — Path(s) under `test/e2e/specs/`, or **`—`**.
+- **E2E test(s)** — Path(s) under `test/e2e_pw/`, or **`—`**.
 - **E2E coverage** — `covered`, `partial`, or `none`.
-- **E2E notes** — e.g. “preserve `data-testid` if replace follows”, “no spec for this LiveView”.
+- **E2E notes** — e.g. “preserve `data-testid` if replace follows”, “no test module for this LiveView”.
 
 **Human gate:** Ask clearly: “Approve rows to extract or extend (by #), request edits/merges/splits, or cancel. Rows marked **replace** / **skip** are for your follow-up — this skill will not run replace.” **Wait for a reply.** Only then continue with step 4 for **approved** rows whose Recommendation is **`extract`** or **`extend`** only.
 
@@ -189,7 +189,7 @@ After steps 1–2, **stop** and output an **Extraction report** to the human. **
 - **Story dedup check:** for each extracted function, grep `storybook/` — at most **one** story file should reference that UI role; no remaining `CoreComponents.<fn>` in story `function` for the extracted slice (unless explicitly kept in a deprecated folder).
 - Confirm the story renders at `http://localhost:4000/storybook` (manual smoke or document in PR).
 
-**Do not run consuming LiveView e2e specs in this skill** — call sites are unchanged. Full-page e2e belongs to **replace** after a human wires components in.
+**Do not run consuming LiveView e2e tests in this skill** — call sites are unchanged. Full-page e2e belongs to **replace** after a human wires components in.
 
 ### 8. Workflow and PR hygiene
 

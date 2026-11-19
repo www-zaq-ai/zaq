@@ -114,10 +114,11 @@ Run E2E tests when your change touches any of these areas:
 - Knowledge base operations
 
 ```bash
-cd test/e2e && npm run test
+mix e2e
 ```
 
-This bootstraps a fresh E2E database on port `4002` and runs the full Playwright suite.
+This bootstraps a fresh E2E database on port `4002` and runs the full Playwright suite
+(`test/e2e_pw`, see [E2E testing](e2e-testing.md)).
 
 #### Reproducing failures with ProcessorState
 
@@ -133,15 +134,15 @@ Zaq.E2E.ProcessorState.reset()
 ```
 
 This is only available in `MIX_ENV=test` with `E2E=1`. Use it in `test/support/e2e/bootstrap.exs`
-or directly in Playwright `beforeEach` hooks via the E2E controller.
+or directly in a test's `setup` via the E2E controller.
 
-#### E2E spec coverage
+#### E2E test coverage
 
-| Spec                         | What it covers                               |
-| ---------------------------- | -------------------------------------------- |
-| `ingestion.spec.js`          | File upload, processing pipeline, job status |
-| `system_config.spec.js`      | LLM, embedding, SMTP config via BO           |
-| `knowledge_ops_lead.spec.js` | Knowledge base operations                    |
+| Test module                   | What it covers                               |
+| ----------------------------- | -------------------------------------------- |
+| `ingestion_test.exs`          | File upload, processing pipeline, job status |
+| `system_config_test.exs`      | LLM, embedding, SMTP config via BO           |
+| `knowledge_ops_lead_test.exs` | Knowledge base operations                    |
 
 ### When to skip E2E
 
