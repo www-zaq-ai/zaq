@@ -50,10 +50,38 @@ defmodule Zaq.Engine.Workflows.Workflow do
     |> validate_required([:name, :status])
     |> validate_inclusion(:status, @statuses)
     |> validate_active_has_nodes()
+    |> validate_context_window()
 
     # Status transition enforcement (draft→active, active→archived,
     # archived→active; reverting to draft disallowed) is not yet implemented.
   end
+
+  defp validate_context_window(changeset) do
+    settings = get_field(changeset, :settings) || %{}
+
+    if Map.has_key?(settings, "context_window") or Map.has_key?(settings, :context_window) do
+      window = Map.get(settings, "context_window", Map.get(settings, :context_window))
+
+      if valid_context_window?(window) do
+        changeset
+      else
+        add_error(
+          changeset,
+          :settings,
+          "context_window.max_context_tokens must be a positive integer"
+        )
+      end
+    else
+      changeset
+    end
+  end
+
+  defp valid_context_window?(window) when is_map(window) do
+    capacity = Map.get(window, "max_context_tokens", Map.get(window, :max_context_tokens))
+    is_integer(capacity) and capacity > 0
+  end
+
+  defp valid_context_window?(_window), do: false
 
   # Active workflows must have at least one node — draft/archived may be empty.
   defp validate_active_has_nodes(changeset) do

@@ -48,6 +48,66 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     run
   end
 
+  describe "workflow context-window settings" do
+    property "positive integer capacities survive JSON import, export and run snapshots" do
+      check all(capacity <- integer(1..1_000_000), max_runs: 15) do
+        settings = %{"context_window" => %{"max_context_tokens" => capacity}}
+
+        attrs = %{
+          "name" => "Context window",
+          "settings" => settings,
+          "nodes" => [
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => @ok_module,
+              "params" => %{},
+              "index" => 0
+            }
+          ],
+          "edges" => []
+        }
+
+        assert {:ok, workflow} = Workflows.import_workflow(attrs)
+        assert Workflows.export_workflow(workflow)["settings"] == settings
+        assert create_run(workflow).settings_snapshot == settings
+      end
+    end
+
+    test "rejects invalid or malformed configured capacities" do
+      invalid_windows = [
+        nil,
+        false,
+        [],
+        "32000",
+        %{},
+        %{"max_context_tokens" => nil},
+        %{"max_context_tokens" => 0},
+        %{"max_context_tokens" => -1},
+        %{"max_context_tokens" => 1.5},
+        %{"max_context_tokens" => "32000"},
+        %{"max_context_tokens" => true}
+      ]
+
+      for window <- invalid_windows do
+        attrs = Map.put(@valid_workflow_attrs, :settings, %{"context_window" => window})
+        assert {:error, changeset} = Workflows.create_workflow(attrs)
+        assert changeset.errors[:settings], "accepted invalid context window: #{inspect(window)}"
+      end
+    end
+
+    test "accepts omission and atom-keyed settings" do
+      assert {:ok, _} = Workflows.create_workflow(@valid_workflow_attrs)
+
+      assert {:ok, _} =
+               Workflows.create_workflow(
+                 Map.put(@valid_workflow_attrs, :settings, %{
+                   context_window: %{max_context_tokens: 32_000}
+                 })
+               )
+    end
+  end
+
   # --- Workflow CRUD ---
 
   describe "create_workflow/2" do
