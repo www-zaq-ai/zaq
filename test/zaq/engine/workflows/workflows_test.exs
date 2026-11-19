@@ -69,8 +69,17 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
         }
 
         assert {:ok, workflow} = Workflows.import_workflow(attrs)
-        assert Workflows.export_workflow(workflow)["settings"] == settings
+        exported = Workflows.export_workflow(workflow)
+        assert exported["settings"] == settings
         assert create_run(workflow).settings_snapshot == settings
+
+        decoded = exported |> Jason.encode!() |> Jason.decode!()
+        assert {:ok, reimported} = Workflows.import_workflow(decoded)
+        assert reimported.settings == settings
+
+        run = create_run(reimported)
+        reloaded_run = Workflows.get_run!(run.id)
+        assert reloaded_run.settings_snapshot == settings
       end
     end
 

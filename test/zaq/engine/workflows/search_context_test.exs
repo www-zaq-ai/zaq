@@ -3,6 +3,7 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
 
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Event
+  alias Zaq.Ingestion.Api, as: IngestionApi
 
   setup do
     previous = Application.fetch_env(:zaq, :workflow_step_node_router)
@@ -17,9 +18,12 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
     end)
   end
 
-  def dispatch(%Event{request: %{token_budget: budget, chunks: chunks}} = event) do
-    send(event.actor.test_pid, {:result_budget, budget})
-    %{event | response: {:ok, chunks}}
+  def dispatch(
+        %Event{request: %{token_budget: budget, max_total_results: maximum, chunks: chunks}} =
+          event
+      ) do
+    send(event.actor.test_pid, {:result_limits, budget, maximum, length(chunks)})
+    IngestionApi.handle_event(event, :limit_knowledge_results, nil)
   end
 
   def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
@@ -28,16 +32,21 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
   def dispatch(%Event{request: request} = event) when map_size(request) == 0,
     do: %{event | response: {:ok, ["simple"]}}
 
-  def dispatch(%Event{request: %{query: "find elixir"}} = event) do
-    %{
-      event
-      | response:
-          {:ok,
-           [
-             %{"content" => "Elixir runs on the BEAM VM.", "source" => "docs/elixir.md"},
-             %{"content" => "It was created by José Valim."}
-           ]}
-    }
+  def dispatch(%Event{request: %{query: query}} = event)
+      when query in ["find elixir", "find detailed elixir"] do
+    content =
+      if query == "find elixir", do: "Elixir result", else: String.duplicate("Elixir ", 100)
+
+    chunks =
+      for index <- 1..150 do
+        %{
+          "content" => "#{content} #{index}",
+          "source" => "docs/elixir.md",
+          "chunk_index" => index
+        }
+      end
+
+    %{event | response: {:ok, chunks}}
   end
 
   def dispatch(%Event{request: %{query: _query}} = event),
@@ -46,7 +55,24 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
   def dispatch(%Event{request: %{chunks: chunks}} = event),
     do: %{event | response: {:ok, chunks}}
 
-  test "direct workflow search uses the snapshotted capacity for its result budget" do
+  test "direct workflow search caps short results at 100 with a 6400-token budget" do
+    assert {:ok, %{count: 100, chunks: chunks, errors: [], partial: false}} =
+             run_search("find elixir")
+
+    assert length(chunks) == 100
+    assert_received {:result_limits, 6_400, 100, 150}
+  end
+
+  test "the snapshotted token budget can bind before the result-count cap" do
+    assert {:ok, %{count: count, chunks: chunks, errors: [], partial: false}} =
+             run_search("find detailed elixir")
+
+    assert count in 1..99
+    assert length(chunks) == count
+    assert_received {:result_limits, 6_400, 100, 150}
+  end
+
+  defp run_search(query) do
     alias Zaq.Engine.Workflows
     alias Zaq.Engine.Workflows.StepRunner
 
@@ -74,20 +100,17 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
         "trace_id" => Ecto.UUID.generate()
       })
 
-    assert {:ok, %{count: 2}} =
-             StepRunner.run(
-               %{
-                 wrapped_module: SearchKnowledgeBase,
-                 run_id: run.id,
-                 step_name: "search",
-                 step_index: 0,
-                 query: "find elixir",
-                 lexical_terms: ["test"],
-                 max_total_results: 100
-               },
-               %{execution_actor: %{test_pid: self()}}
-             )
-
-    assert_received {:result_budget, 6_400}
+    StepRunner.run(
+      %{
+        wrapped_module: SearchKnowledgeBase,
+        run_id: run.id,
+        step_name: "search",
+        step_index: 0,
+        query: query,
+        lexical_terms: ["test"],
+        max_total_results: 100
+      },
+      %{execution_actor: %{test_pid: self()}}
+    )
   end
 end
