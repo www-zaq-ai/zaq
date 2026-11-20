@@ -276,7 +276,7 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       refute_receive {:preparation_outcome, _}, 50
     end
 
-    test "provider ERROR entries in descriptions.json fail as image_extraction_failed",
+    test "all provider descriptions failing leaves text and reports sanitized failure",
          %{tmp_dir: tmp_dir} do
       with_fake_pipeline_scripts(%{
         "image_to_text.py" => """
@@ -302,7 +302,7 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       File.write!(pdf_path, "%PDF-1.4")
       test_pid = self()
 
-      assert {:error, :image_extraction_failed} =
+      assert {:ok, ^md_path} =
                Pipeline.run(pdf_path,
                  api_key: "inline-key",
                  endpoint: "https://vision.example.test/v1",
@@ -313,8 +313,56 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
                  end
                )
 
-      refute_receive {:preparation_outcome, _}, 50
+      assert_receive {:preparation_outcome, outcome}
+      assert outcome == %{image_to_text: :failed, inject: :skipped}
+      assert File.read!(md_path) =~ "Keep this text"
       refute File.read!(md_path) =~ "Injected descriptions"
+    end
+
+    test "mixed provider results inject successful descriptions and preserve text",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import json
+        import sys
+
+        output = sys.argv[sys.argv.index("--output") + 1]
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump({"chart.png": "Revenue chart", "failed.png": "ERROR: provider detail"}, f)
+        """,
+        "inject_descriptions.py" => """
+        import json
+        import sys
+
+        descriptions = sys.argv[sys.argv.index("--descriptions") + 1]
+        with open(descriptions, encoding="utf-8") as f:
+            descriptions = json.load(f)
+
+        with open(sys.argv[1], "a", encoding="utf-8") as f:
+            f.write("\\n" + "\\n".join(descriptions.values()))
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, outcome}
+      assert outcome == %{image_to_text: :failed, inject: :completed}
+      markdown = File.read!(md_path)
+      assert markdown =~ "Keep this text"
+      assert markdown =~ "Revenue chart"
+      refute markdown =~ "provider detail"
     end
 
     test "callers without on_preparation_outcome still succeed with {:ok, md_path}",

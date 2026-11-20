@@ -3,6 +3,13 @@ defmodule Zaq.Ingestion.PreparationOutcomeTest do
 
   alias Zaq.Ingestion.PreparationOutcome
 
+  test "failed image descriptions are retryable only when no searchable payloads remain" do
+    assert :ok = PreparationOutcome.classify(%{payloads_empty?: false, image_to_text: :failed})
+
+    assert {:error, :image_extraction_failed} =
+             PreparationOutcome.classify(%{payloads_empty?: true, image_to_text: :failed})
+  end
+
   describe "classify/1" do
     test "non-empty payloads always succeed regardless of image_to_text" do
       for image_to_text <- [:skipped, :completed, nil] do

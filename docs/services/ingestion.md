@@ -116,10 +116,10 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - Job lifecycle: `pending → processing → completed | completed_with_errors | failed`
 - Empty preparation is classified before document upsert. `DocumentProcessor.prepare_file_chunks/2` chunks first; when indexed payloads are empty it returns a stable atom and **does not** call `Document.upsert`, so failed re-preparation leaves an existing document unchanged. Classification uses `Zaq.Ingestion.PreparationOutcome.classify/1` with Elixir-observed PDF pipeline provenance only:
   - `:image_extraction_skipped` — empty payloads and optional image-to-text was skipped (not configured); permanent / non-retriable; static guidance to configure image-to-text
+  - `:image_extraction_failed` — empty payloads with a recorded image-to-text failure. The worker retries with static guidance.
   - `:no_searchable_content` — empty payloads after extraction completed, or non-PDF / page-marker-only Markdown with no PDF outcome; permanent; credential guidance for scanned PDFs
   - Hard `Pipeline` / provider `{:error, _}` paths are unchanged (no soft-fail atom invented from skip)
-  - When `image_to_text` exits successfully but `descriptions.json` contains `ERROR:` values (Python catches provider failures), Pipeline returns `{:error, :image_extraction_failed}` without a success outcome callback — retriable, static guidance, no secrets
-  - Non-empty payloads always succeed even when optional image-to-text was skipped (text-bearing PDFs)
+  - Non-empty payloads proceed when optional image-to-text was skipped or reported per-image provider failures.
 - `IngestWorker` maps those atoms through `format_error/1` / `structural_error?/1` and keeps the defensive `{:ok, _, []}` → `:no_searchable_content` guard for alternate / legacy processors so every no-work path still reaches an explicit terminal job state.
 - Sync `process_single_file_with_report/2` (and therefore `process_single_file/2` / `process_folder/1`) shares the same classify-before-upsert gate, so empty/skip preparation does not wipe existing documents or chunks.
 - Broadcasts `{:job_updated, job}` on every state transition via PubSub
@@ -167,7 +167,7 @@ if those continue failing, investigate provider access and metadata-fetch errors
 
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store
-- `prepare_file_chunks/2` — convert → chunk → classify empty outcomes → upsert only when payloads are non-empty; returns `{:ok, document, payloads}` or `{:error, atom}` (`:image_extraction_skipped` / `:no_searchable_content`)
+- `prepare_file_chunks/2` converts, chunks, and classifies empty outcomes before upserting. It returns `{:ok, document, payloads}` for non-empty payloads and `{:error, atom}` for preparation failures.
 - `process_single_file_with_report/2` — same classify-before-upsert gate, then embed/store chunks only on success
 - `PreparationOutcome.classify/1` owns empty vs skipped classification for async and sync consumers
 - Non-Markdown converters write temporary `.md` files next to job-scoped materialized inputs because the Python pipeline expects output paths; those files are scratch artifacts, not indexed documents.
@@ -272,8 +272,8 @@ or version-independent citation guarantee is implied.
 - Orchestrates PDF → clean Markdown conversion via individual Python step scripts
 - Steps: `PdfToMd → ImageDedup → CleanMd → [ImageToText] → [InjectDescriptions]`
 - Steps 4–5 (image-to-text + inject descriptions) are skipped when no Scaleway API key is configured
-- Success remains `{:ok, md_path}`; optional `opts[:on_preparation_outcome]` receives `%{image_to_text: :skipped | :completed, inject: :skipped | :completed}` only on successful completion (hard step errors do not invoke it)
-- Provider `ERROR:` entries in `descriptions.json` after a successful Python exit become `{:error, :image_extraction_failed}` before inject/outcome callback
+- On `{:ok, md_path}`, the optional `opts[:on_preparation_outcome]` callback receives `%{image_to_text: :skipped | :completed | :failed, inject: :skipped | :completed}`.
+- After a successful Python exit, the pipeline removes provider `ERROR:` entries before injection and reports `image_to_text: :failed`. Available descriptions are injected and extracted text continues through preparation.
 - PDFs with spaces in their filename are processed via a temporary symlink/copy alias
 - On failure, debug images are moved to `<volume_base>/debugging/<pdf_name>/`
 - `run/2` returns `{:ok, md_path} | {:error, reason}`

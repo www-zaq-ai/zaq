@@ -10,13 +10,13 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   only on successful pipeline completion with a map of Elixir-observed
   optional-step outcomes:
 
-      %{image_to_text: :skipped | :completed, inject: :skipped | :completed}
+      %{image_to_text: :skipped | :completed | :failed, inject: :skipped | :completed}
 
-  Hard step failures still return `{:error, reason}` and do not invoke the
-  callback. That includes provider failures recorded as `ERROR:` values in
-  `descriptions.json` even when the Python process exits successfully
-  (`{:error, :image_extraction_failed}`). Success remains `{:ok, md_path}`
-  regardless of the callback.
+  Provider failures recorded as `ERROR:` values in `descriptions.json`
+  set `image_to_text: :failed`. The pipeline removes those entries before
+  injection so valid Markdown and successful descriptions can still be used.
+  Hard step failures return `{:error, reason}` without invoking the callback.
+  Success remains `{:ok, md_path}` regardless of the callback.
 
   ## Usage
 
@@ -77,11 +77,12 @@ defmodule Zaq.Ingestion.Python.Pipeline do
                  resolve_image_to_text_prompt(),
                  image_to_text_opts
                ),
-             :ok <- reject_provider_description_errors(image_to_text_result, descriptions_json),
+             {image_to_text_outcome, descriptions_for_injection} =
+               prepare_descriptions(image_to_text_result, descriptions_json),
              {:ok, inject_result} <-
-               maybe_inject_descriptions(api_key, md_path, descriptions_json) do
+               maybe_inject_descriptions(md_path, descriptions_for_injection) do
           report_preparation_outcome(opts[:on_preparation_outcome], %{
-            image_to_text: normalize_step_outcome(image_to_text_result),
+            image_to_text: image_to_text_outcome,
             inject: normalize_step_outcome(inject_result)
           })
 
@@ -155,55 +156,72 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     end
   end
 
-  defp maybe_inject_descriptions(nil, _md_path, _descriptions_json) do
-    {:ok, :skipped}
-  end
+  defp maybe_inject_descriptions(_md_path, nil), do: {:ok, :skipped}
 
-  defp maybe_inject_descriptions(_api_key, md_path, descriptions_json) do
-    if File.exists?(descriptions_json) do
-      InjectDescriptions.run(md_path, descriptions_json)
-    else
-      Logger.info("[Pipeline] No descriptions.json found — skipping injection")
-      {:ok, :skipped}
-    end
-  end
+  defp maybe_inject_descriptions(md_path, descriptions_json),
+    do: InjectDescriptions.run(md_path, descriptions_json)
 
   defp normalize_step_outcome(:skipped), do: :skipped
   defp normalize_step_outcome(_result), do: :completed
 
-  # Python image_to_text catches per-image provider failures, writes
-  # "ERROR: ..." values, and still exits 0. Treat those as hard step
-  # failure so callers do not classify the run as :completed emptiness.
-  defp reject_provider_description_errors(:skipped, _descriptions_json), do: :ok
+  defp prepare_descriptions(:skipped, _path), do: {:skipped, nil}
 
-  defp reject_provider_description_errors(_image_to_text_result, descriptions_json) do
-    with {:ok, body} <- File.read(descriptions_json),
-         {:ok, decoded} <- Jason.decode(body),
-         true <- Enum.any?(description_texts(decoded), &provider_error_description?/1) do
-      Logger.warning(
-        "[Pipeline] image-to-text reported provider ERROR entries in descriptions.json"
-      )
+  defp prepare_descriptions(_result, path) do
+    case File.read(path) do
+      {:ok, body} ->
+        sanitize_descriptions(Jason.decode(body), path)
 
-      {:error, :image_extraction_failed}
-    else
-      {:error, :enoent} -> :ok
-      {:error, _} -> :ok
-      false -> :ok
+      {:error, :enoent} ->
+        Logger.info("[Pipeline] No descriptions.json found — skipping injection")
+        {:completed, nil}
+
+      {:error, _reason} ->
+        {:failed, nil}
     end
   end
 
-  defp description_texts(%{"images" => images}) when is_list(images) do
-    Enum.map(images, fn
-      %{"description" => description} when is_binary(description) -> description
-      _ -> nil
-    end)
+  defp sanitize_descriptions({:ok, %{"images" => images} = descriptions}, path)
+       when is_list(images) do
+    valid_images =
+      Enum.reject(images, fn
+        %{"description" => description} -> provider_error_description?(description)
+        _ -> false
+      end)
+
+    save_sanitized_descriptions(
+      descriptions,
+      %{descriptions | "images" => valid_images},
+      valid_images == [],
+      path
+    )
   end
 
-  defp description_texts(map) when is_map(map) do
-    Map.values(map)
+  defp sanitize_descriptions({:ok, descriptions}, path) when is_map(descriptions) do
+    valid_descriptions =
+      Map.reject(descriptions, fn {_image, text} -> provider_error_description?(text) end)
+
+    save_sanitized_descriptions(
+      descriptions,
+      valid_descriptions,
+      map_size(valid_descriptions) == 0,
+      path
+    )
   end
 
-  defp description_texts(_), do: []
+  defp sanitize_descriptions(_result, _path), do: {:failed, nil}
+
+  defp save_sanitized_descriptions(descriptions, descriptions, _empty?, path),
+    do: {:completed, path}
+
+  defp save_sanitized_descriptions(_original, _filtered, true, _path),
+    do: {:failed, nil}
+
+  defp save_sanitized_descriptions(_original, filtered, false, path) do
+    case File.write(path, Jason.encode!(filtered)) do
+      :ok -> {:failed, path}
+      {:error, _reason} -> {:failed, nil}
+    end
+  end
 
   defp provider_error_description?(text) when is_binary(text),
     do: String.starts_with?(text, "ERROR:")
