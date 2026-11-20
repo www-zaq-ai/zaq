@@ -386,23 +386,11 @@ defmodule Zaq.Ingestion.DocumentChunker do
          position
        ) do
     {image_lines, remaining} = extract_vision_image_block([line | rest])
-    image_content = Enum.join(image_lines, "\n")
 
-    filename = extract_vision_image_filename(line)
-    parent_path = get_parent_path_for_non_heading_from_stack(heading_stack, current_section)
-
-    figure_section = %Section{
-      id: generate_id(),
-      type: :figure,
-      content: image_content,
-      title: filename,
-      parent_path: parent_path,
-      position: position,
-      tokens: TokenEstimator.estimate(image_content)
-    }
-
-    sections = maybe_add_section(sections, current_content, current_section)
-    sections = [figure_section | sections]
+    sections =
+      sections
+      |> maybe_add_section(current_content, current_section)
+      |> maybe_add_vision_image_section(image_lines, current_section, heading_stack, position)
 
     parse_markdown_lines(
       remaining,
@@ -412,6 +400,35 @@ defmodule Zaq.Ingestion.DocumentChunker do
       heading_stack,
       position + length(image_lines)
     )
+  end
+
+  defp maybe_add_vision_image_section(
+         sections,
+         [header | body] = image_lines,
+         current_section,
+         heading_stack,
+         position
+       ) do
+    [_label, inline_description] = String.split(header, "]**", parts: 2)
+
+    if String.trim(inline_description) == "" and
+         Enum.all?(body, &(String.trim(&1) in ["", ">"])) do
+      sections
+    else
+      content = Enum.join(image_lines, "\n")
+
+      figure = %Section{
+        id: generate_id(),
+        type: :figure,
+        content: content,
+        title: extract_vision_image_filename(header),
+        parent_path: get_parent_path_for_non_heading_from_stack(heading_stack, current_section),
+        position: position,
+        tokens: TokenEstimator.estimate(content)
+      }
+
+      [figure | sections]
+    end
   end
 
   # ---------------------------------------------------------------------------

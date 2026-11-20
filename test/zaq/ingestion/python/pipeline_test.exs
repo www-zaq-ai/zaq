@@ -6,6 +6,7 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
   @moduletag capture_log: true
 
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.Ingestion.Chunk
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Ingestion.Python.Pipeline
@@ -425,6 +426,67 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
         end)
 
       refute logs =~ "private provider detail"
+    end
+
+    for prepare <- [:prepare_file_chunks, :process_single_file_with_report] do
+      test "#{prepare} preserves the existing document and chunks for a scan with a blank description",
+           %{tmp_dir: tmp_dir} do
+        SystemConfigFixtures.seed_embedding_config(%{dimension: "1536"})
+        SystemConfigFixtures.seed_image_to_text_config(%{api_key: "fixture-key"})
+
+        Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+          Req.Test.json(conn, %{"data" => [%{"embedding" => List.duplicate(0.1, 1536)}]})
+        end)
+
+        injector = File.read!(Path.join(Runner.scripts_dir(), "inject_descriptions.py"))
+
+        with_fake_pipeline_scripts(%{
+          "pdf_to_md.py" => """
+          import sys
+          from pathlib import Path
+
+          pdf = Path(sys.argv[1])
+          markdown = Path(sys.argv[2])
+          images = Path(sys.argv[sys.argv.index("--images-dir") + 1]) / pdf.stem
+          images.mkdir(parents=True)
+          image = images / "page-1.png"
+          image.touch()
+          markdown.write_text(f"<!-- page: 1 -->\\n\\n![page]({image})\\n", encoding="utf-8")
+          """,
+          "image_to_text.py" => """
+          import json
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[sys.argv.index("--output") + 1])
+          output.write_text(json.dumps({"page-1.png": ""}), encoding="utf-8")
+          """,
+          "inject_descriptions.py" => injector
+        })
+
+        scan = Path.join(tmp_dir, "blank-description.pdf")
+        File.write!(scan, "%PDF-1.4")
+        prior_text = "The original document contains searchable text."
+
+        assert {:ok, document} =
+                 Document.create(%{
+                   source: Path.basename(scan),
+                   content: prior_text,
+                   metadata: %{}
+                 })
+
+        assert {:ok, chunk} =
+                 Chunk.create(%{document_id: document.id, content: prior_text, chunk_index: 1})
+
+        assert {:error, :no_searchable_content} =
+                 apply(DocumentProcessor, unquote(prepare), [scan])
+
+        assert Repo.get!(Document, document.id).content == prior_text
+
+        assert [preserved] = Repo.all(from(c in Chunk, where: c.document_id == ^document.id))
+        assert preserved.id == chunk.id
+        assert preserved.content == prior_text
+      end
     end
 
     test "callers without on_preparation_outcome still succeed with {:ok, md_path}",
