@@ -36,6 +36,18 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveSnapshotTest do
     end
   end
 
+  test "cancellation survives delayed waiting and paused snapshots" do
+    waiting = waiting_step()
+    cancelled = %{waiting | status: "cancelled"}
+
+    for stale <- [waiting, %{waiting | status: "paused"}] do
+      {:noreply, socket} =
+        WorkflowRunLive.handle_info({:step_updated, stale}, socket_with([cancelled]))
+
+      assert socket.assigns.step_runs == [cancelled]
+    end
+  end
+
   test "a distinct running row on resume is accepted alongside the settled row" do
     settled = settled_step(waiting_step(), "completed")
     resumed = %{waiting_step() | id: "resumed-step", status: "running", step_index: 1}

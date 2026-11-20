@@ -141,7 +141,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   defp keep_current_step_snapshot?(current, incoming) do
-    (current.status in ~w(completed failed failed_fatal skipped) and
+    (current.status in ~w(completed failed failed_fatal skipped cancelled) and
        incoming.status in ~w(running waiting paused)) or
       (current.status != "running" and incoming.status == "running")
   end
