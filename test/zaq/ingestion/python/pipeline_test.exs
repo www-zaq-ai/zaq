@@ -1,11 +1,16 @@
 defmodule Zaq.Ingestion.Python.PipelineTest do
   use Zaq.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   @moduletag capture_log: true
 
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.Ingestion.Document
+  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Runner
+  alias Zaq.SystemConfigFixtures
 
   setup do
     tmp_dir =
@@ -363,6 +368,63 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       assert markdown =~ "Keep this text"
       assert markdown =~ "Revenue chart"
       refute markdown =~ "provider detail"
+    end
+
+    test "preparation indexes text and retries an image-only PDF for the same failed image",
+         %{tmp_dir: tmp_dir} do
+      SystemConfigFixtures.seed_image_to_text_config(%{api_key: "fixture-key"})
+
+      with_fake_pipeline_scripts(%{
+        "pdf_to_md.py" => """
+        import sys
+        from pathlib import Path
+
+        pdf = Path(sys.argv[1])
+        markdown = Path(sys.argv[2])
+        images = Path(sys.argv[sys.argv.index("--images-dir") + 1]) / pdf.stem
+        images.mkdir(parents=True)
+        image = images / "page-1.png"
+        image.touch()
+        text = "The quarterly report includes searchable text. " * 20 if pdf.stem == "report" else ""
+        markdown.write_text(f"<!-- page: 1 -->\\n\\n{text}\\n\\n![page]({image})\\n", encoding="utf-8")
+        """,
+        "image_to_text.py" => """
+        import json
+        import sys
+        from pathlib import Path
+
+        output = Path(sys.argv[sys.argv.index("--output") + 1])
+        output.write_text(json.dumps({"page-1.png": "ERROR: private provider detail"}), encoding="utf-8")
+        """
+      })
+
+      report = Path.join(tmp_dir, "report.pdf")
+      scan = Path.join(tmp_dir, "scan.pdf")
+      File.write!(report, "%PDF-1.4")
+      File.write!(scan, "%PDF-1.4")
+
+      logs =
+        capture_log(fn ->
+          assert {:ok, %Document{} = document, payloads} =
+                   DocumentProcessor.prepare_file_chunks(report)
+
+          assert Enum.any?(payloads, fn {%{"content" => content}, _index} ->
+                   content =~ "The quarterly report includes searchable text."
+                 end)
+
+          refute Enum.any?(payloads, fn {%{"content" => content}, _index} ->
+                   content =~ "private provider detail"
+                 end)
+
+          refute Repo.get!(Document, document.id).content =~ "private provider detail"
+
+          assert {:error, :image_extraction_failed} =
+                   DocumentProcessor.prepare_file_chunks(scan)
+
+          refute Repo.get_by(Document, source: "scan.pdf")
+        end)
+
+      refute logs =~ "private provider detail"
     end
 
     test "callers without on_preparation_outcome still succeed with {:ok, md_path}",
