@@ -202,7 +202,8 @@ defmodule Zaq.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:doctor, "~> 0.22", only: [:dev], runtime: false},
       {:excoveralls, "~> 0.18.5", only: :test},
-      {:mox, "~> 1.2", only: :test}
+      {:mox, "~> 1.2", only: :test},
+      {:playwright, "~> 1.65.0-rc.3", hex: :playwright_ex, only: [:dev, :test]}
     ]
   end
 
@@ -226,7 +227,7 @@ defmodule Zaq.MixProject do
       "ecto.setup": ["ecto.create", "db.extensions", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "db.extensions --quiet", "ecto.migrate --quiet", "test"],
-      e2e: ["cmd npm --prefix test/e2e run test:journeys --"],
+      e2e: &e2e/1,
       storybook: ["cmd npm --prefix test/e2e run test:storybook"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile"] ++ tailwind_builds() ++ ["esbuild zaq"],
@@ -327,6 +328,39 @@ defmodule Zaq.MixProject do
     Mix.Task.run("assets.setup")
     Mix.Task.run("assets.build")
     Mix.Task.run("zaq.python.fetch")
+  end
+
+  # mix e2e [mix test args]: builds the assets, bootstraps the E2E database, then runs the
+  # browser suite (test/e2e_pw, or the test/ paths given) against the E2E server on :4002.
+  defp e2e(args) do
+    env = [
+      {"PORT", "4002"},
+      {"MIX_ENV", "test"},
+      {"E2E", "1"},
+      {"MIX_BUILD_PATH", "_build/test-e2e"}
+    ]
+
+    tasks = [
+      ["assets.setup"],
+      ["assets.build"],
+      ["ecto.create", "--quiet"],
+      ["db.extensions", "--quiet"],
+      ["ecto.migrate", "--quiet"],
+      ["run", "test/support/e2e/bootstrap.exs"],
+      # No --only e2e: it would override a path's :line filter. test/e2e_pw holds only :e2e tests.
+      [
+        "test"
+        | if(Enum.any?(args, &String.starts_with?(&1, "test/")),
+            do: args,
+            else: ["test/e2e_pw" | args]
+          )
+      ]
+    ]
+
+    for task <- tasks do
+      {_, status} = System.cmd("mix", task, env: env, into: IO.stream())
+      if status != 0, do: Mix.raise("mix #{Enum.join(task, " ")} failed")
+    end
   end
 
   defp docs do

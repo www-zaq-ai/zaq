@@ -1,8 +1,4 @@
 const { defineConfig, devices } = require("@playwright/test");
-const path = require("path");
-
-const storybookOnly = !!process.env.STORYBOOK_ONLY;
-const boAdminStorageState = path.join(__dirname, ".auth", "bo-admin.json");
 
 // Retries are deliberately 0. Do NOT bump this to mask flakes — the plan
 // `docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md` explicitly forbids
@@ -20,7 +16,6 @@ module.exports = defineConfig({
     ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]]
     : [["list"]],
   use: {
-    baseURL: "http://localhost:4002",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -30,40 +25,16 @@ module.exports = defineConfig({
     },
   },
   webServer: [
-    ...(!storybookOnly ? [{
-      command:
-        "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix phx.server'",
-      url: "http://localhost:4002/bo/login",
-      reuseExistingServer: !process.env.CI,
-      timeout: 180_000,
-      stdout: "pipe",
-      stderr: "pipe",
-    }] : []),
-    ...(storybookOnly ? [{
+    {
       command: "sh -c 'cd ../.. && PORT=4000 MIX_ENV=dev mix phx.server'",
       url: "http://localhost:4000/storybook",
       reuseExistingServer: true,
       timeout: 180_000,
       stdout: "pipe",
       stderr: "pipe",
-    }] : []),
+    },
   ],
   projects: [
-    {
-      name: "journeys-firefox",
-      testDir: "./specs",
-      use: { ...devices["Desktop Firefox"], storageState: boAdminStorageState },
-    },
-        {
-      name: "journeys-webkit",
-      testDir: "./specs",
-      use: { ...devices["Desktop Safari"], storageState: boAdminStorageState },
-    },
-    {
-      name: "journeys-chromium",
-      testDir: "./specs",
-      use: { ...devices["Desktop Chrome"], storageState: boAdminStorageState },
-    },
     {
       name: "storybook",
       testDir: "./storybook-specs",

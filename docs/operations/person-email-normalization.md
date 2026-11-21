@@ -81,7 +81,7 @@ For normal tests against the amended sequence, use a fresh disposable test parti
 
 ```sh
 MIX_TEST_PARTITION=_channel_identity mix test test/zaq/accounts
-MIX_TEST_PARTITION=_channel_identity npm --prefix test/e2e run test:journeys -- people.spec.js
+MIX_TEST_PARTITION=_channel_identity mix e2e test/e2e_pw/people_test.exs
 ```
 
 Choose a new partition suffix if that disposable database already recorded an older
