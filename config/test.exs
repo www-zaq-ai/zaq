@@ -172,7 +172,8 @@ if e2e? do
     trace: :retain_on_failure,
     screenshot: :only_on_failure,
     video: :retain_on_failure,
-    launch_options: [headless: slow == "", slow_mo: slow_mo]
+    headless: slow == "",
+    launch_options: [slow_mo: slow_mo]
 
   config :playwright, :expect, timeout: if(System.get_env("CI"), do: 20_000, else: 15_000)
 end

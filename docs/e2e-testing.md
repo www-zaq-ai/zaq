@@ -46,8 +46,8 @@ test/
 ```
 
 Browser config (base URL, storage state, artifacts, `SLOW`, expect timeout) is the `if e2e?`
-block of `config/test.exs`; the device comes from `E2E_AUTH_BROWSER` (`chromium`, `firefox`
-or `webkit`) in `config/runtime.exs`.
+block of `config/test.exs`; the project (`journeys-<browser>`, its device) comes from
+`E2E_AUTH_BROWSER` (`chromium`, `firefox` or `webkit`) in `Zaq.E2EPw.Case.project/0`.
 
 ---
 

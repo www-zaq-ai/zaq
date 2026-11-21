@@ -16,7 +16,7 @@ defmodule Zaq.E2EPw.OnboardingTest do
     alias Playwright.{APIRequest, Expect, Locator, Page}
     alias Playwright.Test.BrowserPool
     import Zaq.E2EPw.BO
-    import ExUnit.Assertions
+    import Playwright.Test.Assertions
 
     def strong_password, do: "StrongPass1!"
     def onboard_email, do: "fresh.admin@e2e.local"

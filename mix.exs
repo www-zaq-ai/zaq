@@ -203,7 +203,7 @@ defmodule Zaq.MixProject do
       {:doctor, "~> 0.22", only: [:dev], runtime: false},
       {:excoveralls, "~> 0.18.5", only: :test},
       {:mox, "~> 1.2", only: :test},
-      {:playwright, "~> 1.65.0-rc.2", hex: :playwright_ex, only: [:dev, :test]}
+      {:playwright, "~> 1.65.0-rc.3", hex: :playwright_ex, only: [:dev, :test]}
     ]
   end
 
