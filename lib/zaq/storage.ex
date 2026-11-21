@@ -11,6 +11,7 @@ defmodule Zaq.Storage do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Materialization.Handle
+  alias Zaq.Materialization.Sink
   alias Zaq.Permissions
   alias Zaq.Repo
   alias Zaq.Storage.EntryCatalog
@@ -21,6 +22,7 @@ defmodule Zaq.Storage do
   alias Zaq.Storage.VolumeConfig
   alias Zaq.Utils.Map, as: MapUtils
 
+  @stream_chunk_bytes 256 * 1024
   @textual_mime_types ~w(
     application/json application/xml application/javascript
     application/yaml application/x-yaml application/x-sh
@@ -610,11 +612,59 @@ defmodule Zaq.Storage do
     with {:ok, {volume_name, path}} <- resolve_entry_ref(source, opts),
          {:ok, %Entry{} = entry} <- file_info(volume_name, path, opts),
          :ok <- authorize_entry(entry, :read, opts),
-         {:ok, absolute_path} <- resolve_path(volume_name, entry.relative_path, opts),
-         {:ok, binary} <- File.read(absolute_path) do
-      {:ok, content_answer(entry, binary, request, opts)}
+         {:ok, absolute_path} <- resolve_path(volume_name, entry.relative_path, opts) do
+      read_source(entry, absolute_path, request, opts)
     end
   end
+
+  defp read_source(entry, absolute_path, request, opts) do
+    case Keyword.get(opts, :materialization_sink) do
+      sink when is_pid(sink) ->
+        stream_to_sink(entry, absolute_path, sink, request, opts)
+
+      _ ->
+        with {:ok, binary} <- File.read(absolute_path) do
+          {:ok, content_answer(entry, binary, request, opts)}
+        end
+    end
+  end
+
+  # Streams the file into the consumer's sink in bounded chunks; the consumer-owned sink
+  # (possibly on another node) enforces the byte quota, so an oversized file is rejected
+  # after at most one chunk past the limit and is never held in memory.
+  defp stream_to_sink(%Entry{} = entry, absolute_path, sink, request, opts) do
+    with :ok <- Sink.start(sink, entry.size),
+         {:ok, device} <- :file.open(String.to_charlist(absolute_path), [:read, :raw, :binary]) do
+      try do
+        with {:ok, binary?} <- copy_chunks(device, sink, entry, request, opts) do
+          {:ok, streamed_answer(binary?)}
+        end
+      after
+        :file.close(device)
+      end
+    end
+  end
+
+  defp copy_chunks(device, sink, entry, request, opts) do
+    case :file.read(device, Keyword.get(opts, :stream_chunk_bytes, @stream_chunk_bytes)) do
+      {:ok, chunk} ->
+        with :ok <- Sink.write(sink, chunk),
+             do: copy_chunks(device, sink, entry, request, opts)
+
+      :eof ->
+        {:ok,
+         not (MapUtils.present_value(request, "encoding") != "base64" and
+                textual_mime?(mime(opts).from_path(entry.name)))}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # `content` stays with the sink; "base64" is the representation hint for non-textual files
+  # (the consumer still requires valid UTF-8 from what was streamed for textual ones).
+  defp streamed_answer(true), do: %{content: nil, encoding: "base64"}
+  defp streamed_answer(false), do: %{content: nil, encoding: nil}
 
   defp disk_config_opts(request, opts) do
     cond do
