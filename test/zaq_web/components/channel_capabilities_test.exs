@@ -3,7 +3,35 @@ defmodule ZaqWeb.Components.ChannelCapabilitiesTest do
 
   import Phoenix.LiveViewTest
 
+  alias Zaq.Channels.Api
+  alias Zaq.Event
   alias ZaqWeb.Components.ChannelCapabilities
+
+  for {provider, mode} <- [{"email:smtp", "none"}, {"email:imap", "idle"}] do
+    test "shared BO component displays #{provider} without provider-specific labels" do
+      assert {:ok, email} = email_capability_snapshot(unquote(provider))
+
+      html =
+        render_component(&ChannelCapabilities.icon_with_modal/1,
+          title: "Capabilities",
+          modal_open?: true,
+          snapshot: email
+        )
+
+      document = LazyHTML.from_fragment(html)
+
+      supported_labels =
+        document
+        |> LazyHTML.query("#capabilities-modal li.text-emerald-700")
+        |> Enum.map(&LazyHTML.text/1)
+        |> Enum.map(&String.trim/1)
+
+      assert supported_labels == ["Mode: " <> unquote(mode), "Text", "Threads"]
+      assert document |> LazyHTML.query("#capabilities-modal li") |> LazyHTML.text() =~ "File"
+      refute html =~ "receive only"
+      refute html =~ "send only"
+    end
+  end
 
   describe "icon_with_modal/1" do
     test "modal closed state: only button renders, no modal" do
@@ -205,5 +233,14 @@ defmodule ZaqWeb.Components.ChannelCapabilitiesTest do
       assert alpha_index < mike_index, "Alpha should appear before Mike"
       assert mike_index < zulu_index, "Mike should appear before Zulu"
     end
+  end
+
+  defp email_capability_snapshot(provider) do
+    event =
+      Event.new(%{provider: provider, scope: :provider}, :channels,
+        opts: [action: :channel_capability_snapshot]
+      )
+
+    Api.handle_event(event, :channel_capability_snapshot, nil).response
   end
 end

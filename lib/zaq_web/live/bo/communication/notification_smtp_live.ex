@@ -28,6 +28,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
      socket
      |> assign(:current_path, "/bo/channels/retrieval/email/smtp")
      |> assign(:page_title, "SMTP Configuration")
+     |> assign(:capabilities_snapshot, capability_snapshot())
+     |> assign(:capability_modal_open, false)
      |> assign(:form, to_form(changeset))
      |> assign(:smtp_warnings, smtp_warnings(changeset))
      |> assign(:email_enabled, config.enabled)
@@ -42,6 +44,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   end
 
   @impl true
+  def handle_event("open_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, true)}
+  end
+
+  def handle_event("close_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, false)}
+  end
+
   def handle_event("select_connector", %{"id" => id}, socket) do
     case Enum.find(socket.assigns.configs, &(to_string(&1.id) == id)) do
       nil ->
@@ -393,6 +403,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
       selected_config_id: socket.assigns.selected_config_id,
       params: changeset.params || %{}
     })
+  end
+
+  defp capability_snapshot do
+    event =
+      Event.new(%{provider: @smtp_provider, scope: :provider}, :channels,
+        opts: [action: :channel_capability_snapshot]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, snapshot} when is_map(snapshot) -> snapshot
+      _ -> %{}
+    end
   end
 
   defp email_settings(socket, op, request) do

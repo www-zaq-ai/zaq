@@ -29,6 +29,31 @@ defmodule Zaq.Channels.EmailBridge do
   alias Zaq.NodeRouter
   alias Zaq.Utils.EmailUtils
 
+  @doc """
+  Returns email delivery capabilities, independently of connector readiness.
+
+  Text and threaded replies use SMTP, including replies originating from an IMAP
+  inbox. Attachment reception is outside this delivery contract. The mode reports
+  the ingress mechanism: `none` for SMTP and `idle` for IMAP.
+  Unknown providers are unsupported.
+  """
+  @spec capability_snapshot(map()) :: {:ok, map()} | {:error, :unsupported}
+  @impl Zaq.Channels.Bridge
+  def capability_snapshot(config) when is_map(config) do
+    case config_provider(config) do
+      provider when provider in ["email:smtp", :"email:smtp"] ->
+        {:ok, %{resolved: %{text: :native, threads: :native, mode: "none"}}}
+
+      provider when provider in ["email:imap", :"email:imap"] ->
+        {:ok, %{resolved: %{text: :native, threads: :native, mode: "idle"}}}
+
+      _ ->
+        {:error, :unsupported}
+    end
+  end
+
+  def capability_snapshot(_config), do: {:error, :unsupported}
+
   @impl Zaq.Channels.CommunicationBridge
   def incoming_routing(config) when is_map(config) do
     if config_provider(config) in ["email:imap", :"email:imap", :email] do

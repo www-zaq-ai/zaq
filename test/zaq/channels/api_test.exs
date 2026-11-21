@@ -4,6 +4,7 @@ defmodule Zaq.Channels.ApiTest do
   alias Zaq.Agent.Status
   alias Zaq.Channels.Api
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.Web.{Delivery, Response}
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
@@ -2385,6 +2386,96 @@ defmodule Zaq.Channels.ApiTest do
     assert Api.handle_event(no_event, :bridge_available, nil).response == false
   end
 
+  describe "email capability snapshots" do
+    for {provider, mode, unsupported} <- [
+          {"email:smtp", "none",
+           [:image, :audio, :video, :file, :streaming, :reactions, :typing, :edit_messages]},
+          {"email:imap", "idle",
+           [:image, :audio, :video, :file, :streaming, :reactions, :typing, :edit_messages]}
+        ] do
+      test "existing endpoint normalizes #{provider} without a configured connector" do
+        event = email_capability_event(unquote(provider))
+
+        assert %Event{response: {:ok, snapshot}} =
+                 Api.handle_event(event, :channel_capability_snapshot, nil)
+
+        assert snapshot.kind == :communication
+        assert snapshot.required == Bridge.required_capabilities(:communication)
+        assert snapshot.unsupported == unquote(unsupported)
+        assert snapshot.resolved.mode == unquote(mode)
+        assert snapshot.labels.text == "Text"
+        assert snapshot.labels.threads == "Threads"
+        refute Map.has_key?(snapshot, :settings)
+        refute Map.has_key?(snapshot, :token)
+      end
+    end
+
+    test "provider scope remains available with multiple disabled SMTP accounts" do
+      for name <- ["First sender", "Second sender"] do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: name,
+          provider: "email:smtp",
+          kind: "retrieval",
+          url: "smtp://configured-in-settings",
+          token: "smtp-unused",
+          enabled: false,
+          settings: %{"relay" => "smtp.example.com"}
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:error, :ambiguous_connector} = Bridge.capability_snapshot("email:smtp")
+
+      assert %Event{response: {:ok, snapshot}} =
+               Api.handle_event(
+                 email_capability_event("email:smtp"),
+                 :channel_capability_snapshot,
+                 nil
+               )
+
+      assert snapshot.resolved == %{mode: "none", text: :native, threads: :native}
+      assert :file in snapshot.unsupported
+    end
+
+    test "email uses the same text and thread support values as Mattermost" do
+      assert {:ok, mattermost} = email_capability_snapshot("mattermost")
+      assert mattermost.resolved.text == :native
+      assert mattermost.resolved.threads == :native
+
+      for provider <- ["email:smtp", "email:imap"] do
+        assert {:ok, email} = email_capability_snapshot(provider)
+        assert email.required == mattermost.required
+        assert email.resolved.text == mattermost.resolved.text
+        assert email.resolved.threads == mattermost.resolved.threads
+      end
+    end
+
+    test "IMAP attachment reception does not advertise outbound media delivery" do
+      assert {:ok, raw} = EmailBridge.capability_snapshot(%{provider: "email:imap"})
+      assert {:ok, normalized} = email_capability_snapshot("email:imap")
+
+      for capability <- [:file, :image, :audio, :video] do
+        refute Map.has_key?(raw.resolved, capability)
+        assert capability in normalized.unsupported
+      end
+    end
+
+    test "email snapshots use shared labels without encoding direction" do
+      for provider <- ["email:smtp", "email:imap"] do
+        assert {:ok, email} = email_capability_snapshot(provider)
+        assert email.labels == Bridge.capability_meta(:communication)
+      end
+    end
+
+    for {provider, mode} <- [{"email:smtp", "none"}, {"email:imap", "idle"}] do
+      test "#{provider} describes its ingress mechanism using the existing mode field" do
+        assert {:ok, email} = email_capability_snapshot(unquote(provider))
+        assert email.resolved.mode == unquote(mode)
+      end
+    end
+  end
+
   test "handles channel_capability_snapshot" do
     event =
       Event.new(%{provider: "mattermost"}, :channels,
@@ -2609,5 +2700,15 @@ defmodule Zaq.Channels.ApiTest do
       assert Api.handle_event(event, :broadcast, nil).response ==
                {:error, {:unsupported_action, :broadcast}}
     end
+  end
+
+  defp email_capability_event(provider) do
+    Event.new(%{provider: provider, scope: :provider}, :channels,
+      opts: [action: :channel_capability_snapshot]
+    )
+  end
+
+  defp email_capability_snapshot(provider) do
+    Api.handle_event(email_capability_event(provider), :channel_capability_snapshot, nil).response
   end
 end

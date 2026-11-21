@@ -31,6 +31,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
      socket
      |> assign(:current_path, "/bo/channels/retrieval/email/imap")
      |> assign(:page_title, "IMAP Configuration")
+     |> assign(:capabilities_snapshot, capability_snapshot())
+     |> assign(:capability_modal_open, false)
      |> assign(:form, to_form(changeset))
      |> assign(:imap_enabled, config.enabled)
      |> assign(:agent_options, AgentRoutingOptions.agent_options())
@@ -50,6 +52,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   @impl true
+  def handle_event("open_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, true)}
+  end
+
+  def handle_event("close_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, false)}
+  end
+
   def handle_event("new_connector", _params, socket) do
     socket = socket |> assign(:selected_config_id, :new) |> assign(:available_mailboxes, [])
     config = current_imap_config(socket)
@@ -477,6 +487,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
       send(caller, {:load_mailboxes_result, config, selected, result})
     end)
+  end
+
+  defp capability_snapshot do
+    event =
+      Zaq.Event.new(%{provider: @imap_provider, scope: :provider}, :channels,
+        opts: [action: :channel_capability_snapshot]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, snapshot} when is_map(snapshot) -> snapshot
+      _ -> %{}
+    end
   end
 
   defp email_settings(socket, op, request) do
