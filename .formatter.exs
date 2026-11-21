@@ -5,6 +5,7 @@
   inputs: [
     "*.{heex,ex,exs}",
     "{config,lib,test}/**/*.{heex,ex,exs}",
+    "scripts/**/*.{ex,exs}",
     "priv/*/seeds.exs",
     ".github/scripts/*.exs"
   ]

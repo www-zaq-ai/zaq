@@ -159,7 +159,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_params(%{"tab" => "global"}, _uri, socket) do
     {:noreply,
-     socket |> assign(:active_tab, :global) |> load_operation_forms([:small, :decision])}
+     socket
+     |> assign(:active_tab, :global)
+     |> load_grpc_limit()
+     |> load_operation_forms([:small, :decision])}
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
@@ -773,6 +776,27 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:error, reason} ->
         {:noreply,
          put_flash(socket, :error, "Failed to save global default agent: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("save_grpc_max_message_mib", %{"grpc_max_message_mib" => mib}, socket) do
+    case dispatch_engine(:system_config_set_grpc_max_message_mib, %{mib: mib}) do
+      :ok ->
+        {:noreply,
+         socket
+         |> load_grpc_limit()
+         |> put_flash(:info, "gRPC message size saved. Restart each Engine node to apply it.")}
+
+      {:error, :invalid_grpc_max_message_size} ->
+        value = if is_binary(mib) or is_integer(mib), do: mib, else: ""
+
+        {:noreply,
+         socket
+         |> assign(:grpc_limit_form, to_form(%{"grpc_max_message_mib" => value}))
+         |> assign(:grpc_limit_error, "Enter a whole number from 1 to 4095 MiB.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Failed to save gRPC message size.")}
     end
   end
 
@@ -2244,6 +2268,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:error, reason} -> {:error, reason}
       other -> {:error, other}
     end
+  end
+
+  defp load_grpc_limit(socket) do
+    {mib, error} =
+      case dispatch_engine(:system_config_get_grpc_max_message_bytes) do
+        {:ok, bytes} -> {div(bytes, 1_048_576), nil}
+        {:error, :invalid_grpc_max_message_size} -> {nil, "Stored gRPC message size is invalid."}
+        _ -> {nil, "Unable to load gRPC message size."}
+      end
+
+    socket
+    |> assign(:grpc_limit_form, to_form(%{"grpc_max_message_mib" => mib}))
+    |> assign(:grpc_limit_error, error)
   end
 
   defp engine_get_global_base_url,

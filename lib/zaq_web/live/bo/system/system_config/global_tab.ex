@@ -3,6 +3,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
   Tab component for the BO system configuration page.
   """
   use ZaqWeb, :html
+  alias Zaq.System.GrpcConfig
   alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
   alias ZaqWeb.Select
 
@@ -12,6 +13,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
   attr :global_language, :string, required: true
   attr :global_timezone, :any, required: true
   attr :detected_timezone, :any, default: nil
+  attr :grpc_limit_form, Phoenix.HTML.Form, default: nil
+  attr :grpc_limit_error, :string, default: nil
 
   @gmt_offsets for h <- -12..14,
                    do:
@@ -20,13 +23,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
   def panel(assigns) do
     assigns = assign(assigns, :gmt_offsets, @gmt_offsets)
 
+    assigns =
+      assign(
+        assigns,
+        :grpc_limit_form,
+        assigns.grpc_limit_form ||
+          to_form(%{
+            "grpc_max_message_mib" => div(GrpcConfig.default_max_message_bytes(), 1_048_576)
+          })
+      )
+
     ~H"""
     <CardShell.card_shell id="global-settings-section">
       <div class="zaq-layout-stack">
         <header>
           <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">Global</h2>
           <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
-            Configure system-wide defaults used across OAuth2, webhooks, and channel-level routing.
+            Configure system-wide defaults for OAuth2, webhooks, channel-level routing, and transport limits.
           </p>
         </header>
         <div class="space-y-6">
@@ -101,6 +114,53 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
             </form>
             <p class="zaq-text-caption mt-2" style="color: var(--zaq-text-color-body-secondary)">
               System language for UI labels and notifications. French is not yet implemented.
+            </p>
+          </div>
+
+          <div>
+            <label for="global-grpc-limit-input" class="zaq-field-label-uppercase block mb-2">
+              gRPC maximum message size (MiB)
+            </label>
+            <.form
+              for={@grpc_limit_form}
+              id="global-grpc-limit-form"
+              phx-submit="save_grpc_max_message_mib"
+              class="zaq-layout-inline"
+            >
+              <div class="w-full max-w-md min-w-0">
+                <Input.input
+                  field={@grpc_limit_form[:grpc_max_message_mib]}
+                  id="global-grpc-limit-input"
+                  type="number"
+                  min="1"
+                  max={GrpcConfig.max_message_mib()}
+                  step="1"
+                  required
+                  aria-describedby={
+                    if @grpc_limit_error,
+                      do: "global-grpc-limit-hint global-grpc-limit-error",
+                      else: "global-grpc-limit-hint"
+                  }
+                />
+              </div>
+              <Button.button type="submit" variant={:secondary}>Save</Button.button>
+            </.form>
+            <p
+              :if={@grpc_limit_error}
+              id="global-grpc-limit-error"
+              role="alert"
+              class="zaq-text-caption mt-2"
+              style="color: var(--zaq-text-color-danger)"
+            >
+              {@grpc_limit_error}
+            </p>
+            <p
+              id="global-grpc-limit-hint"
+              class="zaq-text-caption mt-2"
+              style="color: var(--zaq-text-color-body-secondary)"
+            >
+              Maximum encoded gRPC message size for sending and receiving. Default: 64 MiB.
+              Engine restart required on each node. Gateway negotiation may lower this limit.
             </p>
           </div>
 

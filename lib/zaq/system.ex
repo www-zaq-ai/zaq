@@ -21,6 +21,7 @@ defmodule Zaq.System do
   alias Zaq.System.{AIProviderCredential, AIProviderCredentialConfiguration}
   alias Zaq.System.Config
   alias Zaq.System.EmbeddingConfig
+  alias Zaq.System.GrpcConfig
   alias Zaq.System.HttpCredentialProvider
   alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.System.ImageToTextConfig
@@ -48,6 +49,7 @@ defmodule Zaq.System do
   @global_base_url_key "system.global.base_url"
   @system_language_key "system.global.language"
   @system_timezone_key "system.global.timezone"
+  @grpc_max_message_bytes_key "system.global.grpc_max_message_bytes"
   @outbound_http_policy_fields ~w(
     enabled
     block_loopback
@@ -94,6 +96,24 @@ defmodule Zaq.System do
       on_conflict: [set: [value: string_value, updated_at: now]],
       conflict_target: :key
     )
+  end
+
+  @doc "Returns the validated gRPC byte limit, defaulting to 64 MiB only when absent."
+  @spec get_grpc_max_message_bytes() :: {:ok, pos_integer()} | {:error, atom()}
+  def get_grpc_max_message_bytes do
+    case Repo.get_by(Config, key: @grpc_max_message_bytes_key) do
+      nil -> {:ok, GrpcConfig.default_max_message_bytes()}
+      config -> GrpcConfig.from_storage(config.value)
+    end
+  end
+
+  @doc "Saves a whole-MiB gRPC limit as bytes. Each Engine must restart to apply it."
+  @spec set_grpc_max_message_mib(term()) :: :ok | {:error, term()}
+  def set_grpc_max_message_mib(mib) do
+    with {:ok, bytes} <- GrpcConfig.from_mib(mib),
+         {:ok, _config} <- set_config(@grpc_max_message_bytes_key, bytes) do
+      :ok
+    end
   end
 
   @doc "Returns the global agent ID, or nil; `include_none: true` distinguishes an explicit None rule."

@@ -47,6 +47,7 @@
   "/storybook/components/table/empty_state",
   "/storybook/components/table/table",
   "/storybook/dashboard/ai_diagnostics",
+  "/storybook/dashboard/extension_health",
   "/storybook/dashboard/metric_overview",
   "/storybook/dashboard/services_status_table",
   "/storybook/foundations/fonts",

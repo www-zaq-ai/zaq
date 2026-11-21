@@ -1,0 +1,153 @@
+syntax = "proto3";
+package gateway.v1;
+
+service Gateway {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  // ZAQ opens this RPC; gateway operations travel in the response direction.
+  rpc Connect(stream ZaqEnvelope) returns (stream GatewayEnvelope);
+}
+
+message HealthRequest {}
+message HealthResponse {
+  string status = 1;
+}
+
+// Correlation identifiers are globally unique, including across connections.
+// Unknown oneof variants must produce an explicit error, not an execution ACK.
+message ZaqEnvelope {
+  string request_id = 1;
+  uint32 protocol_version = 2;
+  oneof payload {
+    ZaqHello hello = 10;
+    HealthRequest health_request = 11;
+    ProtocolError error = 12;
+    ActionReply action_reply = 20;
+  }
+}
+
+message GatewayEnvelope {
+  string request_id = 1;
+  uint32 protocol_version = 2;
+  oneof payload {
+    GatewayHello hello = 10;
+    HealthResponse health_response = 11;
+    ProtocolError error = 12;
+    ActionRequest action_request = 20;
+    ActionReceipt action_receipt = 21;
+  }
+}
+
+message ZaqHello {
+  repeated uint32 supported_versions = 1;
+  repeated string capabilities = 2;
+  uint32 max_envelope_bytes = 3;
+  ActionLimits action_limits = 4;
+}
+
+message GatewayHello {
+  uint32 selected_version = 1;
+  repeated string capabilities = 2;
+  uint32 max_envelope_bytes = 3;
+  ActionLimits action_limits = 4;
+}
+
+message ProtocolError {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    UNSUPPORTED_OPERATION = 1;
+    INCOMPATIBLE_PROTOCOL = 2;
+    INVALID_ENVELOPE = 3;
+    RESOURCE_EXHAUSTED = 4;
+  }
+  Code code = 1;
+}
+
+// Advertised only with actions.v1. Every negotiated field is positive.
+message ActionLimits {
+  uint32 max_concurrent = 1;
+  uint32 max_unreceipted_replies = 2;
+  uint64 max_unreceipted_bytes = 3;
+  uint32 max_timeout_ms = 4;
+  uint32 max_json_depth = 5;
+  uint32 max_reply_envelope_bytes = 6;
+  uint32 receipt_timeout_ms = 7;
+}
+
+message ActionRequest {
+  uint32 timeout_ms = 1;
+  oneof operation {
+    ListActions list = 10;
+    DescribeAction describe = 11;
+    ExecuteAction execute = 12;
+  }
+}
+
+message ListActions {
+  uint32 page_size = 1;
+  string page_token = 2;
+}
+
+message DescribeAction { string key = 1; }
+
+message ExecuteAction {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    SYNC = 1;
+    ASYNC = 2;
+  }
+  string key = 1;
+  bytes arguments_json = 2;
+  Mode mode = 3;
+}
+
+message ActionMetadata {
+  string key = 1;
+  string name = 2;
+  string description = 3;
+  optional string version = 4;
+}
+
+message ActionList {
+  repeated ActionMetadata actions = 1;
+  string next_page_token = 2;
+}
+
+message ActionDescription {
+  ActionMetadata metadata = 1;
+  bytes input_schema_json = 2;
+  optional bytes output_schema_json = 3;
+}
+
+message ActionReply {
+  uint64 sequence = 1;
+  oneof outcome {
+    Relayed relayed = 10;
+    ActionList listed = 11;
+    ActionDescription described = 12;
+    bytes result_json = 13;
+    ActionFailure failure = 14;
+  }
+}
+
+message Relayed {}
+
+message ActionReceipt { uint64 sequence = 1; }
+
+message ActionFailure {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    INVALID_ARGUMENT = 1;
+    UNKNOWN_ACTION = 2;
+    PERMISSION_DENIED = 3;
+    RESOURCE_EXHAUSTED = 4;
+    DEADLINE_EXCEEDED = 5;
+    ACTION_FAILED = 6;
+    RESULT_NOT_SERIALIZABLE = 7;
+    RESULT_TOO_LARGE = 8;
+    UNAVAILABLE = 9;
+    INTERNAL = 10;
+  }
+  Code code = 1;
+  string safe_message = 2;
+  bool effects_may_have_occurred = 3;
+}

@@ -27,6 +27,43 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   end
 
   describe "mount" do
+    test "loads optional gateway status through the real Engine Event without changing basic mode",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_async(view)
+
+      assert has_element?(
+               view,
+               "#dashboard-extension-health[data-status='unconfigured']",
+               "Unconfigured"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='dashboard-addons-section']",
+               "Running in basic mode"
+             )
+    end
+
+    test "gateway health is separate from installed add-on details", %{conn: conn} do
+      :ok =
+        FeatureStore.store(
+          %{
+            "company_name" => "Independent add-on",
+            "features" => [],
+            "license_key" => "installed"
+          },
+          []
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_async(view)
+
+      assert has_element?(view, "#dashboard-extension-health[data-status='unconfigured']")
+      assert has_element?(view, "[data-testid='dashboard-addons-section']", "Independent add-on")
+      assert has_element?(view, "[data-testid='addon-summary-cta'][href='/bo/addons']")
+    end
+
     test "renders the dashboard", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
       assert html =~ "Engine"

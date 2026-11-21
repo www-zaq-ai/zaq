@@ -22,6 +22,7 @@ defmodule ZaqWeb.Components.DesignSystem.AddonUpsellCard do
   attr :link_text, :string, default: "View Add-ons"
 
   slot :icon, required: true, doc: "Icon or illustration for this placement."
+  slot :status, doc: "Optional connection status, independent of feature gating."
 
   def addon_upsell_card(assigns) do
     ~H"""
@@ -41,6 +42,7 @@ defmodule ZaqWeb.Components.DesignSystem.AddonUpsellCard do
       <p class={message_class(@variant)} style={message_color_style(@variant)}>
         {@message}
       </p>
+      {render_slot(@status)}
       <.link
         navigate={@link_href}
         class={link_class(@variant)}
