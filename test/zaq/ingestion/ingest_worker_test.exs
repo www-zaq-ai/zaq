@@ -69,6 +69,24 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     end
   end
 
+  defmodule ImageExtractionSkippedProcessor do
+    def prepare_file_chunks(_path, _opts \\ []) do
+      {:error, :image_extraction_skipped}
+    end
+  end
+
+  defmodule EmptyPayloadProcessor do
+    def prepare_file_chunks(_path, _opts \\ []) do
+      {:ok, %{id: 0}, []}
+    end
+  end
+
+  defmodule ImageExtractionFailedProcessor do
+    def prepare_file_chunks(_path, _opts \\ []) do
+      {:error, :image_extraction_failed}
+    end
+  end
+
   setup do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
     Mox.set_mox_global()
@@ -154,6 +172,81 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert updated.completed_at
       assert updated.error =~ "No searchable text was extracted"
       assert updated.error =~ "image-to-text"
+      refute Repo.exists?(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id))
+    end
+
+    test "cancels permanently when preparation reports image_extraction_skipped" do
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :document_processor, original_processor)
+      end)
+
+      Application.put_env(:zaq, :document_processor, ImageExtractionSkippedProcessor)
+      job = create_job(%{file_path: "docs/scan.pdf"})
+
+      assert {:cancel, :image_extraction_skipped} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "failed"
+      assert updated.completed_at
+      assert updated.error =~ "Image-to-text extraction was skipped"
+      assert updated.error =~ "Configure the image-to-text provider"
+      refute updated.error =~ "api_key"
+      refute Repo.exists?(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id))
+    end
+
+    test "empty payload list from stub processor still cancels as no_searchable_content" do
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :document_processor, original_processor)
+      end)
+
+      Application.put_env(:zaq, :document_processor, EmptyPayloadProcessor)
+      job = create_job(%{file_path: "docs/legacy-empty.md"})
+
+      assert {:cancel, :no_searchable_content} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "failed"
+      assert updated.error =~ "No searchable text was extracted"
+      refute Repo.exists?(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id))
+    end
+
+    test "image_extraction_failed is retriable with static guidance and no secrets" do
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :document_processor, original_processor)
+      end)
+
+      Application.put_env(:zaq, :document_processor, ImageExtractionFailedProcessor)
+      job = create_job(%{file_path: "docs/scan.pdf"})
+
+      assert {:error, :image_extraction_failed} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "pending"
+      assert updated.error =~ "Attempt 1 failed: Image-to-text extraction failed"
+      assert updated.error =~ "credentials and endpoint"
+      refute updated.error =~ "api_key"
+      refute updated.error =~ "ERROR:"
       refute Repo.exists?(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id))
     end
 

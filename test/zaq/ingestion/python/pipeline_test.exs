@@ -1,11 +1,17 @@
 defmodule Zaq.Ingestion.Python.PipelineTest do
   use Zaq.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   @moduletag capture_log: true
 
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.Ingestion.Chunk
+  alias Zaq.Ingestion.Document
+  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Runner
+  alias Zaq.SystemConfigFixtures
 
   setup do
     tmp_dir =
@@ -162,6 +168,336 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       refute content =~ "![local](/tmp/local.png)"
       refute content =~ "Injected descriptions"
       refute File.exists?(images_dir)
+    end
+
+    test "on_preparation_outcome reports skipped when image steps are not run",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts()
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, %{image_to_text: :skipped, inject: :skipped}}
+    end
+
+    test "on_preparation_outcome reports completed when image steps run",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts()
+      ensure_image_to_text_prompt!("Describe test images")
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 endpoint: "https://vision.example.test/v1",
+                 model: "vision-model",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, %{image_to_text: :completed, inject: :completed}}
+    end
+
+    test "on_preparation_outcome reports inject skipped when descriptions file is missing",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import sys
+
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+
+        print("image text ok without descriptions")
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 output: md_path,
+                 endpoint: "",
+                 model: "",
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, %{image_to_text: :completed, inject: :skipped}}
+    end
+
+    test "hard image-to-text failure returns error without preparation outcome callback",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import sys
+
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+
+        print("boom")
+        sys.exit(1)
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:error, _reason} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 endpoint: "https://vision.example.test/v1",
+                 model: "vision-model",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      refute_receive {:preparation_outcome, _}, 50
+    end
+
+    test "all provider descriptions failing leaves text and reports sanitized failure",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import json
+        import os
+        import sys
+
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+
+        output = sys.argv[sys.argv.index("--output") + 1]
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump({"page-1.png": "ERROR: 401 Unauthorized"}, f)
+
+        print("image text wrote provider errors but exits 0")
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 endpoint: "https://vision.example.test/v1",
+                 model: "vision-model",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, outcome}
+      assert outcome == %{image_to_text: :failed, inject: :skipped}
+      assert File.read!(md_path) =~ "Keep this text"
+      refute File.read!(md_path) =~ "Injected descriptions"
+    end
+
+    test "mixed provider results inject successful descriptions and preserve text",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import json
+        import sys
+
+        output = sys.argv[sys.argv.index("--output") + 1]
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump({"chart.png": "Revenue chart", "failed.png": "ERROR: provider detail"}, f)
+        """,
+        "inject_descriptions.py" => """
+        import json
+        import sys
+
+        descriptions = sys.argv[sys.argv.index("--descriptions") + 1]
+        with open(descriptions, encoding="utf-8") as f:
+            descriptions = json.load(f)
+
+        with open(sys.argv[1], "a", encoding="utf-8") as f:
+            f.write("\\n" + "\\n".join(descriptions.values()))
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, outcome}
+      assert outcome == %{image_to_text: :failed, inject: :completed}
+      markdown = File.read!(md_path)
+      assert markdown =~ "Keep this text"
+      assert markdown =~ "Revenue chart"
+      refute markdown =~ "provider detail"
+    end
+
+    test "preparation indexes text and retries an image-only PDF for the same failed image",
+         %{tmp_dir: tmp_dir} do
+      SystemConfigFixtures.seed_image_to_text_config(%{api_key: "fixture-key"})
+
+      with_fake_pipeline_scripts(%{
+        "pdf_to_md.py" => """
+        import sys
+        from pathlib import Path
+
+        pdf = Path(sys.argv[1])
+        markdown = Path(sys.argv[2])
+        images = Path(sys.argv[sys.argv.index("--images-dir") + 1]) / pdf.stem
+        images.mkdir(parents=True)
+        image = images / "page-1.png"
+        image.touch()
+        text = "The quarterly report includes searchable text. " * 20 if pdf.stem == "report" else ""
+        markdown.write_text(f"<!-- page: 1 -->\\n\\n{text}\\n\\n![page]({image})\\n", encoding="utf-8")
+        """,
+        "image_to_text.py" => """
+        import json
+        import sys
+        from pathlib import Path
+
+        output = Path(sys.argv[sys.argv.index("--output") + 1])
+        output.write_text(json.dumps({"page-1.png": "ERROR: private provider detail"}), encoding="utf-8")
+        """
+      })
+
+      report = Path.join(tmp_dir, "report.pdf")
+      scan = Path.join(tmp_dir, "scan.pdf")
+      File.write!(report, "%PDF-1.4")
+      File.write!(scan, "%PDF-1.4")
+
+      logs =
+        capture_log(fn ->
+          assert {:ok, %Document{} = document, payloads} =
+                   DocumentProcessor.prepare_file_chunks(report)
+
+          assert Enum.any?(payloads, fn {%{"content" => content}, _index} ->
+                   content =~ "The quarterly report includes searchable text."
+                 end)
+
+          refute Enum.any?(payloads, fn {%{"content" => content}, _index} ->
+                   content =~ "private provider detail"
+                 end)
+
+          refute Repo.get!(Document, document.id).content =~ "private provider detail"
+
+          assert {:error, :image_extraction_failed} =
+                   DocumentProcessor.prepare_file_chunks(scan)
+
+          refute Repo.get_by(Document, source: "scan.pdf")
+        end)
+
+      refute logs =~ "private provider detail"
+    end
+
+    for prepare <- [:prepare_file_chunks, :process_single_file_with_report] do
+      test "#{prepare} preserves the existing document and chunks for a scan with a blank description",
+           %{tmp_dir: tmp_dir} do
+        SystemConfigFixtures.seed_embedding_config(%{dimension: "1536"})
+        SystemConfigFixtures.seed_image_to_text_config(%{api_key: "fixture-key"})
+
+        Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+          Req.Test.json(conn, %{"data" => [%{"embedding" => List.duplicate(0.1, 1536)}]})
+        end)
+
+        injector = File.read!(Path.join(Runner.scripts_dir(), "inject_descriptions.py"))
+
+        with_fake_pipeline_scripts(%{
+          "pdf_to_md.py" => """
+          import sys
+          from pathlib import Path
+
+          pdf = Path(sys.argv[1])
+          markdown = Path(sys.argv[2])
+          images = Path(sys.argv[sys.argv.index("--images-dir") + 1]) / pdf.stem
+          images.mkdir(parents=True)
+          image = images / "page-1.png"
+          image.touch()
+          markdown.write_text(f"<!-- page: 1 -->\\n\\n![page]({image})\\n", encoding="utf-8")
+          """,
+          "image_to_text.py" => """
+          import json
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[sys.argv.index("--output") + 1])
+          output.write_text(json.dumps({"page-1.png": ""}), encoding="utf-8")
+          """,
+          "inject_descriptions.py" => injector
+        })
+
+        scan = Path.join(tmp_dir, "blank-description.pdf")
+        File.write!(scan, "%PDF-1.4")
+        prior_text = "The original document contains searchable text."
+
+        assert {:ok, document} =
+                 Document.create(%{
+                   source: Path.basename(scan),
+                   content: prior_text,
+                   metadata: %{}
+                 })
+
+        assert {:ok, chunk} =
+                 Chunk.create(%{document_id: document.id, content: prior_text, chunk_index: 1})
+
+        assert {:error, :no_searchable_content} =
+                 apply(DocumentProcessor, unquote(prepare), [scan])
+
+        assert Repo.get!(Document, document.id).content == prior_text
+
+        assert [preserved] = Repo.all(from(c in Chunk, where: c.document_id == ^document.id))
+        assert preserved.id == chunk.id
+        assert preserved.content == prior_text
+      end
+    end
+
+    test "callers without on_preparation_outcome still succeed with {:ok, md_path}",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts()
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+
+      assert {:ok, ^md_path} = Pipeline.run(pdf_path, api_key: "", output: md_path)
     end
 
     test "cleans up temporary alias when pdf filename contains spaces", %{tmp_dir: tmp_dir} do

@@ -248,6 +248,58 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
   end
 
+  defmodule PreparationOutcomePdfStub do
+    @moduledoc false
+
+    def text_with_skipped do
+      build(
+        "# PDF\n\nSearchable body with enough text " <> String.duplicate("word ", 80),
+        :skipped
+      )
+    end
+
+    def text_with_completed do
+      build(
+        "# PDF\n\nSearchable body with enough text " <> String.duplicate("word ", 80),
+        :completed
+      )
+    end
+
+    def markers_with_skipped do
+      markers = Enum.map_join(1..6, "\n\n", &"<!-- page: #{&1} -->")
+      build(markers, :skipped)
+    end
+
+    def markers_with_completed do
+      markers = Enum.map_join(1..6, "\n\n", &"<!-- page: #{&1} -->")
+      build(markers, :completed)
+    end
+
+    defp build(markdown, image_to_text) do
+      Module.create(
+        Module.concat(__MODULE__, :"M#{System.unique_integer([:positive])}"),
+        quote do
+          def run(pdf_path, opts \\ []) do
+            md_path = Path.rootname(pdf_path) <> ".md"
+            File.write!(md_path, unquote(markdown))
+
+            case Keyword.get(opts, :on_preparation_outcome) do
+              fun when is_function(fun, 1) ->
+                fun.(%{image_to_text: unquote(image_to_text), inject: unquote(image_to_text)})
+
+              _ ->
+                :ok
+            end
+
+            {:ok, md_path}
+          end
+        end,
+        Macro.Env.location(__ENV__)
+      )
+      |> elem(1)
+    end
+  end
+
   defmodule DocxToMdStub do
     @moduledoc false
 
@@ -1698,6 +1750,135 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert String.contains?(reason, "not configured")
       end)
     end
+
+    test "page-marker-only markdown returns no_searchable_content without upsert", %{
+      tmp_dir: tmp_dir
+    } do
+      path =
+        create_test_md_file(
+          tmp_dir,
+          "empty-markers.md",
+          Enum.map_join(1..6, "\n\n", &"<!-- page: #{&1} -->")
+        )
+
+      assert {:error, :no_searchable_content} = DocumentProcessor.prepare_file_chunks(path)
+      refute Repo.exists?(from(d in Document, where: d.source == "empty-markers.md"))
+    end
+
+    test "text content with skipped image outcome still persists", %{tmp_dir: tmp_dir} do
+      stub = PreparationOutcomePdfStub.text_with_skipped()
+
+      with_converter_stub(:pdf_pipeline_module, stub, fn ->
+        path = Path.join(tmp_dir, "text-skip.pdf")
+        File.write!(path, "%PDF-1.4")
+
+        assert {:ok, %Document{} = doc, payloads} = DocumentProcessor.prepare_file_chunks(path)
+        assert payloads != []
+        assert doc.source == "text-skip.pdf"
+        assert Repo.get!(Document, doc.id).content =~ "Searchable body"
+      end)
+    end
+
+    test "page-marker-only PDF with skipped image outcome does not upsert", %{tmp_dir: tmp_dir} do
+      stub = PreparationOutcomePdfStub.markers_with_skipped()
+
+      with_converter_stub(:pdf_pipeline_module, stub, fn ->
+        path = Path.join(tmp_dir, "scan-skip.pdf")
+        File.write!(path, "%PDF-1.4")
+
+        assert {:ok, existing} =
+                 Document.create(%{
+                   source: "scan-skip.pdf",
+                   content: "Prior good content that must survive",
+                   metadata: %{}
+                 })
+
+        assert {:error, :image_extraction_skipped} =
+                 DocumentProcessor.prepare_file_chunks(path)
+
+        reloaded = Repo.get!(Document, existing.id)
+        assert reloaded.content == "Prior good content that must survive"
+      end)
+    end
+
+    test "page-marker-only PDF with completed image outcome is no_searchable_content", %{
+      tmp_dir: tmp_dir
+    } do
+      stub = PreparationOutcomePdfStub.markers_with_completed()
+
+      with_converter_stub(:pdf_pipeline_module, stub, fn ->
+        path = Path.join(tmp_dir, "scan-done.pdf")
+        File.write!(path, "%PDF-1.4")
+
+        assert {:error, :no_searchable_content} = DocumentProcessor.prepare_file_chunks(path)
+        refute Repo.exists?(from(d in Document, where: d.source == "scan-done.pdf"))
+      end)
+    end
+
+    test "non-empty happy path still upserts the document", %{tmp_dir: tmp_dir} do
+      stub = PreparationOutcomePdfStub.text_with_completed()
+
+      with_converter_stub(:pdf_pipeline_module, stub, fn ->
+        path = Path.join(tmp_dir, "happy.pdf")
+        File.write!(path, "%PDF-1.4")
+
+        assert {:ok, %Document{} = doc, payloads} = DocumentProcessor.prepare_file_chunks(path)
+        assert payloads != []
+        assert Repo.get!(Document, doc.id)
+      end)
+    end
+
+    test "sync report path rejects page-marker-only content without upsert or chunk wipe",
+         %{tmp_dir: tmp_dir} do
+      stub_embedding_success()
+      stub = PreparationOutcomePdfStub.markers_with_skipped()
+
+      with_converter_stub(:pdf_pipeline_module, stub, fn ->
+        path = Path.join(tmp_dir, "sync-scan-skip.pdf")
+        File.write!(path, "%PDF-1.4")
+
+        assert {:ok, existing} =
+                 Document.create(%{
+                   source: "sync-scan-skip.pdf",
+                   content: "Prior searchable sync content",
+                   metadata: %{}
+                 })
+
+        {:ok, _kept} =
+          Chunk.create(%{
+            document_id: existing.id,
+            content: "existing searchable chunk",
+            chunk_index: 1
+          })
+
+        assert {:error, :image_extraction_skipped} =
+                 DocumentProcessor.process_single_file_with_report(path)
+
+        reloaded = Repo.get!(Document, existing.id)
+        assert reloaded.content == "Prior searchable sync content"
+
+        assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^existing.id), :count) ==
+                 1
+      end)
+    end
+
+    test "sync report path still processes searchable content", %{tmp_dir: tmp_dir} do
+      stub_embedding_success()
+
+      path =
+        create_test_md_file(
+          tmp_dir,
+          "sync-ok.md",
+          "# Sync OK\n\n" <> String.duplicate("searchable sync content ", 80)
+        )
+
+      assert {:ok, %Document{} = doc, report} =
+               DocumentProcessor.process_single_file_with_report(path)
+
+      assert report.total_chunks > 0
+      assert report.failed_chunks == 0
+      assert Repo.get!(Document, doc.id)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -3046,13 +3227,16 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       refute doc.content =~ "| --- | --- |\n|"
     end
 
-    test "empty CSV (no rows) produces empty document content", %{tmp_dir: tmp_dir} do
+    test "empty CSV (no rows) fails without searchable content and does not upsert", %{
+      tmp_dir: tmp_dir
+    } do
       csv_path = create_test_md_file(tmp_dir, "empty.csv", "")
 
-      # Empty CSV means no rows → rows_to_markdown_table([]) returns ""
-      # Document.upsert stores content as-is; empty string may come back as nil from DB
-      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(csv_path)
-      assert doc.content in [nil, ""]
+      # Empty CSV → no searchable chunks; shared preparation gate rejects before upsert.
+      assert {:error, :no_searchable_content} =
+               DocumentProcessor.process_single_file(csv_path)
+
+      refute Repo.exists?(from(d in Document, where: d.source == "empty.csv"))
     end
 
     test "CSV cells with pipe characters are rendered as-is in markdown", %{tmp_dir: tmp_dir} do
