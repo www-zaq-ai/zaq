@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Event
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
 
@@ -34,6 +35,108 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :channels@localhost end)
 
     %{conn: conn, user: user}
+  end
+
+  describe "email capability display" do
+    for {transport, mode} <- [{"smtp", "none"}, {"imap", "idle"}] do
+      test "#{transport} uses the shared modal and provider-scoped Channels endpoint", %{
+        conn: conn
+      } do
+        :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+        transport = unquote(transport)
+        provider = "email:" <> transport
+        {:ok, view, _html} = live(conn, "/bo/channels/retrieval/email/" <> transport)
+
+        assert_receive {:node_router_event,
+                        %Event{
+                          request: %{provider: ^provider, scope: :provider},
+                          next_hop: %{destination: :channels},
+                          opts: opts
+                        }}
+
+        assert opts[:action] == :channel_capability_snapshot
+        assert has_element?(view, "[data-testid='channel-capabilities-trigger']")
+        refute has_element?(view, "#capabilities-modal")
+
+        view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+
+        assert has_element?(
+                 view,
+                 "#capabilities-modal li",
+                 "Mode: #{unquote(mode)}"
+               )
+
+        assert has_element?(view, "#capabilities-modal li.text-emerald-700", "Text")
+        assert has_element?(view, "#capabilities-modal li.text-emerald-700", "Threads")
+        refute has_element?(view, "#capabilities-modal li.text-emerald-700", "Streaming")
+
+        refute has_element?(view, "#capabilities-modal li.text-emerald-700", "File")
+        assert has_element?(view, "#capabilities-modal li", "File")
+        refute render(view) =~ "receive only"
+        refute render(view) =~ "send only"
+
+        view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+        refute has_element?(view, "#capabilities-modal")
+        assert has_element?(view, "button[phx-click='activate']", "Activate")
+      end
+    end
+
+    test "SMTP capability display works before selecting one of multiple connectors", %{
+      conn: conn
+    } do
+      for name <- ["Accounts", "Support"] do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: name,
+          provider: "email:smtp",
+          kind: "retrieval",
+          url: "smtp://configured-in-settings",
+          token: "smtp-unused",
+          enabled: false,
+          settings: %{"relay" => "smtp.example.com"}
+        })
+        |> Repo.insert!()
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+      refute has_element?(view, "#smtp-config-form")
+
+      view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+      assert has_element?(view, "#capabilities-modal li", "Mode: none")
+      refute has_element?(view, "#smtp-config-form")
+    end
+
+    test "capability event handlers use only socket state" do
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:zaq, :repo, :query],
+          fn _event, _measurements, metadata, {owner, view_pid} ->
+            if self() == view_pid, do: send(owner, {:capability_database_query, metadata.query})
+          end,
+          {self(), self()}
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      for module <- [
+            ZaqWeb.Live.BO.Communication.NotificationSmtpLive,
+            ZaqWeb.Live.BO.Communication.NotificationImapLive
+          ] do
+        socket = %Phoenix.LiveView.Socket{
+          assigns: %{__changed__: %{}, capability_modal_open: false}
+        }
+
+        assert {:noreply, opened} = module.handle_event("open_capabilities", %{}, socket)
+        assert opened.assigns.capability_modal_open
+        assert {:noreply, closed} = module.handle_event("close_capabilities", %{}, opened)
+        refute closed.assigns.capability_modal_open
+      end
+
+      refute_received {:capability_database_query, _query}
+    end
   end
 
   test "mounts with defaults when no smtp config exists", %{conn: conn} do

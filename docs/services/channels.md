@@ -1106,6 +1106,17 @@ ingress, SMTP delivery, and lazy attachment materialization. SMTP sends use
 outbound sends — SMTP settings are read from `channel_configs.settings` for
 provider `"email:smtp"`.
 
+`capability_snapshot/1` uses the shared delivery capability contract, independently
+of connector readiness. Both email providers report `text: :native` and
+`threads: :native`; replies originating from an IMAP inbox use its SMTP binding.
+Unsupported delivery features are omitted, including attachments, streaming,
+reactions, typing indicators, and message editing. IMAP attachment reception is
+outside this contract, which has no separate receive-capability dimension.
+The `mode` describes ingress: `none` for SMTP and `idle` for IMAP. Shared
+normalization supplies capability labels and unsupported detection. The SMTP and
+IMAP BO pages reuse the existing display and `:channel_capability_snapshot` event
+with provider scope, including when no connector is configured or several exist.
+
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
 - `from_listener/3` — generic sink callback for inbound email listeners; orchestration is bridge-owned.
 - `to_internal/2` — resolves the provider adapter and delegates payload normalization to the adapter.

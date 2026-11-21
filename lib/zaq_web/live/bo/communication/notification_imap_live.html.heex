@@ -17,6 +17,11 @@
     features_version={@features_version}
   >
     <:page_tag>
+      <ZaqWeb.Components.ChannelCapabilities.icon_with_modal
+        modal_open?={@capability_modal_open}
+        snapshot={@capabilities_snapshot}
+        title="IMAP capabilities"
+      />
       <span class={
         ZaqWeb.Components.DesignSystem.StatusPill.status_pill_classes(
           if(@imap_enabled, do: "active", else: "archived")

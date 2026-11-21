@@ -320,6 +320,62 @@ defmodule Zaq.Channels.EmailBridgeTest do
     :ok
   end
 
+  describe "capability_snapshot/1" do
+    test "SMTP advertises text and threads without claiming attachment delivery" do
+      assert {:ok, snapshot} = EmailBridge.capability_snapshot(%{provider: "email:smtp"})
+
+      assert snapshot == %{resolved: %{text: :native, threads: :native, mode: "none"}}
+    end
+
+    test "IMAP advertises SMTP-backed text and threaded replies without attachment delivery" do
+      assert {:ok, snapshot} = EmailBridge.capability_snapshot(%{provider: "email:imap"})
+
+      assert snapshot == %{resolved: %{text: :native, threads: :native, mode: "idle"}}
+    end
+
+    test "accepts provider atoms and string-keyed runtime configurations" do
+      for provider <- ["email:smtp", "email:imap"] do
+        assert EmailBridge.capability_snapshot(%{provider: provider}) ==
+                 EmailBridge.capability_snapshot(%{
+                   "provider" => String.to_existing_atom(provider)
+                 })
+      end
+    end
+
+    test "rejects an unspecified or unsupported transport" do
+      for config <- [nil, %{}, %{provider: "email"}, %{provider: "slack"}] do
+        assert EmailBridge.capability_snapshot(config) == {:error, :unsupported}
+      end
+    end
+
+    property "configuration values cannot turn SMTP into an attachment sender" do
+      check all(
+              enabled <- boolean(),
+              settings <-
+                fixed_map(%{
+                  "file" => boolean(),
+                  "image" => boolean(),
+                  "audio" => boolean(),
+                  "video" => boolean()
+                })
+            ) do
+        assert {:ok, snapshot} =
+                 EmailBridge.capability_snapshot(%{
+                   provider: "email:smtp",
+                   enabled: enabled,
+                   settings: settings
+                 })
+
+        assert snapshot.resolved.text == :native
+        assert snapshot.resolved.threads == :native
+
+        for key <- [:image, :audio, :video, :file] do
+          refute Map.has_key?(snapshot.resolved, key)
+        end
+      end
+    end
+  end
+
   describe "to_internal/2" do
     test "maps imap payload into Incoming message" do
       config = %{id: 42}
