@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
 
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
+  alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
 
   # ---------------------------------------------------------------------------
   # Helpers
@@ -476,6 +477,37 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       assert html =~ "failed"
       assert html =~ "skipped"
       assert html =~ "pending"
+    end
+
+    test "handles view_log when log does not exist and load_logs when dispatch fails", %{
+      conn: conn
+    } do
+      conn = authed_conn(conn)
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/logs")
+
+      html = render_click(view, "view_log", %{"id" => "-1"})
+      refute html =~ "Delivery Attempts"
+
+      pid = Process.whereis(Zaq.Engine.Supervisor)
+
+      on_exit(fn ->
+        if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+          Process.register(pid, Zaq.Engine.Supervisor)
+        end
+      end)
+
+      if pid, do: Process.unregister(Zaq.Engine.Supervisor)
+
+      try do
+        html = render_click(view, "filter_recipient", %{"value" => "nobody"})
+        assert html =~ "No notifications sent yet"
+
+        assert AgentRoutingOptions.scope_rule_value(%{person_id: 999}) == ""
+      after
+        if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+          Process.register(pid, Zaq.Engine.Supervisor)
+        end
+      end
     end
   end
 end

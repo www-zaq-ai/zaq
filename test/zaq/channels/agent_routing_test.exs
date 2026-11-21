@@ -34,4 +34,19 @@ defmodule Zaq.Channels.AgentRoutingTest do
       assert AgentRouting.resolve_selection(candidates) == {:ok, nil}
     end
   end
+
+  describe "rule_select_value/1" do
+    test "maps :none and :agent routing modes to select values and defaults others to empty string" do
+      assert AgentRouting.rule_select_value(%{routing_mode: :none}) == AgentRouting.none_value()
+
+      assert AgentRouting.rule_select_value(%{routing_mode: :agent, configured_agent_id: 42}) ==
+               "42"
+
+      assert AgentRouting.rule_select_value(%{routing_mode: :agent, configured_agent_id: nil}) ==
+               ""
+
+      assert AgentRouting.rule_select_value(nil) == ""
+      assert AgentRouting.rule_select_value(%{}) == ""
+    end
+  end
 end

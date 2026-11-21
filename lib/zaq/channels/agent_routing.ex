@@ -24,6 +24,15 @@ defmodule Zaq.Channels.AgentRouting do
   def select_value(:none), do: @none_value
   def select_value(value), do: to_string(value)
 
+  @doc "Maps an incoming routing rule map/struct to its persisted select value."
+  @spec rule_select_value(map() | nil) :: String.t()
+  def rule_select_value(%{routing_mode: :none}), do: @none_value
+
+  def rule_select_value(%{routing_mode: :agent, configured_agent_id: configured_agent_id}),
+    do: select_value(configured_agent_id)
+
+  def rule_select_value(_rule), do: ""
+
   @doc "Parses a form/persisted agent choice into fallback, NONE, or a validated agent id."
   @spec validate_choice(term(), module()) :: {:ok, nil | :none | integer()} | {:error, term()}
   def validate_choice(raw_id, agent_module \\ Agent)

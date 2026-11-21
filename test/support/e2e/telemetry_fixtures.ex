@@ -8,6 +8,8 @@ defmodule Zaq.E2E.TelemetryFixtures do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Zaq.Accounts.People
+  alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.{Buffer, Point, Rollup}
   alias Zaq.Repo
 
@@ -29,6 +31,80 @@ defmodule Zaq.E2E.TelemetryFixtures do
 
       result
     end)
+  end
+
+  @doc "Seeds deterministic LLM performance rollups for E2E dashboard rankings."
+  def seed_llm_performance_rollups! do
+    people =
+      [
+        "Ada Lovelace",
+        "Grace Hopper",
+        "Katherine Johnson",
+        "Margaret Hamilton",
+        "Evelyn Boyd",
+        "Mary Jackson"
+      ]
+      |> Enum.map(fn full_name ->
+        {:ok, person} = People.create_person(%{"full_name" => full_name, "incomplete" => false})
+        person
+      end)
+
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    [
+      {"alpha", 1_000.0, 1.0},
+      {"bravo", 900.0, 2.0},
+      {"charlie", 800.0, 3.0},
+      {"delta", 700.0, 4.0},
+      {"echo", 600.0, 5.0},
+      {"foxtrot", 100.0, 10.0}
+    ]
+    |> Enum.zip(people)
+    |> Enum.each(&insert_llm_performance_rollups(&1, now))
+
+    insert_e2e_rollup!(
+      "qa.tokens.total",
+      300.0,
+      3,
+      DateTime.add(now, -2 * 86_400, :second),
+      %{"request_id" => "legacy-e2e"}
+    )
+  end
+
+  defp insert_llm_performance_rollups({{model, tokens, calls}, person}, now) do
+    agent_id = if model in ["alpha", "bravo", "charlie"], do: 101, else: 202
+    agent_name = if agent_id == 101, do: "Support Agent", else: "Research Agent"
+
+    dimensions = %{
+      "configured_agent_id" => agent_id,
+      "configured_agent_name" => agent_name,
+      "llm_provider" => "openai",
+      "llm_usage_attribution" => "v1",
+      "model" => "e2e-#{model}",
+      "person_id" => person.id
+    }
+
+    insert_e2e_rollup!("qa.llm.call.count", calls, 1, now, dimensions)
+    insert_e2e_rollup!("qa.llm.tokens.prompt", tokens * 0.6, 1, now, dimensions)
+    insert_e2e_rollup!("qa.llm.tokens.completion", tokens * 0.4, 1, now, dimensions)
+    insert_e2e_rollup!("qa.llm.tokens.total", tokens, 1, now, dimensions)
+  end
+
+  defp insert_e2e_rollup!(metric_key, value_sum, value_count, bucket_start, dimensions) do
+    Repo.insert!(%Rollup{
+      metric_key: metric_key,
+      bucket_start: bucket_start,
+      bucket_size: "10m",
+      source: "local",
+      dimensions: dimensions,
+      dimension_key: Telemetry.dimension_key(dimensions),
+      value_sum: value_sum,
+      value_count: value_count,
+      value_min: value_sum,
+      value_max: value_sum,
+      last_value: value_sum,
+      last_at: bucket_start
+    })
   end
 
   defp clear_llm_metrics do
