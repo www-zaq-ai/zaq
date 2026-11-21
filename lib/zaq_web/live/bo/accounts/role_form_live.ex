@@ -1,8 +1,10 @@
 defmodule ZaqWeb.Live.BO.Accounts.RoleFormLive do
+  @moduledoc "BO role forms; guarded mutations are dispatched to Engine."
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
   alias ZaqWeb.Live.BO.Accounts.FormFlow
+  alias ZaqWeb.Live.BO.Accounts.Mutations
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -50,14 +52,22 @@ defmodule ZaqWeb.Live.BO.Accounts.RoleFormLive do
   end
 
   defp save_role(socket, :new, params) do
-    FormFlow.handle_save_result(socket, Accounts.create_role(params),
+    result = Mutations.run(socket.assigns.current_user, :create_role, params)
+
+    FormFlow.handle_save_result(socket, result,
       success_message: "Role created.",
       to: ~p"/bo/roles"
     )
   end
 
   defp save_role(socket, :edit, params) do
-    FormFlow.handle_save_result(socket, Accounts.update_role(socket.assigns.role, params),
+    result =
+      Mutations.run(socket.assigns.current_user, :update_role, %{
+        id: socket.assigns.role.id,
+        attrs: params
+      })
+
+    FormFlow.handle_save_result(socket, result,
       success_message: "Role updated.",
       to: ~p"/bo/roles"
     )

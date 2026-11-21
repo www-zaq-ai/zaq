@@ -18,9 +18,9 @@ defmodule Zaq.WidgetTLSFixtures do
         "rsa:2048",
         "-nodes",
         "-keyout",
-        ca_key,
+        Path.basename(ca_key),
         "-out",
-        ca,
+        Path.basename(ca),
         "-days",
         "1",
         "-subj",
@@ -33,9 +33,9 @@ defmodule Zaq.WidgetTLSFixtures do
         "rsa:2048",
         "-nodes",
         "-keyout",
-        key,
+        Path.basename(key),
         "-out",
-        request,
+        Path.basename(request),
         "-subj",
         "/CN=localhost"
       ],
@@ -43,25 +43,31 @@ defmodule Zaq.WidgetTLSFixtures do
         "x509",
         "-req",
         "-in",
-        request,
+        Path.basename(request),
         "-CA",
-        ca,
+        Path.basename(ca),
         "-CAkey",
-        ca_key,
+        Path.basename(ca_key),
         "-CAcreateserial",
         "-out",
-        cert,
+        Path.basename(cert),
         "-days",
         "1",
         "-extfile",
-        extensions
+        Path.basename(extensions)
       ]
     ]
 
     Enum.each(commands, fn args ->
-      case System.cmd("openssl", args, stderr_to_stdout: true) do
-        {_output, 0} -> :ok
-        {_output, status} -> raise "Widget TLS test certificate generation failed (#{status})"
+      # OpenSSL's serial-file writer rejects paths of 256 bytes or more.
+      # Keep filenames relative in the child without changing the BEAM's cwd.
+      case System.cmd("openssl", args, cd: directory, stderr_to_stdout: true) do
+        {_output, 0} ->
+          :ok
+
+        {output, status} ->
+          raise "Widget TLS test certificate generation failed (#{status}): " <>
+                  "openssl #{Enum.join(args, " ")}\n#{output}"
       end
     end)
 

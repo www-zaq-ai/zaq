@@ -94,10 +94,32 @@ defmodule Zaq.Accounts do
     Repo.aggregate(User, :count, :id)
   end
 
+  @doc """
+  Updates a user under a row lock, rejecting a changed role snapshot.
+
+  Callers own authorization. A role changed since the supplied user was loaded
+  requires a reload, so a previously checked profile edit cannot reassign a role.
+  """
   def update_user(user, attrs) do
-    user
-    |> User.changeset(attrs)
-    |> Repo.update()
+    Repo.transaction(fn ->
+      current =
+        Repo.one(from u in User, where: u.id == ^user.id, lock: "FOR UPDATE") ||
+          Repo.rollback(:not_found)
+
+      changeset = User.changeset(current, attrs)
+
+      changeset =
+        if current.role_id != user.role_id do
+          Ecto.Changeset.add_error(changeset, :role_id, "has changed; reload and try again")
+        else
+          changeset
+        end
+
+      case Repo.update(changeset) do
+        {:ok, updated} -> updated
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   def delete_user(user) do

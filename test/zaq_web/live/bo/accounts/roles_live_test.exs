@@ -6,7 +6,7 @@ defmodule ZaqWeb.Live.BO.Accounts.RolesLiveTest do
   alias Zaq.Accounts
 
   setup %{conn: conn} do
-    user = user_fixture(%{username: "rolesadmin"})
+    user = super_admin_fixture(%{username: "rolesadmin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = conn |> init_test_session(%{user_id: user.id})
