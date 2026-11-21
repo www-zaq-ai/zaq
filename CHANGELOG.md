@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/www-zaq-ai/zaq/compare/v0.19.1...v0.19.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **portal:** connect existing accounts during bootstrap ([#951](https://github.com/www-zaq-ai/zaq/issues/951)) ([712b538](https://github.com/www-zaq-ai/zaq/commit/712b538ab2211ed0972de95eabadd07a83436dbf))
+
 ## [0.19.1](https://github.com/www-zaq-ai/zaq/compare/v0.19.0...v0.19.1) (2026-11-17)
 
 Recovery of the original `0.19.1` release, whose container builds failed because the Docker build context excluded the database TLS helper. The version remains `0.19.1`.
