@@ -23,6 +23,7 @@ defmodule Zaq.HttpRequest.Prepared do
           query: %{String.t() => String.t()},
           body: term(),
           body_format: String.t(),
+          response_format: String.t(),
           timeout_ms: pos_integer(),
           doc_reference: String.t(),
           policy: OutboundHttpPolicy.t(),
@@ -51,6 +52,7 @@ defmodule Zaq.HttpRequest.Prepared do
     :policy,
     headers: %{},
     query: %{},
+    response_format: "decoded",
     credential: nil
   ]
 

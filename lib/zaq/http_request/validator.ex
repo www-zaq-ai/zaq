@@ -22,6 +22,7 @@ defmodule Zaq.HttpRequest.Validator do
           query: %{String.t() => String.t()},
           body: term(),
           body_format: String.t(),
+          response_format: String.t(),
           timeout_ms: pos_integer(),
           doc_reference: String.t(),
           credential_id: pos_integer() | nil
@@ -39,6 +40,10 @@ defmodule Zaq.HttpRequest.Validator do
          {:ok, headers} <- normalize_headers(fetch(params, :headers)),
          {:ok, query} <- normalize_query(fetch(params, :query)),
          {:ok, format} <- validate_body_format(fetch(params, :body_format) || "json"),
+         {:ok, response_format} <-
+           validate_response_format(
+             Map.get(params, :response_format, Map.get(params, "response_format", "decoded"))
+           ),
          {:ok, body} <- validate_body(method, fetch(params, :body), format),
          {:ok, timeout_ms} <- validate_timeout(fetch(params, :timeout_ms), policy),
          {:ok, credential_id} <- validate_credential_id(fetch(params, :credential_id)) do
@@ -51,6 +56,7 @@ defmodule Zaq.HttpRequest.Validator do
          query: query,
          body: body,
          body_format: format,
+         response_format: response_format,
          timeout_ms: timeout_ms,
          doc_reference: to_string(fetch(params, :doc_reference) || ""),
          credential_id: credential_id
@@ -185,6 +191,11 @@ defmodule Zaq.HttpRequest.Validator do
 
   defp validate_body(_method, _body, _format),
     do: {:error, :invalid_body, "body shape does not match body_format"}
+
+  defp validate_response_format(format) when format in ["decoded", "raw"], do: {:ok, format}
+
+  defp validate_response_format(_format),
+    do: {:error, :invalid_response_format, "response_format must be decoded or raw"}
 
   defp validate_timeout(nil, %OutboundHttpPolicy{max_timeout_ms: max}),
     do: {:ok, min(@default_timeout_ms, max)}
