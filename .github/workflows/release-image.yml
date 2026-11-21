@@ -234,7 +234,6 @@ jobs:
             "${IMAGE}@${AMD64}" "${IMAGE}@${ARM64}"
           docker buildx imagetools inspect --raw "${IMAGE}:v${VERSION}" > "${RUNNER_TEMP}/published-index.json"
           node .github/scripts/prerelease/candidate.cjs verify "${RUNNER_TEMP}/published-index.json"
-          oras tag "${IMAGE}:v${VERSION}" "$VERSION" "${VERSION%.*}" "${VERSION%%.*}" latest
       - name: Publish the exact candidate tag
         if: ${{ inputs.mode != 'stable' }}
         env:
