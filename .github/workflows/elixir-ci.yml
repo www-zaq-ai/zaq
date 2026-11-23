@@ -24,6 +24,15 @@ jobs:
         timeout-minutes: 5
         run: docker buildx build --target db-bootstrap --output=type=cacheonly --progress=plain .
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test prerelease versioning and registry safeguards
+        working-directory: .github/scripts/prerelease
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:

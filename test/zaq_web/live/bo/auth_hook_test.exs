@@ -1,5 +1,6 @@
 defmodule ZaqWeb.Live.BO.AuthHookTest do
-  use ZaqWeb.ConnCase, async: true
+  # This suite broadcasts node-wide PubSub events; keep it isolated from async tests.
+  use ZaqWeb.ConnCase, async: false
 
   import Zaq.AccountsFixtures
   import Phoenix.LiveViewTest
@@ -31,6 +32,19 @@ defmodule ZaqWeb.Live.BO.AuthHookTest do
              AuthHook.on_mount(:default, %{}, %{"user_id" => -1}, socket)
 
     assert {:live, :redirect, %{to: "/bo/login", kind: :push}} = halted_socket.redirected
+  end
+
+  test "halts with an HTTP redirect when the session nonce does not match" do
+    user = user_fixture()
+    socket = build_socket(ZaqWeb.Live.BO.DashboardLive)
+
+    session = %{
+      "user_id" => user.id,
+      "bo_session_nonce" => "stale:" <> to_string(user.bo_session_nonce)
+    }
+
+    assert {:halt, halted_socket} = AuthHook.on_mount(:default, %{}, session, socket)
+    assert {:redirect, %{status: 302, to: "/bo/login"}} = halted_socket.redirected
   end
 
   test "halts and redirects to change-password when user must rotate password" do

@@ -115,3 +115,5 @@ db_snapshots/
 /.github/scripts/*
 !/.github/scripts/provision-test-database.exs
 !/.github/scripts/extension_installation_test.exs
+!/.github/scripts/prerelease/
+/.github/scripts/prerelease/node_modules/

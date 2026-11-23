@@ -14,6 +14,7 @@ defmodule ZaqWeb.Plugs.Auth do
     statics: ZaqWeb.static_paths()
 
   alias Zaq.Accounts
+  alias ZaqWeb.BOSession
 
   def init(opts), do: opts
 
@@ -26,27 +27,32 @@ defmodule ZaqWeb.Plugs.Auth do
         |> halt()
 
       user_id ->
-        case Accounts.get_user(user_id) do
-          nil ->
-            conn
-            |> delete_session(:user_id)
-            |> put_flash(:error, "You must log in to access this page.")
-            |> redirect(to: ~p"/bo/login")
-            |> halt()
+        user = Accounts.get_user(user_id)
 
-          user ->
-            authorize_user(conn, user)
+        if BOSession.valid?(user, get_session(conn, :bo_session_nonce)) do
+          authorize_user(conn, user)
+        else
+          conn
+          |> delete_session(:user_id)
+          |> delete_session(:bo_session_nonce)
+          |> delete_session(:bootstrap_browser)
+          |> put_flash(:error, "You must log in to access this page.")
+          |> redirect(to: ~p"/bo/login")
+          |> halt()
         end
     end
   end
 
   defp authorize_user(conn, user) do
-    if user.must_change_password and conn.request_path != ~p"/bo/change-password" do
-      conn
-      |> redirect(to: ~p"/bo/change-password")
-      |> halt()
-    else
-      assign(conn, :current_user, user)
+    cond do
+      user.must_change_password and conn.request_path != ~p"/bo/change-password" ->
+        conn |> redirect(to: ~p"/bo/change-password") |> halt()
+
+      user.must_change_password and user.username == "admin" ->
+        conn |> BOSession.bind_bootstrap_browser() |> assign(:current_user, user)
+
+      true ->
+        assign(conn, :current_user, user)
     end
   end
 end

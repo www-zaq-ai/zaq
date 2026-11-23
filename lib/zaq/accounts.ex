@@ -124,11 +124,27 @@ defmodule Zaq.Accounts do
   success `must_change_password` is set to false. This is a single registration
   write — portal consent and provisioning are owned by `Zaq.UserPortal.Onboarding`.
   """
-  def complete_registration(user, attrs) do
+  def complete_registration(%User{must_change_password: true} = user, attrs) do
     user
+    |> Ecto.Changeset.optimistic_lock(:must_change_password, fn _ -> false end)
     |> User.bootstrap_onboarding_changeset(attrs)
-    |> Repo.update()
+    |> maybe_rotate_bootstrap_session(user)
+    |> Repo.update(stale_error_field: :must_change_password)
   end
+
+  def complete_registration(%User{} = user, _attrs) do
+    {:error,
+     user
+     |> Ecto.Changeset.change()
+     |> Ecto.Changeset.add_error(:base, "Registration is already complete")}
+  end
+
+  defp maybe_rotate_bootstrap_session(changeset, %User{username: "admin"}) do
+    # A bootstrap session may already exist even if another user has since been added.
+    Ecto.Changeset.put_change(changeset, :bo_session_nonce, Ecto.UUID.generate())
+  end
+
+  defp maybe_rotate_bootstrap_session(changeset, _user), do: changeset
 
   @doc """
   Returns the bootstrap admin user if the instance is in pristine bootstrap state.

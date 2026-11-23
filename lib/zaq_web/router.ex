@@ -104,6 +104,9 @@ defmodule ZaqWeb.Router do
 
     live "/login", Live.BO.LoginLive
     get "/bootstrap-login", BOSessionController, :bootstrap_login
+    post "/bootstrap-session", BOSessionController, :complete_bootstrap
+    get "/connect", PortalConnectController, :new
+    post "/connect", PortalConnectController, :create
     live "/forgot-password", Live.BO.System.ForgotPasswordLive
     live "/reset-password/:token", Live.BO.System.ResetPasswordLive
     post "/session", BOSessionController, :create
@@ -120,6 +123,7 @@ defmodule ZaqWeb.Router do
     get "/trace-artifacts/:id", MessageTraceArtifactController, :show
 
     live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
+      live "/connect/status/:job_id", Live.BO.System.PortalConnectStatusLive
       live "/dashboard", Live.BO.DashboardLive
       live "/dashboard/llm-performance", Live.BO.LLMPerformanceLive
       live "/dashboard/conversations-metrics", Live.BO.ConversationsMetricsLive
