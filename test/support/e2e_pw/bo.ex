@@ -151,7 +151,7 @@ defmodule Zaq.E2EPw.BO do
     cond do
       Regex.match?(~r{/bo/login(?:$|[?#])}, URI.parse(Page.url(page)).path || "") ->
         login_via_form(page, Keyword.put(opts, :return_to, return_to))
-        auth_state_path = Application.fetch_env!(:playwright, :test)[:storage_state]
+        auth_state_path = Playwright.Test.config()[:storage_state]
         page |> Page.context() |> BrowserContext.storage_state!(path: auth_state_path)
 
       Keyword.get(opts, :ensure_connected, true) ->

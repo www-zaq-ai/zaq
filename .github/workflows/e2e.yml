@@ -203,7 +203,7 @@ jobs:
           mix run test/support/e2e/bootstrap.exs
 
       - name: Run E2E suite (${{ matrix.browser }})
-        run: mix test --only e2e test/e2e_pw
+        run: mix test test/e2e_pw
 
       - name: Upload Playwright artifacts
         if: always()

@@ -537,7 +537,7 @@ mix e2e test/e2e_pw/agents_test.exs --only test:"test add tools and MCP endpoint
 
 CI (`.github/workflows/e2e.yml`) runs one browser per matrix leg (`E2E_AUTH_BROWSER`), installs
 it with `mix playwright.install <browser> --with-deps`, bootstraps the database and runs
-`mix test --only e2e test/e2e_pw`.
+`mix test test/e2e_pw`.
 
 ---
 

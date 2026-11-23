@@ -76,7 +76,7 @@ defmodule Zaq.E2EPw.GlobalSetup do
       page |> Page.get_by_role(:button, name: "Sign In to Dashboard") |> Locator.click!()
       Page.wait_for_url!(page, ~r{/bo/(dashboard|change-password)}, timeout: 15_000)
 
-      auth_state_path = Application.fetch_env!(:playwright, :test)[:storage_state]
+      auth_state_path = Playwright.Test.config()[:storage_state]
       File.mkdir_p!(Path.dirname(auth_state_path))
       page |> Page.context() |> BrowserContext.storage_state!(path: auth_state_path)
     after

@@ -21,7 +21,7 @@ defmodule Zaq.E2EPw.UsersTest do
     Locator.fill!(password_input, "Short1!")
     Locator.blur!(password_input)
     wait_for_live_view_settled(page)
-    Page.wait_for_timeout(page, 400)
+    Page.wait_for_timeout!(page, 400)
 
     panel = Page.locator(page, "#password-requirements")
     Expect.to_be_visible!(panel)
