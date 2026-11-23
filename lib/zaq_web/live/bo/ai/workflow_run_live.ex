@@ -121,18 +121,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Keep the snapshot broadcast contract. The engine owns all persistence;
-  # presentation only unions monotonic diagnostic evidence and retains a known
-  # settled/suspended snapshot over a delayed running snapshot of the same row.
+  # presentation unions monotonic diagnostic evidence while retaining settled
+  # lifecycle fields over delayed active/suspended snapshots of the same row.
   # Resume creates a distinct step row, so it is not suppressed by this guard.
   defp merge_step_snapshot(current, incoming) do
     base =
-      if current.status != "running" and incoming.status == "running", do: current, else: incoming
+      if keep_current_step_snapshot?(current, incoming) do
+        current
+      else
+        incoming
+      end
 
-    events =
-      ((Map.get(current, :trace_events) || []) ++ (Map.get(incoming, :trace_events) || []))
-      |> Enum.uniq_by(& &1["id"])
+    current_trace_events = Map.get(current, :trace_events) || []
+    incoming_trace_events = Map.get(incoming, :trace_events) || []
+
+    events = Enum.uniq_by(current_trace_events ++ incoming_trace_events, & &1["id"])
 
     Map.put(base, :trace_events, events)
+  end
+
+  defp keep_current_step_snapshot?(current, incoming) do
+    (current.status in ~w(completed failed failed_fatal skipped cancelled) and
+       incoming.status in ~w(running waiting paused)) or
+      (current.status != "running" and incoming.status == "running")
   end
 
   # ── Events ──────────────────────────────────────────────────────
