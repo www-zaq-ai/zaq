@@ -173,9 +173,8 @@ if e2e? do
     screenshot: :only_on_failure,
     video: :retain_on_failure,
     headless: slow == "",
-    launch_options: [slow_mo: slow_mo]
-
-  config :playwright, :expect, timeout: if(System.get_env("CI"), do: 20_000, else: 15_000)
+    launch_options: [slow_mo: slow_mo],
+    expect: [timeout: if(System.get_env("CI"), do: 20_000, else: 15_000)]
 end
 
 if File.exists?("config/test.secret.exs"), do: import_config("test.secret.exs")
