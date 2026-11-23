@@ -459,7 +459,8 @@ defmodule Zaq.Engine.Workflows.StepRunner do
          "context_window" => %{"max_context_tokens" => capacity}
        })
        when is_integer(capacity) and capacity > 0 do
-    window = Map.get(context, :context_window) || %{}
+    window = Map.get(context, :context_window)
+    window = if is_map(window), do: window, else: %{}
     window = Map.put(window, :max_context_tokens, capacity)
 
     Map.put(context, :context_window, window)

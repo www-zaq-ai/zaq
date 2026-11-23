@@ -681,6 +681,25 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert context.skip_permissions == false
     end
 
+    test "a non-map caller window uses the snapshot capacity and records a completed step" do
+      {:ok, workflow} =
+        Workflows.create_workflow(
+          Map.put(@valid_workflow_attrs, :settings, %{
+            "context_window" => %{"max_context_tokens" => 32_000}
+          })
+        )
+
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+
+      assert {:ok, _} =
+               StepRunner.run(wp(run, ContextCaptureAction, "search", 0), %{context_window: []})
+
+      assert ContextProbe.get_context().context_window == %{max_context_tokens: 32_000}
+      assert [step] = Workflows.list_step_runs(run.id)
+      assert step.step_name == "search"
+      assert step.status == "completed"
+    end
+
     test "omission preserves an existing caller budget and does not invent one" do
       run = create_run()
       window = %{max_context_tokens: 8_000}

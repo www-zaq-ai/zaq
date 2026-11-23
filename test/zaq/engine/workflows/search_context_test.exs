@@ -2,10 +2,15 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Tools.SearchKnowledgeBase
+  alias Zaq.Engine.Workflows
   alias Zaq.Event
   alias Zaq.Ingestion.Api, as: IngestionApi
 
+  @fixture_query "what can you tell me about clickcreate ?"
+  @detailed_query "what can you tell me about clickcreate in detail ?"
+
   setup do
+    Process.register(self(), __MODULE__)
     previous = Application.fetch_env(:zaq, :workflow_step_node_router)
     Application.put_env(:zaq, :workflow_step_node_router, __MODULE__)
     stub(Zaq.NodeRouterMock, :dispatch, fn event -> event end)
@@ -22,7 +27,7 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
         %Event{request: %{token_budget: budget, max_total_results: maximum, chunks: chunks}} =
           event
       ) do
-    send(event.actor.test_pid, {:result_limits, budget, maximum, length(chunks)})
+    send(__MODULE__, {:result_limits, budget, maximum, length(chunks)})
     IngestionApi.handle_event(event, :limit_knowledge_results, nil)
   end
 
@@ -33,15 +38,17 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
     do: %{event | response: {:ok, ["simple"]}}
 
   def dispatch(%Event{request: %{query: query}} = event)
-      when query in ["find elixir", "find detailed elixir"] do
+      when query in [@fixture_query, @detailed_query] do
     content =
-      if query == "find elixir", do: "Elixir result", else: String.duplicate("Elixir ", 100)
+      if query == @fixture_query,
+        do: "ClickCreate result",
+        else: String.duplicate("ClickCreate ", 100)
 
     chunks =
       for index <- 1..150 do
         %{
           "content" => "#{content} #{index}",
-          "source" => "docs/elixir.md",
+          "source" => "docs/clickcreate.md",
           "chunk_index" => index
         }
       end
@@ -55,42 +62,57 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
   def dispatch(%Event{request: %{chunks: chunks}} = event),
     do: %{event | response: {:ok, chunks}}
 
-  test "direct workflow search caps short results at 100 with a 6400-token budget" do
-    assert {:ok, %{count: 100, chunks: chunks, errors: [], partial: false}} =
-             run_search("find elixir")
+  test "imported workflow caps short results at 100 with a 6400-token budget" do
+    assert %{
+             "count" => 100,
+             "chunks" => chunks,
+             "sources" => ["docs/clickcreate.md"],
+             "errors" => [],
+             "partial" => false
+           } = run_imported_search(@fixture_query)
 
     assert length(chunks) == 100
     assert_received {:result_limits, 6_400, 100, 150}
   end
 
-  test "the snapshotted token budget can bind before the result-count cap" do
-    assert {:ok, %{count: count, chunks: chunks, errors: [], partial: false}} =
-             run_search("find detailed elixir")
+  test "the imported workflow token budget can bind before the result-count cap" do
+    assert %{
+             "count" => count,
+             "chunks" => chunks,
+             "sources" => ["docs/clickcreate.md"],
+             "errors" => [],
+             "partial" => false
+           } = run_imported_search(@detailed_query)
 
     assert count in 1..99
     assert length(chunks) == count
     assert_received {:result_limits, 6_400, 100, 150}
   end
 
-  defp run_search(query) do
-    alias Zaq.Engine.Workflows
-    alias Zaq.Engine.Workflows.StepRunner
+  defp run_imported_search(query) do
+    params = %{
+      "query" => query,
+      "lexical_terms" => ["clickcreate", "click create"],
+      "search_mode" => "hybrid",
+      "max_total_results" => 100
+    }
 
     {:ok, workflow} =
-      Workflows.create_workflow(%{
-        name: "Direct workflow search",
-        status: "active",
-        settings: %{"context_window" => %{"max_context_tokens" => 32_000}},
-        nodes: [
+      Workflows.import_workflow(%{
+        "name" => "ClickCreate — knowledge base search",
+        "description" => "Search the knowledge base for information about ClickCreate.",
+        "status" => "active",
+        "settings" => %{"context_window" => %{"max_context_tokens" => 32_000}},
+        "nodes" => [
           %{
-            name: "search",
-            type: "action",
-            module: inspect(SearchKnowledgeBase),
-            params: %{},
-            index: 0
+            "name" => "search_clickcreate",
+            "type" => "action",
+            "module" => inspect(SearchKnowledgeBase),
+            "params" => params,
+            "index" => 0
           }
         ],
-        edges: []
+        "edges" => []
       })
 
     {:ok, run} =
@@ -100,17 +122,12 @@ defmodule Zaq.Engine.Workflows.SearchContextTest do
         "trace_id" => Ecto.UUID.generate()
       })
 
-    StepRunner.run(
-      %{
-        wrapped_module: SearchKnowledgeBase,
-        run_id: run.id,
-        step_name: "search",
-        step_index: 0,
-        query: query,
-        lexical_terms: ["test"],
-        max_total_results: 100
-      },
-      %{execution_actor: %{test_pid: self()}}
-    )
+    assert {:ok, %{status: "completed"}} = Workflows.start_run(run)
+    assert [step] = Workflows.list_step_runs(run.id)
+    assert step.step_name == "search_clickcreate"
+    assert step.status == "completed"
+    assert Map.take(step.input, Map.keys(params)) == params
+
+    step.results
   end
 end
