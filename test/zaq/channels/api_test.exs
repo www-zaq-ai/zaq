@@ -2387,6 +2387,62 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   describe "email capability snapshots" do
+    test "SMTP file configuration metadata does not advertise completed file sending" do
+      assert {:ok, snapshot} = email_capability_snapshot("email:smtp")
+      assert :file in snapshot.unsupported
+      assert snapshot.file_delivery.transfer_mode == :unresolved
+
+      assert snapshot.file_delivery.limits.max_encoded_message_bytes == %{
+               value: :unresolved,
+               configurable: true,
+               required: true
+             }
+
+      assert snapshot.file_delivery.limits.max_attachments_per_message.required
+      refute Map.has_key?(snapshot.resolved, :file)
+      assert {:ok, imap} = email_capability_snapshot("email:imap")
+      refute Map.has_key?(imap, :file_delivery)
+    end
+
+    test "configuration inspection includes a disabled exact connector without changing runtime lookup" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Disabled file settings",
+          url: "smtp://configured-in-settings",
+          token: "smtp-unused",
+          provider: "email:smtp",
+          kind: "retrieval",
+          enabled: false,
+          settings: %{"relay" => "smtp.example.com"}
+        })
+        |> Repo.insert!()
+
+      assert {:error, _} = Bridge.capability_snapshot("email:smtp", %{config_id: config.id})
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot("email:smtp", %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      assert snapshot.file_delivery.limits.max_encoded_message_bytes.configurable
+
+      assert {:error, _} =
+               Bridge.capability_snapshot("email:imap", %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      config |> ChannelConfig.changeset(%{kind: "data_source"}) |> Repo.update!()
+
+      assert {:error, _} =
+               Bridge.capability_snapshot("email:smtp", %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+    end
+
     for {provider, mode, unsupported} <- [
           {"email:smtp", "none",
            [:image, :audio, :video, :file, :streaming, :reactions, :typing, :edit_messages]},

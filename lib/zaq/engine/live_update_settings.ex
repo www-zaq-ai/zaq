@@ -14,7 +14,7 @@ defmodule Zaq.Engine.LiveUpdateSettings do
 
   import Ecto.Query
 
-  alias Zaq.ConnectorConfig.LiveUpdates
+  alias Zaq.ConnectorConfig.{FileSettings, LiveUpdates}
   alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Repo
@@ -88,6 +88,13 @@ defmodule Zaq.Engine.LiveUpdateSettings do
 
       {:error, changeset} ->
         errors = Ecto.Changeset.traverse_errors(changeset, fn {message, _} -> message end)
+        file_errors = FileSettings.errors(changeset)
+
+        errors =
+          if map_size(file_errors) > 0,
+            do: Map.put(errors, :file_delivery, file_errors),
+            else: errors
+
         {:error, {:configuration, errors}}
     end
   end

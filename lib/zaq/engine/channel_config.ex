@@ -16,7 +16,7 @@ defmodule Zaq.Engine.ChannelConfig do
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.RetrievalChannel
-  alias Zaq.ConnectorConfig.{LiveUpdates, Settings, WidgetSettings}
+  alias Zaq.ConnectorConfig.{FileSettings, LiveUpdates, Settings, WidgetSettings}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -58,6 +58,7 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
     |> maybe_validate_live_updates()
+    |> maybe_validate_file_settings()
     |> preserve_live_update_policy()
     |> maybe_require_widget_base_url_on_persist()
     |> maybe_validate_imap_smtp_dependency_on_persist()
@@ -75,6 +76,84 @@ defmodule Zaq.Engine.ChannelConfig do
 
       _ ->
         changeset
+    end
+  end
+
+  defp maybe_validate_file_settings(changeset) do
+    case fetch_change(changeset, :settings) do
+      {:ok, %{"file_delivery" => form} = settings} ->
+        existing = FileSettings.from_connection(changeset.data)
+
+        case FileSettings.merge_form(existing, form) do
+          {:ok, file_settings} ->
+            settings = Map.merge(changeset.data.settings || %{}, settings)
+
+            changeset
+            |> put_change(:settings, Map.put(settings, "file_delivery", file_settings))
+            |> prepare_changes(&validate_file_settings_on_persist/1)
+
+          {:error, errors} ->
+            FileSettings.add_errors(changeset, :settings, errors)
+        end
+
+      {:ok, settings} when is_map(settings) ->
+        preserved = Map.take(changeset.data.settings || %{}, ["file_delivery"])
+
+        changeset
+        |> put_change(:settings, Map.merge(settings, preserved))
+        |> maybe_validate_new_file_settings()
+
+      _ ->
+        maybe_validate_new_file_settings(changeset)
+    end
+  end
+
+  defp maybe_validate_new_file_settings(%{data: %{id: nil}} = changeset) do
+    if get_field(changeset, :kind) == "retrieval",
+      do: prepare_changes(changeset, &validate_file_settings_on_persist/1),
+      else: changeset
+  end
+
+  defp maybe_validate_new_file_settings(changeset), do: changeset
+
+  defp validate_file_settings_on_persist(changeset) do
+    file_settings = Map.get(get_field(changeset, :settings) || %{}, "file_delivery", %{})
+
+    if changeset.action == :update and
+         file_settings == FileSettings.from_connection(changeset.data) do
+      changeset
+    else
+      request = %{provider: get_field(changeset, :provider), scope: :provider}
+
+      request =
+        if changeset.data.id,
+          do: %{request | scope: :configuration} |> Map.put(:config_id, changeset.data.id),
+          else: request
+
+      event = Event.new(request, :channels, opts: [action: :channel_capability_snapshot])
+
+      case NodeRouter.dispatch(event) do
+        %Event{response: {:ok, snapshot}} ->
+          validate_current_file_settings(changeset, file_settings, snapshot)
+
+        %Event{response: {:error, :unsupported}} when file_settings == %{} ->
+          changeset
+
+        %Event{response: {:error, {:no_bridge, _provider}}} when file_settings == %{} ->
+          changeset
+
+        _ ->
+          FileSettings.add_errors(changeset, :settings, %{
+            "file_delivery" => "File capabilities are unavailable"
+          })
+      end
+    end
+  end
+
+  defp validate_current_file_settings(changeset, settings, snapshot) do
+    case FileSettings.validate(settings, snapshot) do
+      :ok -> changeset
+      {:error, errors} -> FileSettings.add_errors(changeset, :settings, errors)
     end
   end
 

@@ -33,6 +33,8 @@
   "/storybook/components/forms/ai_model_selector",
   "/storybook/components/forms/button",
   "/storybook/components/forms/checkbox",
+  "/storybook/components/forms/connection_settings",
+  "/storybook/components/forms/file_delivery_settings",
   "/storybook/components/forms/input",
   "/storybook/components/forms/password_requirements",
   "/storybook/components/forms/routing_select",

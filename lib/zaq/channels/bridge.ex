@@ -467,7 +467,15 @@ defmodule Zaq.Channels.Bridge do
          {:ok, config} <- fetch_capability_config(provider, params),
          true <- bridge_supports?(bridge, :capability_snapshot, 1) || {:error, :unsupported},
          {:ok, raw_snapshot} <- bridge.capability_snapshot(config) do
-      {:ok, normalize_capability_snapshot(raw_snapshot, config)}
+      snapshot = normalize_capability_snapshot(raw_snapshot, config)
+
+      case snapshot.kind do
+        :communication ->
+          CommunicationBridge.normalize_capability_snapshot(raw_snapshot, snapshot)
+
+        _ ->
+          {:ok, snapshot}
+      end
     end
   end
 
@@ -475,6 +483,18 @@ defmodule Zaq.Channels.Bridge do
     if Map.has_key?(params, :config_id) or Map.has_key?(params, "config_id"),
       do: {:error, :invalid_request},
       else: {:ok, synthetic_capability_config(provider)}
+  end
+
+  defp fetch_capability_config(provider, %{scope: :configuration} = params) do
+    with id when not is_nil(id) <- capability_config_id(params),
+         %ChannelConfig{provider: scoped_provider, archived_at: nil} = config <-
+           ChannelConfig.get(id),
+         true <- to_string(scoped_provider) == to_string(provider),
+         true <- capability_kind(config) == capability_kind(synthetic_capability_config(provider)) do
+      {:ok, normalize_channel_config(config)}
+    else
+      _ -> {:error, {:channel_not_configured, provider}}
+    end
   end
 
   defp fetch_capability_config(provider, params) do

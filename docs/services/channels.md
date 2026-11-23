@@ -1413,6 +1413,49 @@ continues starting bridge infrastructure.
 
 ---
 
+## File configuration and transport requirements
+
+The shared **File delivery** section uses `ZaqWeb.Components.FileDeliverySettings`
+inside the channel form's Advanced settings and SMTP's Advanced SMTP section.
+`Zaq.ConnectorConfig.FileSettings` owns normalization, capability validation and
+effective limits. Configuration storage is described in
+[Engine configuration persistence](engine.md#connector-configuration-persistence).
+
+The existing `:channel_capability_snapshot` event carries optional `file_delivery`
+metadata returned by the existing `capability_snapshot/1` callback.
+`CommunicationBridge.normalize_capability_snapshot/2` validates and projects this
+communication-specific metadata; the generic bridge delegates by channel kind.
+Data-source snapshots and connections cannot enable message file delivery.
+The metadata contains a
+declared `transfer_mode`, explicit `supports_attachment_edits`, and `limits` keyed
+by the existing `TransportRequirements` limit fields. Each limit has a `value`
+(positive integer, `:unresolved`, or `:not_applicable`), `configurable`, and
+`required`. Unknown fields and policy are excluded from this projection. Existing
+delivery statuses and ingress-mode meanings remain unchanged. `scope: :configuration`
+with `config_id` inspects an exact unarchived connection, including disabled ones;
+provider and capability kind must match. Default runtime lookup still requires
+enablement. BO validation uses cached facts; persistence checks current metadata.
+
+Fixed values are read-only. Configurable overrides cannot exceed known ceilings.
+Declared aggregate-attachment and upload-request limits also appear when provided.
+Blank optional values fall back to declared transport limits; missing facts remain
+unresolved. SMTP declares configuration controls without advertising attachment
+sending. Required settings are marked for file delivery; incomplete configuration
+can be saved while that delivery capability is unsupported. The locked Jido adapter
+APIs expose support statuses without structured file limits, so those limits remain
+unresolved and numeric overrides are unavailable. Adapter metadata discovery remains
+separate from snapshot normalization. Generic message editing never implies attachment
+editing support. Neither labels nor provider names determine these behaviors.
+
+`Zaq.Channels.TransportRequirements.resolve(snapshot, selected_connection)`
+is the sole requirements derivation operation. It returns the existing struct or
+`:unsupported`, `:capabilities_unavailable`, `{:invalid_configuration, field_errors}`,
+or `{:unresolved_capabilities, fields}`. Success requires a declared transfer mode
+and positive attachment count. Optional unknown byte limits remain unresolved.
+The caller selects the outbound connection first, including SMTP for IMAP-origin
+replies, then resolves once per delivery attempt and passes that result onward.
+The resolver performs no acquisition, planning, sending or history operations.
+
 ## Channel Config
 
 Configuration persistence is owned by [`Zaq.Engine.ChannelConfig`](engine.md#connector-configuration-persistence).

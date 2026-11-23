@@ -128,6 +128,16 @@ Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
 overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
 normalization remains provider-local in Channels.
 
+Communication-channel file configuration is stored under `settings["file_delivery"]`, independently of
+derived requirements. Byte overrides are positive integers; form MB values use
+1,000,000 bytes with at most six decimal places and no rounding. Counts are positive
+integers. The boolean `send_on_file_failure` defaults to true (`:continue`); explicit
+false selects `:abort`. Forms and persistence share `Zaq.ConnectorConfig.FileSettings`.
+SMTP saves retain unrelated settings. Current capability checks run during write
+preparation; field-local errors survive grouped connector saves. See
+[Channels file metadata](channels.md#file-configuration-and-transport-requirements)
+for required, optional, fixed and unresolved limit semantics.
+
 `Zaq.Engine.LiveUpdateSettings` owns the `settings["live_updates"]` subtree for
 retrieval connectors. The confidential `:manage_live_update_settings` Engine event
 runs `ManageLiveUpdateSettings` through validated Action execution and authenticates
