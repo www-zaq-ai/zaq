@@ -271,6 +271,15 @@ defmodule Zaq.Channels.WebBridge do
        %{status: :unknown, reason: reason, summary: "Transport readiness cannot be verified"}}
 
   @impl Zaq.Channels.Bridge
+  @doc """
+  Returns web delivery capabilities independently of connector readiness.
+
+  Web consumers support text, streaming, and message edits over WebSocket. Widgets
+  also support typing indicators. Adapter runtime and installation flags remain
+  available for connector enablement; shared normalization supplies delivery labels
+  and unsupported features.
+  """
+  @spec capability_snapshot(map()) :: {:ok, map()}
   def capability_snapshot(config) do
     resolved =
       case adapter_for(config.provider) do
@@ -284,7 +293,17 @@ defmodule Zaq.Channels.WebBridge do
           %{runtime: false, installation: false}
       end
 
-    {:ok, %{required: [:runtime, :installation], resolved: resolved}}
+    {:ok,
+     %{
+       resolved:
+         Map.merge(resolved, %{
+           text: :native,
+           streaming: :native,
+           typing: if(config.provider in [:web_widget, "web_widget"], do: :native, else: false),
+           edit_messages: :native,
+           mode: "websocket"
+         })
+     }}
   end
 
   @doc "Generates a bounded installation snippet through the confidential installation read."

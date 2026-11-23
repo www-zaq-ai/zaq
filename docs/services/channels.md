@@ -1112,9 +1112,9 @@ of connector readiness. Both email providers report `text: :native` and
 Unsupported delivery features are omitted, including attachments, streaming,
 reactions, typing indicators, and message editing. IMAP attachment reception is
 outside this contract, which has no separate receive-capability dimension.
-The `mode` describes ingress: `none` for SMTP and `idle` for IMAP. Shared
-normalization supplies capability labels and unsupported detection. The SMTP and
-IMAP BO pages reuse the existing display and `:channel_capability_snapshot` event
+The `mode` describes ingress: `none` for SMTP and `push_notification` for IMAP (via
+IDLE). Shared normalization supplies capability labels and unsupported detection.
+The SMTP and IMAP BO pages reuse the existing display and `:channel_capability_snapshot` event
 with provider scope, including when no connector is configured or several exist.
 
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
@@ -1246,6 +1246,13 @@ stored-map projections; none of these shared helpers accesses Repo or credential
 ## Web Bridge
 
 `Zaq.Channels.WebBridge` serves the ChatLive web channel.
+
+`capability_snapshot/1` reports text, streaming, and message editing over
+`websocket`; widgets also support typing indicators. Media attachments, reactions,
+and threaded replies are unsupported. These delivery capabilities are independent
+of connector readiness; the snapshot retains adapter `runtime` and `installation` flags for widget
+enablement. The widget BO page loads the shared snapshot with provider scope and
+displays it in the existing capabilities modal, without requiring a connector.
 
 BO history retrieval dispatches the Engine-owned authorized `:display_history`
 operation; it does not enrich the older unscoped message reader with private

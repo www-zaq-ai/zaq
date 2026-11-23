@@ -34,7 +34,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   Text and threaded replies use SMTP, including replies originating from an IMAP
   inbox. Attachment reception is outside this delivery contract. The mode reports
-  the ingress mechanism: `none` for SMTP and `idle` for IMAP.
+  the ingress mechanism: `none` for SMTP and `push_notification` for IMAP (via IDLE).
   Unknown providers are unsupported.
   """
   @spec capability_snapshot(map()) :: {:ok, map()} | {:error, :unsupported}
@@ -45,7 +45,7 @@ defmodule Zaq.Channels.EmailBridge do
         {:ok, %{resolved: %{text: :native, threads: :native, mode: "none"}}}
 
       provider when provider in ["email:imap", :"email:imap"] ->
-        {:ok, %{resolved: %{text: :native, threads: :native, mode: "idle"}}}
+        {:ok, %{resolved: %{text: :native, threads: :native, mode: "push_notification"}}}
 
       _ ->
         {:error, :unsupported}

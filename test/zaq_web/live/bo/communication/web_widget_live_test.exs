@@ -51,6 +51,47 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     %{conn: init_test_session(conn, %{user_id: user.id})}
   end
 
+  for connector_count <- [0, 2] do
+    test "shared capabilities are available with #{connector_count} widget connectors", %{
+      conn: conn
+    } do
+      configure_adapter(nil)
+
+      for index <- Enum.take(1..2, unquote(connector_count)) do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Capabilities widget #{index}",
+          provider: "web_widget",
+          kind: "retrieval",
+          enabled: false
+        })
+        |> Repo.insert!()
+      end
+
+      {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+      assert has_element?(view, "[data-testid='channel-capabilities-trigger']")
+      refute has_element?(view, "#capabilities-modal")
+
+      view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+
+      for label <- ["Mode: websocket", "Text", "Streaming", "Typing", "Edit messages"] do
+        assert has_element?(view, "#capabilities-modal li.text-emerald-700", label)
+      end
+
+      for label <- ["Image", "Audio", "Video", "File", "Reactions", "Threads"] do
+        assert has_element?(view, "#capabilities-modal li[class~='text-black/40']", label)
+        refute has_element?(view, "#capabilities-modal li.text-emerald-700", label)
+      end
+
+      refute has_element?(view, "#capabilities-modal li", "runtime")
+      refute has_element?(view, "#capabilities-modal li", "installation")
+
+      view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+      refute has_element?(view, "#capabilities-modal")
+      assert has_element?(view, "#new-widget-config")
+    end
+  end
+
   test "mounts the real form and allows disabled configuration before prerequisites", %{
     conn: conn
   } do

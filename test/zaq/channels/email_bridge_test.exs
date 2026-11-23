@@ -330,7 +330,9 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "IMAP advertises SMTP-backed text and threaded replies without attachment delivery" do
       assert {:ok, snapshot} = EmailBridge.capability_snapshot(%{provider: "email:imap"})
 
-      assert snapshot == %{resolved: %{text: :native, threads: :native, mode: "idle"}}
+      assert snapshot == %{
+               resolved: %{text: :native, threads: :native, mode: "push_notification"}
+             }
     end
 
     test "accepts provider atoms and string-keyed runtime configurations" do

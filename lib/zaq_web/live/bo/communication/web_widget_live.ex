@@ -24,6 +24,8 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       socket
       |> assign(:current_path, "/bo/channels/retrieval/web_widget")
       |> assign(:page_title, ChannelProvider.label("web_widget"))
+      |> assign(:capabilities_snapshot, capability_snapshot(socket))
+      |> assign(:capability_modal_open, false)
       |> assign(:configs, [])
       |> assign(:selected, nil)
       |> assign(:modal_open, false)
@@ -65,6 +67,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   end
 
   @impl true
+  def handle_event("open_capabilities", _params, socket),
+    do: {:noreply, assign(socket, :capability_modal_open, true)}
+
+  def handle_event("close_capabilities", _params, socket),
+    do: {:noreply, assign(socket, :capability_modal_open, false)}
+
   def handle_event("new_connector", _params, socket),
     do: {:noreply, socket |> reload(:new) |> assign(:modal_open, true)}
 
@@ -498,6 +506,16 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   defp settings(socket, request),
     do: dispatch(socket, :engine, :widget_connector_settings, request)
+
+  defp capability_snapshot(socket) do
+    case dispatch(socket, :channels, :channel_capability_snapshot, %{
+           provider: "web_widget",
+           scope: :provider
+         }) do
+      {:ok, snapshot} when is_map(snapshot) -> snapshot
+      _ -> %{}
+    end
+  end
 
   defp dispatch(socket, role, action, request) do
     dispatch_user(socket.assigns.current_user, role, action, request)

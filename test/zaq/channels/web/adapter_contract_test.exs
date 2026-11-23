@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.Web.AdapterContractTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{Api, Supervisor, WebBridge}
+  alias Zaq.Channels.{Api, Bridge, Supervisor, WebBridge}
   alias Zaq.Channels.Web.{Command, Context}
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
@@ -138,6 +138,52 @@ defmodule Zaq.Channels.Web.AdapterContractTest do
 
     assert {:ok, %{resolved: %{runtime: true, installation: true}}} =
              WebBridge.capability_snapshot(config)
+  end
+
+  test "provider capabilities use the shared delivery contract without a saved connector" do
+    assert {:ok, snapshot} = Bridge.capability_snapshot("web_widget", %{scope: :provider})
+
+    assert snapshot.kind == :communication
+    assert snapshot.required == Bridge.required_capabilities(:communication)
+    assert snapshot.labels == Bridge.capability_meta(:communication)
+
+    assert Enum.sort(snapshot.unsupported) == [
+             :audio,
+             :file,
+             :image,
+             :reactions,
+             :threads,
+             :video
+           ]
+
+    assert snapshot.resolved == %{
+             text: :native,
+             streaming: :native,
+             typing: :native,
+             edit_messages: :native,
+             mode: "websocket",
+             runtime: true,
+             installation: true
+           }
+  end
+
+  test "delivery capabilities remain visible when no widget adapter is configured" do
+    channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(channels, :web_widget, %{bridge: WebBridge})
+    )
+
+    assert {:ok, snapshot} = Bridge.capability_snapshot("web_widget", %{scope: :provider})
+    assert snapshot.resolved.text == :native
+    assert snapshot.resolved.streaming == :native
+    assert snapshot.resolved.typing == :native
+    assert snapshot.resolved.edit_messages == :native
+    assert snapshot.resolved.mode == "websocket"
+    refute snapshot.resolved.runtime
+    refute snapshot.resolved.installation
   end
 
   test "authentication and cookie settings reach the adapter only in server configuration", %{

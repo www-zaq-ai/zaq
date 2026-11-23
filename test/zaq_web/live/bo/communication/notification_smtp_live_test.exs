@@ -38,7 +38,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   describe "email capability display" do
-    for {transport, mode} <- [{"smtp", "none"}, {"imap", "idle"}] do
+    for {transport, mode} <- [{"smtp", "none"}, {"imap", "push_notification"}] do
       test "#{transport} uses the shared modal and provider-scoped Channels endpoint", %{
         conn: conn
       } do
