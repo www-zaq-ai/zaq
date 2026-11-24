@@ -55,6 +55,28 @@ defmodule Zaq.Engine.Extension.ActionSessionTest do
     end
   end
 
+  test "a known rejection requires a slot and at least 512 available bytes before enqueueing" do
+    limits = ActionProtocol.offer(262_144)
+    session = ActionSession.configure(%ActionSession{}, limits, make_ref())
+
+    request = %ActionRequest{
+      timeout_ms: limits.max_timeout_ms + 1,
+      operation: {:list, %ListActions{}}
+    }
+
+    id = Ecto.UUID.generate()
+
+    short = %{session | used_bytes: limits.max_unreceipted_bytes - 511}
+    assert {:error, :resource_exhausted, ^short} = ActionSession.request(short, id, request)
+
+    fits = %{short | used_bytes: short.used_bytes - 1}
+    assert {:ok, session} = ActionSession.request(fits, id, request)
+    assert {{1, _frame}, session} = ActionSession.take_next(session)
+    assert {:ok, session} = ActionSession.receipt(session, id, 1)
+    assert session.used_bytes == fits.used_bytes
+    assert session.used_slots == fits.used_slots
+  end
+
   test "a lost worker completion settles once with a safe failure instead of leaking its slot" do
     generation = make_ref()
     id = Ecto.UUID.generate()

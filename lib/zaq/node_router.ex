@@ -126,6 +126,10 @@ defmodule Zaq.NodeRouter do
   @spec fire(Event.t()) :: Event.t()
   def fire(%Event{} = event), do: broadcast_event(event)
 
+  @doc """
+  Routes an event with local runtime overrides. `:async_task_supervisor` selects
+  the task supervisor for async hops; it is not carried on the Event.
+  """
   @spec dispatch(Event.t(), map()) :: Event.t()
   def dispatch(%Event{next_hop: %EventHop{destination: role}} = event, runtime)
       when is_map(runtime) do
@@ -255,8 +259,10 @@ defmodule Zaq.NodeRouter do
   end
 
   defp async_start(runtime, fun) when is_function(fun, 0) do
+    supervisor = Map.get(runtime, :async_task_supervisor, Zaq.TaskSupervisor)
+
     runtime
-    |> Map.get(:async_start_fn, &Task.Supervisor.start_child(Zaq.TaskSupervisor, &1))
+    |> Map.get(:async_start_fn, &Task.Supervisor.start_child(supervisor, &1))
     |> then(& &1.(fun))
   end
 

@@ -141,7 +141,9 @@ the Global tab's **gRPC maximum message size**, defaulting to 64 MiB. Before Eng
 services start, `Zaq.Engine.GrpcSettings` applies the persisted value to the
 node-wide `:grpc, :max_message_length` setting. This bounds send size and rejects
 oversized incoming frame prefixes before buffering their complete bodies.
-Extension advertises that same value; negotiation may lower the envelope limit.
+Extension advertises that same value. After negotiation, the reader checks the
+original message bytes against the smaller ceiling before protobuf decoding.
+This check runs after body buffering; the node-wide limit still bounds buffering.
 Saving does not alter running streams: restart each Engine node to apply a change.
 The read-ahead window remains independent of this per-message limit. One Health
 probe is outstanding at a time. The optional [Action exchange](extension-actions.md)

@@ -24,7 +24,12 @@ defmodule Zaq.Engine.Extension.RustInteroperabilityTest do
       Rust.start!(directory, binary: binary, args: ["arithmetic.add", arguments], notify: self())
 
     on_exit(fn -> Rust.stop(gateway) end)
-    start_supervised!({Extension, name: nil, settings: settings})
+    action_supervisor = start_supervised!({Task.Supervisor, []})
+
+    start_supervised!(
+      {Extension, name: nil, settings: settings, action_supervisor: action_supervisor}
+    )
+
     output = await_probe(gateway, "")
     assert output =~ "ListActions:"
     assert output =~ "DescribeAction:"

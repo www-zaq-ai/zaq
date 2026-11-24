@@ -43,11 +43,10 @@ defmodule Zaq.Engine.Extension.Protocol do
           request_id: id,
           protocol_version: @version,
           payload: {:hello, %GatewayHello{selected_version: @version} = hello}
-        } = frame,
+        },
         id
       ) do
-    if "health.v1" in hello.capabilities and hello.max_envelope_bytes >= 1_024 and
-         byte_size(GatewayEnvelope.encode(frame)) <= max_envelope_bytes() do
+    if "health.v1" in hello.capabilities and hello.max_envelope_bytes >= 1_024 do
       {:ok, min(hello.max_envelope_bytes, max_envelope_bytes())}
     else
       {:error, :incompatible_protocol}
@@ -60,17 +59,13 @@ defmodule Zaq.Engine.Extension.Protocol do
   @spec health_request(String.t()) :: ZaqEnvelope.t()
   def health_request(id), do: envelope(id, {:health_request, %HealthRequest{}})
 
-  @doc "Checks the negotiated envelope boundary without interpreting future operation variants."
-  @spec validate(GatewayEnvelope.t(), pos_integer()) :: :ok | {:error, atom()}
-  def validate(%GatewayEnvelope{request_id: id, protocol_version: @version} = frame, limit) do
-    cond do
-      byte_size(GatewayEnvelope.encode(frame)) > limit -> {:error, :resource_exhausted}
-      byte_size(id) not in 1..128 -> {:error, :invalid_envelope}
-      true -> :ok
-    end
+  @doc "Checks decoded envelope metadata without interpreting future operation variants."
+  @spec validate(GatewayEnvelope.t()) :: :ok | {:error, atom()}
+  def validate(%GatewayEnvelope{request_id: id, protocol_version: @version}) do
+    if byte_size(id) in 1..128, do: :ok, else: {:error, :invalid_envelope}
   end
 
-  def validate(_frame, _limit), do: {:error, :incompatible_protocol}
+  def validate(_frame), do: {:error, :incompatible_protocol}
 
   @doc "Rejects a control or operation envelope explicitly, without acknowledging execution."
   @spec reject(String.t(), atom()) :: ZaqEnvelope.t()

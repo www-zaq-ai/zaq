@@ -45,7 +45,7 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
     limits = %ActionLimits{
       max_concurrent: Map.get(context, :max_concurrent, 2),
       max_unreceipted_replies: 8,
-      max_unreceipted_bytes: 1_048_576,
+      max_unreceipted_bytes: Map.get(context, :max_unreceipted_bytes, 1_048_576),
       max_timeout_ms: 5_000,
       max_json_depth: 32,
       max_reply_envelope_bytes: 262_144,
@@ -64,8 +64,16 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
            }}
       )
 
+    action_supervisor = start_supervised!({Task.Supervisor, []})
+
     runtime =
-      start_supervised!({Extension, name: nil, settings: settings, reconnect_interval_ms: 20})
+      start_supervised!(
+        {Extension,
+         name: nil,
+         settings: settings,
+         reconnect_interval_ms: 20,
+         action_supervisor: action_supervisor}
+      )
 
     on_exit(fn ->
       ExtensionGateway.stop(gateway)
@@ -208,6 +216,73 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
                    2_000
 
     receipt(gateway, next_id, 2)
+  end
+
+  @tag max_concurrent: 1, max_unreceipted_bytes: 262_656
+  test "a worker surviving runtime restart still holds capacity and its result never reaches the new stream",
+       %{gateway: gateway, runtime: runtime, url: url} do
+    id = invoke(gateway, "general.http_request", %{method: "GET", url: url}, :ASYNC)
+    assert_receive {:gateway_connected, ^gateway, first}, 2_000
+
+    assert_receive {:gateway_action_reply, ^gateway, ^id, %{sequence: 1, outcome: {:relayed, _}}},
+                   2_000
+
+    receipt(gateway, id, 1)
+    assert_receive {:http_waiting, http}, 2_000
+    worker = :sys.get_state(runtime).actions.workers |> Map.values() |> hd()
+    worker_monitor = Process.monitor(worker.pid)
+    runtime_monitor = Process.monitor(runtime)
+    Process.exit(runtime, :kill)
+    assert_receive {:DOWN, ^runtime_monitor, :process, ^runtime, :killed}, 2_000
+
+    assert_receive {:gateway_connected, ^gateway, replacement}, 2_000
+    refute replacement == first
+    assert_receive {:gateway_request, ^gateway, ^replacement, _}, 2_000
+
+    busy_id = invoke(gateway, "arithmetic.add", %{value: 2.0, amount: 3.0}, :SYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^busy_id,
+                    %{sequence: 1, outcome: {:failure, %{code: :RESOURCE_EXHAUSTED}}}},
+                   2_000
+
+    receipt(gateway, busy_id, 1)
+    send(http, :release)
+    assert_receive {:DOWN, ^worker_monitor, :process, _, _}, 2_000
+    next_id = invoke(gateway, "arithmetic.add", %{value: 2.0, amount: 3.0}, :SYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^next_id,
+                    %{sequence: 2, outcome: {:result_json, _}}},
+                   2_000
+
+    receipt(gateway, next_id, 2)
+    refute_receive {:gateway_action_reply, ^gateway, ^id, _}
+  end
+
+  @tag max_concurrent: 1, max_unreceipted_bytes: 262_656
+  test "a known rejection fits in the small credit left by a running worker",
+       %{gateway: gateway, url: url} do
+    id = invoke(gateway, "general.http_request", %{method: "GET", url: url}, :ASYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^id, %{sequence: 1, outcome: {:relayed, _}}},
+                   2_000
+
+    receipt(gateway, id, 1)
+    assert_receive {:http_waiting, http}, 2_000
+    busy_id = invoke(gateway, "arithmetic.add", %{value: 2.0, amount: 3.0}, :SYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^busy_id,
+                    %{sequence: 2, outcome: {:failure, %{code: :RESOURCE_EXHAUSTED}}}},
+                   2_000
+
+    receipt(gateway, busy_id, 2)
+    send(http, :release)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^id,
+                    %{sequence: 3, outcome: {:result_json, _}}},
+                   2_000
+
+    receipt(gateway, id, 3)
+    refute_received {:gateway_rejection, ^gateway, _}
   end
 
   defp invoke(gateway, key, params, mode, timeout_ms \\ 5_000) do

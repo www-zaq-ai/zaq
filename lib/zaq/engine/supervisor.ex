@@ -20,6 +20,7 @@ defmodule Zaq.Engine.Supervisor do
   - `Zaq.Engine.Telemetry.Supervisor` — runtime telemetry collection
   - `Zaq.People.AuthRateLimiter` — distributed OTP Person/IP issuance budgets only
   - `Zaq.Engine.Extension` — optional local gateway connectivity cache
+  - `Zaq.Engine.Extension.ActionSupervisor` — Action workers that outlive a stream runtime
   - `Zaq.Engine.Connect.DeviceSupervisor` — temporary device sign-in workers, never recovered
   - `Zaq.Engine.IngestionSupervisor` — supervises all ingestion channel adapters
   - `Zaq.Engine.RetrievalSupervisor` — supervises all retrieval channel adapters
@@ -41,6 +42,9 @@ defmodule Zaq.Engine.Supervisor do
       {Registry, keys: :unique, name: Zaq.Engine.Workflows.RunRegistry},
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.People.AuthRateLimiter,
+      Supervisor.child_spec({Task.Supervisor, name: Zaq.Engine.Extension.ActionSupervisor},
+        id: Zaq.Engine.Extension.ActionSupervisor
+      ),
       Zaq.Engine.Extension,
       {DynamicSupervisor, strategy: :one_for_one, name: Zaq.Engine.Connect.DeviceSupervisor},
       Zaq.Engine.IngestionSupervisor,

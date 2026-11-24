@@ -128,6 +128,40 @@ defmodule Zaq.Engine.Extension.StreamIntegrationTest do
     assert_receive {:gateway_rejection, ^gateway, %{code: :RESOURCE_EXHAUSTED}}, 2_000
   end
 
+  @tag hello:
+         {:hello,
+          %GatewayHello{
+            selected_version: 1,
+            capabilities: ["health.v1"],
+            max_envelope_bytes: 1_024
+          }}
+  test "the negotiated limit counts original bytes, not a re-encoded message", context do
+    gateway = context.gateway
+    ExtensionGateway.respond(gateway, {:await, {:ok, "ok"}})
+    runtime = start_runtime(context)
+    assert_receive {:gateway_request, ^gateway, handler, _}, 2_000
+
+    frame = %GatewayEnvelope{
+      request_id: :sys.get_state(runtime).pending.id,
+      protocol_version: 1,
+      payload: {:health_response, %HealthResponse{status: String.duplicate("x", 978)}}
+    }
+
+    exact = GatewayEnvelope.encode(frame)
+    assert byte_size(exact) == 1_024
+    suffix = GatewayEnvelope.encode(%GatewayEnvelope{protocol_version: 1})
+    oversized = exact <> suffix
+    assert GatewayEnvelope.encode(GatewayEnvelope.decode(oversized)) == exact
+
+    ExtensionGateway.push_wire(gateway, <<0, byte_size(exact)::32, exact::binary>>)
+    assert %{reason: :unexpected_status} = await_error(runtime, :unexpected_status)
+    ExtensionGateway.push_wire(gateway, <<0, byte_size(oversized)::32, oversized::binary>>)
+    assert %{reason: :resource_exhausted} = await_error(runtime, :resource_exhausted)
+
+    send(handler, {:release, gateway})
+    assert_receive {:gateway_rejection, ^gateway, %{code: :RESOURCE_EXHAUSTED}}, 2_000
+  end
+
   test "disconnect invalidates health immediately and reconnect uses a new stream", context do
     runtime = start_runtime(context, poll_interval_ms: 10_000, reconnect_interval_ms: 30)
     gateway = context.gateway
@@ -220,15 +254,31 @@ defmodule Zaq.Engine.Extension.StreamIntegrationTest do
   end
 
   defp await_health(runtime, status) do
+    await_snapshot(runtime, &(&1.status == status), "health did not reach #{status}")
+  end
+
+  defp await_error(runtime, reason) do
+    await_snapshot(
+      runtime,
+      &(&1.status == :error and &1.reason == reason),
+      "health did not report #{reason}"
+    )
+  end
+
+  defp await_snapshot(runtime, matches?, failure) do
     deadline = System.monotonic_time(:millisecond) + 2_000
 
     Stream.repeatedly(fn -> Extension.snapshot(server: runtime) end)
     |> Enum.find(fn health ->
       if System.monotonic_time(:millisecond) > deadline,
-        do: flunk("health did not reach #{status}")
+        do: flunk(failure)
 
-      if health.status != status, do: Process.sleep(5)
-      health.status == status
+      if matches?.(health) do
+        true
+      else
+        Process.sleep(5)
+        false
+      end
     end)
   end
 end

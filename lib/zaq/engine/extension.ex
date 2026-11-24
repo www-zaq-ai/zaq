@@ -61,7 +61,8 @@ defmodule Zaq.Engine.Extension do
       reader: nil,
       writer: nil,
       writing: false,
-      actions: %ActionSession{},
+      actions:
+        ActionSession.new(Keyword.get(opts, :action_supervisor, __MODULE__.ActionSupervisor)),
       probe_due: false,
       cleanup: nil,
       connection_name: nil,
@@ -110,7 +111,9 @@ defmodule Zaq.Engine.Extension do
          {:ok, action_limits} <- ActionProtocol.negotiate(hello, limit) do
       send(self(), :probe)
       actions = ActionSession.configure(state.actions, action_limits, state.generation)
-      {:reply, :continue, %{state | phase: :ready, max_envelope_bytes: limit, actions: actions}}
+
+      {:reply, {:continue, limit},
+       %{state | phase: :ready, max_envelope_bytes: limit, actions: actions}}
     else
       {:error, reason} ->
         reject_frame(state, reason)
@@ -118,7 +121,7 @@ defmodule Zaq.Engine.Extension do
   end
 
   def handle_call({:extension_frame, _generation, frame}, _from, %{phase: :ready} = state) do
-    case Protocol.validate(frame, state.max_envelope_bytes) do
+    case Protocol.validate(frame) do
       :ok -> receive_frame(frame, state)
       {:error, reason} -> reject_frame(state, reason)
     end
@@ -126,6 +129,17 @@ defmodule Zaq.Engine.Extension do
 
   def handle_call({:extension_frame, _generation, _frame}, _from, state),
     do: {:reply, {:reject, :invalid_envelope}, state}
+
+  def handle_call(
+        {:oversized_extension_frame, generation},
+        _from,
+        %{generation: generation} = state
+      )
+      when not is_nil(generation),
+      do: reject_frame(state, :resource_exhausted)
+
+  def handle_call({:oversized_extension_frame, _generation}, _from, state),
+    do: {:reply, {:reject, :resource_exhausted}, state}
 
   @impl true
   def handle_info(:connect, %{phase: :disconnected} = state) do
@@ -150,6 +164,7 @@ defmodule Zaq.Engine.Extension do
         started_at: started_at,
         first_probe: true,
         scheduled: nil,
+        max_envelope_bytes: Protocol.max_envelope_bytes(),
         phase: :connecting
     }
 
@@ -158,10 +173,11 @@ defmodule Zaq.Engine.Extension do
 
   def handle_info({:extension_stream, generation, stream}, %{generation: generation} = state) do
     owner = self()
+    limit = state.max_envelope_bytes
 
     reader =
       Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn ->
-        Reader.run(owner, generation, stream)
+        Reader.run(owner, generation, stream, limit)
       end)
 
     {:noreply, %{state | reader: reader, phase: :negotiating}}

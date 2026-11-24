@@ -44,8 +44,16 @@ defmodule Zaq.Engine.Extension.ActionStreamTest do
            }}
       )
 
+    action_supervisor = start_supervised!({Task.Supervisor, []})
+
     runtime =
-      start_supervised!({Extension, name: nil, settings: settings, reconnect_interval_ms: 1_000})
+      start_supervised!(
+        {Extension,
+         name: nil,
+         settings: settings,
+         reconnect_interval_ms: 1_000,
+         action_supervisor: action_supervisor}
+      )
 
     on_exit(fn ->
       ExtensionGateway.stop(gateway)

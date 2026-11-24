@@ -21,7 +21,11 @@ defmodule Zaq.ExtensionDispatchTest do
     assert is_pid(pid)
     assert_receive {:extension_action_completed, ^generation, ^id, {:listed, page}}, 1_000
     assert length(page.actions) == 1
-    refute_receive {:node_router_event, _}
+
+    unrelated = Event.new(%{}, :engine)
+    NodeRouter.fire(unrelated)
+    assert_receive {:node_router_event, ^unrelated}
+    refute_receive {:node_router_event, %Event{trace_id: ^id}}
   end
 
   test "tracked async dispatch reports task-supervisor admission failure without claiming success" do

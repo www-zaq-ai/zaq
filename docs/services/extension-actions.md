@@ -110,12 +110,17 @@ released then. Only its exact receipt releases the remaining bytes and slot.
 Reservations plus sent-but-unreceipted replies must stay within both selected
 budgets. Running worker count must stay within `max_concurrent`.
 
-A full worker pool can return RESOURCE_EXHAUSTED if a terminal reservation fits.
-If even a bounded failure cannot be reserved, ZAQ sends the credit-independent
+A known rejection, including a full worker pool, reserves one reply slot and
+512 bytes instead of the maximum terminal reply size.
+If even that reservation cannot fit, ZAQ sends the credit-independent
 `ProtocolError.RESOURCE_EXHAUSTED` and closes the stream; it does not buffer
 unbounded rejection replies. A result larger than the reserved reply ceiling is
 replaced with RESULT_TOO_LARGE within the same terminal reservation. Failure
 envelopes must fit 512 bytes. No partial result or application fragmentation exists.
+
+An inbound message that exceeds the negotiated envelope ceiling is rejected
+before protobuf decoding. Its stream-level RESOURCE_EXHAUSTED error has no
+request ID because the rejected message was not decoded.
 
 The receipt deadline starts when the runtime hands the reply to its single
 writer. This also bounds a blocked send; Gun's send acknowledgment proves queueing,
@@ -127,7 +132,8 @@ Gateway likewise rejects missing, repeated, skipped or non-increasing reply
 sequences and impossible outcome transitions. Reliable ordered gRPC needs no
 duplicate-receipt recovery. A sent reply not receipted within `receipt_timeout_ms`
 closes the stream. Generation teardown releases transport reservations, not
-execution capacity for workers that are still running.
+execution capacity for workers that are still running. An Engine-owned task
+supervisor tracks those workers even if the Extension runtime itself restarts.
 
 ## Deadlines and disconnection
 

@@ -6,6 +6,7 @@ defmodule Zaq.Engine.Extension.Client do
   """
 
   alias GRPC.Client.Connection
+  alias Zaq.Engine.Extension.ConnectCodec
   alias Zaq.Engine.Extension.Rpc.Gateway.V1.{Gateway, HealthRequest, HealthResponse}
 
   @required [:socket_path, :ca_cert, :client_cert, :client_key, :server_name]
@@ -44,7 +45,7 @@ defmodule Zaq.Engine.Extension.Client do
   def connect(opts \\ []) do
     with {:ok, settings} <- settings(opts),
          {:ok, channel} <- open_connection(settings, Keyword.fetch!(opts, :connection_name)) do
-      {:ok, Gateway.Stub.connect(channel, timeout: :infinity)}
+      {:ok, Gateway.Stub.connect(channel, timeout: :infinity, codec: ConnectCodec)}
     end
   rescue
     _ -> {:error, :rpc_error}

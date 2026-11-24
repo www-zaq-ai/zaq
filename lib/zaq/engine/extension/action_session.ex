@@ -1,16 +1,21 @@
 defmodule Zaq.Engine.Extension.ActionSession do
   @moduledoc """
   Transient Action admission, worker accounting and reply-credit ledger.
-  Disconnect discards transport state, but never releases a still-running worker's
-  concurrency slot. Receipts acknowledge encoded envelopes, not business success.
+  Disconnect discards transport state. The Engine-owned task supervisor tracks
+  live capacity even across runtime restarts. Receipts acknowledge encoded
+  envelopes, not business success.
   """
 
   alias Zaq.Engine.Extension.{ActionProtocol, Actions}
   alias Zaq.Engine.Extension.Rpc.Gateway.V1.{ActionReply, Relayed, ZaqEnvelope}
   alias Zaq.{Event, NodeRouter}
 
+  @failure_credit_bytes 512
+  @relayed_credit_bytes 512
+
   defstruct limits: nil,
             generation: nil,
+            action_supervisor: nil,
             requests: %{},
             workers: %{},
             replies: %{},
@@ -20,12 +25,22 @@ defmodule Zaq.Engine.Extension.ActionSession do
 
   @type t :: %__MODULE__{}
 
+  @doc "Uses a task supervisor whose lifetime is independent of the stream runtime."
+  @spec new(Supervisor.supervisor()) :: t()
+  def new(action_supervisor), do: %__MODULE__{action_supervisor: action_supervisor}
+
   @doc "Starts a fresh transport generation while retaining live worker monitors."
   @spec configure(t(), term(), reference() | nil) :: t()
   def configure(session, limits, generation) do
     Enum.each(session.requests, fn {_id, request} -> cancel(request.timer) end)
     Enum.each(session.replies, fn {_seq, reply} -> cancel(reply.timer) end)
-    %__MODULE__{limits: limits, generation: generation, workers: session.workers}
+
+    %{
+      new(session.action_supervisor)
+      | limits: limits,
+        generation: generation,
+        workers: session.workers
+    }
   end
 
   @doc "Reserves terminal/ACK capacity before starting the existing asynchronous Engine hop."
@@ -62,8 +77,12 @@ defmodule Zaq.Engine.Extension.ActionSession do
   end
 
   defp admit_invocation(session, id, invocation, timeout, mode, started_at) do
-    if map_size(session.workers) < session.limits.max_concurrent do
-      with {:ok, session} <- reserve(session, id, mode),
+    # The sole runtime serializes admission; a task start takes the slot.
+    active =
+      session.action_supervisor |> Task.Supervisor.children() |> Enum.count(&Process.alive?/1)
+
+    if active < session.limits.max_concurrent do
+      with {:ok, session} <- reserve(session, id, mode, session.limits.max_reply_envelope_bytes),
            do: {:ok, dispatch(session, id, invocation, timeout, mode, started_at)}
     else
       reject_request(session, id, :RESOURCE_EXHAUSTED)
@@ -71,13 +90,13 @@ defmodule Zaq.Engine.Extension.ActionSession do
   end
 
   defp reject_request(session, id, code) do
-    with {:ok, session} <- reserve(session, id, :SYNC),
-         do: {:ok, finish(session, id, Actions.failure(code))}
+    with {:ok, session} <- reserve(session, id, :SYNC, @failure_credit_bytes),
+         do: {:ok, finish(session, id, Actions.failure(code), @failure_credit_bytes)}
   end
 
-  defp reserve(session, id, mode) do
+  defp reserve(session, id, mode, terminal_bytes) do
     slots = if mode == :ASYNC, do: 2, else: 1
-    bytes = session.limits.max_reply_envelope_bytes + if(mode == :ASYNC, do: 512, else: 0)
+    bytes = terminal_bytes + if(mode == :ASYNC, do: @relayed_credit_bytes, else: 0)
 
     if session.used_slots + slots <= session.limits.max_unreceipted_replies and
          session.used_bytes + bytes <= session.limits.max_unreceipted_bytes do
@@ -104,7 +123,7 @@ defmodule Zaq.Engine.Extension.ActionSession do
         assigns: %{extension_owner: self(), extension_generation: session.generation}
       )
 
-    case NodeRouter.dispatch(event) do
+    case NodeRouter.dispatch(event, %{async_task_supervisor: session.action_supervisor}) do
       %Event{assigns: %{async_task_pid: pid}} when is_pid(pid) ->
         ref = Process.monitor(pid)
         remaining = max(timeout_ms - (System.monotonic_time(:millisecond) - started_at), 0)
@@ -118,7 +137,9 @@ defmodule Zaq.Engine.Extension.ActionSession do
             workers: Map.put(session.workers, ref, worker)
         }
 
-        if mode == :ASYNC, do: enqueue(session, id, {:relayed, %Relayed{}}, 512), else: session
+        if mode == :ASYNC,
+          do: enqueue(session, id, {:relayed, %Relayed{}}, @relayed_credit_bytes),
+          else: session
 
       _ ->
         session =
@@ -126,7 +147,7 @@ defmodule Zaq.Engine.Extension.ActionSession do
             do: %{
               session
               | used_slots: session.used_slots - 1,
-                used_bytes: session.used_bytes - 512
+                used_bytes: session.used_bytes - @relayed_credit_bytes
             },
             else: session
 
@@ -158,7 +179,7 @@ defmodule Zaq.Engine.Extension.ActionSession do
   def deadline(session, generation, id),
     do: complete(session, generation, id, Actions.failure(:DEADLINE_EXCEEDED, true))
 
-  @doc "Releases execution capacity only after actual worker death."
+  @doc "Removes a dead worker's monitor and settles an invocation missing a completion."
   @spec worker_down(t(), reference()) :: t()
   def worker_down(session, ref) do
     case Map.pop(session.workers, ref) do
@@ -170,7 +191,10 @@ defmodule Zaq.Engine.Extension.ActionSession do
     end
   end
 
-  defp finish(session, id, outcome) do
+  defp finish(session, id, outcome),
+    do: finish(session, id, outcome, session.limits.max_reply_envelope_bytes)
+
+  defp finish(session, id, outcome, reservation) do
     entry = session.requests[id]
     cancel(entry.timer)
 
@@ -179,7 +203,7 @@ defmodule Zaq.Engine.Extension.ActionSession do
       | requests: Map.put(session.requests, id, %{entry | waiting: false, timer: nil})
     }
 
-    enqueue(session, id, outcome, session.limits.max_reply_envelope_bytes)
+    enqueue(session, id, outcome, reservation)
   end
 
   defp enqueue(session, id, outcome, reservation) do
