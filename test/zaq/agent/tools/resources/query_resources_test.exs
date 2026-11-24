@@ -547,21 +547,30 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert result.resources == [%{id: config.id, name: "Public Mattermost"}]
     end
 
-    test "channel config listing honors trusted context team ids" do
+    test "channel config listing honors actor team IDs but not flat context team IDs" do
       {:ok, team} = People.create_team(%{name: "Connector Readers"})
+      actor = person_fixture(%{full_name: "Connector reader"})
       allowed = channel_config_fixture(%{provider: "mattermost", name: "Team Mattermost"})
       _hidden = channel_config_fixture(%{provider: "slack", name: "Team Hidden Slack"})
 
       {:ok, _permission} =
         Permissions.grant(allowed, %{team_id: team.id, access_rights: ["read"]})
 
+      params = %{mode: "query", resource_type: "channel_config", fields: ["id", "name"]}
+
       assert {:ok, result} =
-               QueryResources.run(
-                 %{mode: "query", resource_type: "channel_config", fields: ["id", "name"]},
-                 %{team_ids: [team.id]}
-               )
+               QueryResources.run(params, %{
+                 actor: %{person: %{id: actor.id, team_ids: [team.id]}}
+               })
 
       assert result.resources == [%{id: allowed.id, name: "Team Mattermost"}]
+      assert {:ok, %{resources: []}} = QueryResources.run(params, %{team_ids: [team.id]})
+
+      assert {:ok, %{resources: []}} =
+               QueryResources.run(params, %{
+                 actor: %{person: %{id: actor.id, team_ids: []}},
+                 team_ids: [team.id]
+               })
     end
 
     test "channel config listing filters normal actors to granted resources" do
@@ -878,7 +887,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
                    query: "Missing Team Actor Target",
                    fields: ["id", "full_name"]
                  },
-                 %{person_id: actor.id}
+                 %{actor: %{person: %{id: actor.id}}}
                )
 
       assert result.resources == [%{id: target.id, full_name: "Missing Team Actor Target"}]

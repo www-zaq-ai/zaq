@@ -9,8 +9,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   alias Zaq.SystemConfigFixtures
 
   defmodule Router do
-    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
-      do: %{event | response: {:ok, ["simple"]}}
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event) do
+      report_actor(event, :discovery)
+      %{event | response: {:ok, ["simple"]}}
+    end
 
     def dispatch(%Event{request: %{access_opts: opts}} = event) do
       mode = opts[:search_mode]
@@ -38,8 +40,15 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
       %{event | response: {:ok, chunks}}
     end
 
-    def dispatch(%Event{opts: [{:action, action} | _]} = event),
-      do: Api.handle_event(event, action, %{})
+    def dispatch(%Event{opts: [{:action, action} | _]} = event) do
+      report_actor(event, action)
+      Api.handle_event(event, action, %{})
+    end
+
+    defp report_actor(%Event{actor: %{test_pid: pid} = actor}, action),
+      do: send(pid, {:search_event_actor, action, actor})
+
+    defp report_actor(_event, _action), do: :ok
   end
 
   defmodule Reranker do
@@ -96,6 +105,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
 
     assert length(Enum.uniq_by(chunks, & &1["chunk_id"])) == 100
     assert Enum.all?(chunks, &is_number(&1["rrf_score"]))
+    actor = ctx.actor
+    assert_received {:search_event_actor, :discovery, ^actor}
+    assert_received {:search_event_actor, :fuse_knowledge_results, ^actor}
   end
 
   test "semantic requires no lexical terms and never starts keyword retrieval or fusion" do

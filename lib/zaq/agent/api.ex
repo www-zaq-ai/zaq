@@ -37,7 +37,6 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.EventHop
-  alias Zaq.Identity.ActorNormalizer
   alias Zaq.Identity.ExecutionActor
   alias Zaq.InternalBoundaries
   alias Zaq.Utils.ParseUtils
@@ -490,9 +489,6 @@ defmodule Zaq.Agent.Api do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
     executor_module = Keyword.get(event.opts, :executor_module, Executor)
 
-    person_id = ActorNormalizer.person_id(event.actor)
-    team_ids = ActorNormalizer.team_ids(event.actor)
-
     incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
 
     pipeline_opts = Keyword.put_new(pipeline_opts, :telemetry_dimensions, incoming_dims)
@@ -510,8 +506,6 @@ defmodule Zaq.Agent.Api do
           executor_module.run(incoming,
             agent_id: selected_id,
             conversation_binding: conversation_binding(event.assigns),
-            person_id: person_id,
-            team_ids: team_ids,
             source_filter: incoming.content_filter,
             skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
             history: Keyword.get(pipeline_opts, :history, %{}),

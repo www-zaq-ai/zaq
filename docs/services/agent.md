@@ -87,13 +87,12 @@ skip_permissions = Map.get(context, :skip_permissions, false)
 # Never: skip_permissions = is_nil(person_id)
 ```
 
-For person-scoped tools the identity must come from the **trusted execution context**,
-never from LLM-supplied parameters: `ctx[:actor].person.id` is canonical, with
-`ctx[:person_id]` kept on the chat path as a derived convenience from the normalized
-actor. An LLM-facing `person_id` parameter may
-be honored only under `ctx[:skip_permissions] == true` (see
-`Zaq.Agent.Tools.Accounts.History` for the reference implementation). Blank/empty-string
-IDs never resolve to an identity.
+`context.actor` is the only supported caller identity for configured-agent tools
+and workflow steps. Use `ActorNormalizer` to read person and team IDs from the
+trusted actor, including actors loaded from JSON. Do not read caller IDs from
+flat context keys or model parameters. A tool parameter may identify a target;
+it does not supply authorization. For example, `Accounts.History` honors an
+explicit target person only under `context[:skip_permissions] == true`.
 
 ---
 
@@ -563,7 +562,9 @@ without safe permission mutation support return `:unsupported`.
   IDs are unavailable without distinguishing the reason. Every fetch rechecks
   trusted permissions and source scope. See [Ingestion](ingestion.md#knowledge-chunk-navigation)
   for adjacency and ID lifetime.
-  Permission regression coverage exercises all three search modes and exact fetch
+  Search, exact fetch, and knowledge overview derive access from the same actor
+  and keep source restrictions separate from explicit permission bypass.
+  Permission regression coverage exercises all three search modes, fetch, and overview
   through real Ingestion/SQL checks, including person/team grants, nil identity,
   trusted bypass, source restrictions, and revocation between search and fetch.
   The configured-agent navigation test uses a controlled external provider to
@@ -575,8 +576,8 @@ without safe permission mutation support return `:unsupported`.
 - Recalls the requesting person's past conversations by topic (`query`) and/or time
   window (`last_n_days` integer or ISO `from_date`/`to_date`), grouped per conversation
   with titles
-- Identity is resolved from the trusted actor context (`ctx[:actor].person.id`; chat also
-  passes derived `ctx[:person_id]`); the `person_id` parameter is honored only on `skip_permissions` runs
+- Caller identity comes from `context.actor`; the `person_id` target parameter
+  is honored only on `skip_permissions` runs.
 - Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
 - Both `conversations[].messages[]` and flat `messages[]` preserve Conversations'
   structured `author` and `timestamp` metadata beside unchanged message content.

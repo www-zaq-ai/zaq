@@ -12,7 +12,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.RetrievalChannel
-  alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
   alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
@@ -460,37 +460,25 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   defp clamp_integer(_value, default, _min, _max), do: default
 
   defp authorization_subject(context) do
-    actor = Map.get(context, :actor) || Map.get(context, "actor")
+    declared_actor = Map.get(context, :actor) || Map.get(context, "actor")
 
-    case ActorNormalizer.person_id(actor) ||
-           ActorNormalizer.normalize_id(Map.get(context, :person_id)) do
-      nil -> {nil, effective_team_ids(context, actor, nil)}
-      person_id -> {person_id, effective_team_ids(context, actor, person_id)}
-    end
+    actor =
+      case ExecutionActor.validate(declared_actor) do
+        {:ok, actor} -> actor
+        {:error, _reason} -> nil
+      end
+
+    person_id = ActorNormalizer.person_id(actor)
+    team_ids = actor_team_ids(actor, person_id)
+    {person_id, Permissions.with_everyone_team_ids(team_ids)}
   end
 
-  defp effective_team_ids(context, actor, person_id) do
-    actor_team_ids(actor, person_id)
-    |> case do
-      [] -> context_team_ids(context)
-      ids -> ids
-    end
-    |> Permissions.with_everyone_team_ids()
-  end
-
-  defp actor_team_ids(actor, nil), do: ActorNormalizer.team_ids(actor)
+  defp actor_team_ids(_actor, nil), do: []
 
   defp actor_team_ids(actor, person_id) do
     case ActorNormalizer.team_ids(actor) do
       [] -> person_id |> People.get_person() |> person_team_ids()
       ids -> ids
-    end
-  end
-
-  defp context_team_ids(context) do
-    case Map.get(context, :team_ids) || Map.get(context, "team_ids") do
-      ids when is_list(ids) -> ids
-      _ -> []
     end
   end
 

@@ -23,7 +23,7 @@ defmodule Zaq.Agent.Actions.FuseKnowledgeResults do
 
     event =
       Event.new(params, :ingestion,
-        actor: context[:execution_actor],
+        actor: context[:actor],
         opts: [action: :fuse_knowledge_results]
       )
 
