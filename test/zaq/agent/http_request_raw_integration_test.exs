@@ -179,8 +179,6 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
     end
   end
 
-  @tag skip:
-         "Enable after Finch https://github.com/sneako/finch/issues/408 is fixed and updated (zaq-bjp)"
   test "empty chunked HTTP1 responses preserve initial headers separately from trailers" do
     url =
       peer(fn socket ->
@@ -262,9 +260,9 @@ defmodule Zaq.Agent.HttpRequestRawIntegrationTest do
     assert Base.decode64!(response.body) == ""
   end
 
-  property "non-empty raw HTTP1 entities preserve ordered trailer metadata" do
+  property "raw HTTP1 entities preserve ordered trailer metadata" do
     check all(
-            entity <- binary(min_length: 1, max_length: @limit),
+            entity <- binary(max_length: @limit),
             values <-
               list_of(string(:alphanumeric, min_length: 1, max_length: 16),
                 min_length: 1,

@@ -390,14 +390,8 @@ same filtering. Raw mode rejects retained non-UTF-8 header or trailer values wit
 `:invalid_response_headers` so the result remains JSON-safe without rewriting
 signing metadata.
 
-Known limitation with Finch 0.24.0: an empty, chunked HTTP/1.1 response carrying
-trailers is not metadata-safe. Finch classifies its trailers as initial headers,
-and Req can overwrite the original headers while leaving `trailers` empty. Callers
-must not rely on signing metadata from that response shape pending an upstream
-fix ([Finch #408](https://github.com/sneako/finch/issues/408), follow-up `zaq-bjp`).
-HTTP/2 trailers, non-empty HTTP/1.1 entities with trailers, and empty responses
-without trailers are unaffected. The empty HTTP/1.1 trailer regression remains
-explicitly skipped until the dependency is fixed and updated.
+Trailers remain separate from initial headers even when a chunked HTTP/1.1
+response has an empty body.
 
 Raw bytes are the HTTP entity after transfer framing, before content decoding or
 decompression. Raw requests send `accept-encoding: identity`; if the peer sends

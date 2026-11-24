@@ -51,12 +51,6 @@ defmodule Zaq.Channels.HttpClient do
   validation as headers; absent trailers are an empty map. Both modes filter
   credential/cookie response headers.
 
-  Finch 0.24.0 misclassifies trailers on empty, chunked HTTP/1.1 entities, allowing
-  Req to overwrite initial headers and leave trailers empty. That response shape
-  is not metadata-safe until [Finch #408](https://github.com/sneako/finch/issues/408)
-  is fixed and the dependency updated (`zaq-bjp`). HTTP/2 trailers and non-empty
-  HTTP/1.1 entities with trailers are unaffected.
-
   Raw requests send `accept-encoding: identity`. A peer may still send encoded
   content; its bytes and encoding header are returned unchanged. The caller owns
   signature verification and protocol interpretation.

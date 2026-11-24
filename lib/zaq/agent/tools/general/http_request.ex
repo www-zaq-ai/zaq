@@ -80,11 +80,9 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
     need the rest, narrow the request with query parameters rather than resending.
     Set `response_format: "raw"` to receive exact entity bytes as Base64 with
     `body_encoding: "base64"` and header value lists. Raw responses include a separate
-    `trailers` map with filtered value lists, empty when absent. Signing metadata is
-    unreliable for empty, chunked HTTP/1.1 responses due to a transport dependency
-    limitation. Raw reception is bounded: an oversized response fails instead of
-    returning a truncated body. Content decoding, decompression, and signature
-    verification are not performed.
+    `trailers` map with filtered value lists, empty when absent. Raw reception is
+    bounded: an oversized response fails instead of returning a truncated body.
+    Content decoding, decompression, and signature verification are not performed.
     """,
     schema:
       Zoi.object(%{
