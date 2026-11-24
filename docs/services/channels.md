@@ -1112,8 +1112,8 @@ of connector readiness. Both email providers report `text: :native` and
 Unsupported delivery features are omitted, including attachments, streaming,
 reactions, typing indicators, and message editing. IMAP attachment reception is
 outside this contract, which has no separate receive-capability dimension.
-The `mode` describes ingress: `none` for SMTP and `push_notification` for IMAP (via
-IDLE). Shared normalization supplies capability labels and unsupported detection.
+The `mode` describes ingress: `none` for SMTP and `imap_idle` for IMAP.
+Shared normalization supplies capability labels and unsupported detection.
 The SMTP and IMAP BO pages reuse the existing display and `:channel_capability_snapshot` event
 with provider scope, including when no connector is configured or several exist.
 

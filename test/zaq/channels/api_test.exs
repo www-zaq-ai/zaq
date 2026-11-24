@@ -2390,7 +2390,7 @@ defmodule Zaq.Channels.ApiTest do
     for {provider, mode, unsupported} <- [
           {"email:smtp", "none",
            [:image, :audio, :video, :file, :streaming, :reactions, :typing, :edit_messages]},
-          {"email:imap", "push_notification",
+          {"email:imap", "imap_idle",
            [:image, :audio, :video, :file, :streaming, :reactions, :typing, :edit_messages]}
         ] do
       test "existing endpoint normalizes #{provider} without a configured connector" do
@@ -2468,7 +2468,7 @@ defmodule Zaq.Channels.ApiTest do
       end
     end
 
-    for {provider, mode} <- [{"email:smtp", "none"}, {"email:imap", "push_notification"}] do
+    for {provider, mode} <- [{"email:smtp", "none"}, {"email:imap", "imap_idle"}] do
       test "#{provider} describes its ingress mechanism using the existing mode field" do
         assert {:ok, email} = email_capability_snapshot(unquote(provider))
         assert email.resolved.mode == unquote(mode)

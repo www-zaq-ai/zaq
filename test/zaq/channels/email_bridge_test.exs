@@ -331,7 +331,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert {:ok, snapshot} = EmailBridge.capability_snapshot(%{provider: "email:imap"})
 
       assert snapshot == %{
-               resolved: %{text: :native, threads: :native, mode: "push_notification"}
+               resolved: %{text: :native, threads: :native, mode: "imap_idle"}
              }
     end
 

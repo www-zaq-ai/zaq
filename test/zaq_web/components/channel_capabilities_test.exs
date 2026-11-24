@@ -7,7 +7,7 @@ defmodule ZaqWeb.Components.ChannelCapabilitiesTest do
   alias Zaq.Event
   alias ZaqWeb.Components.ChannelCapabilities
 
-  for {provider, mode} <- [{"email:smtp", "none"}, {"email:imap", "push_notification"}] do
+  for {provider, mode} <- [{"email:smtp", "none"}, {"email:imap", "imap_idle"}] do
     test "shared BO component displays #{provider} without provider-specific labels" do
       assert {:ok, email} = email_capability_snapshot(unquote(provider))
 
