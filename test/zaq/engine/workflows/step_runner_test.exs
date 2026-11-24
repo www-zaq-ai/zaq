@@ -650,6 +650,108 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     end
   end
 
+  describe "run/2 — snapshotted context window" do
+    setup do
+      start_supervised!(ContextProbe)
+      :ok
+    end
+
+    test "configured capacity overrides caller capacity without merging arbitrary settings" do
+      settings = %{
+        "context_window" => %{"max_context_tokens" => 32_000, "untrusted" => true},
+        "actor" => %{"person_id" => 999},
+        "skip_permissions" => true
+      }
+
+      {:ok, workflow} =
+        Workflows.create_workflow(Map.put(@valid_workflow_attrs, :settings, settings))
+
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+
+      assert {:ok, _} =
+               StepRunner.run(wp(run, ContextCaptureAction, "search", 0), %{
+                 context_window: %{max_context_tokens: 1_000, reserved: 100},
+                 extra: "preserved"
+               })
+
+      context = ContextProbe.get_context()
+      assert context.context_window == %{max_context_tokens: 32_000, reserved: 100}
+      assert context.extra == "preserved"
+      assert context.actor == nil
+      assert context.skip_permissions == false
+    end
+
+    test "a non-map caller window uses the snapshot capacity and records a completed step" do
+      {:ok, workflow} =
+        Workflows.create_workflow(
+          Map.put(@valid_workflow_attrs, :settings, %{
+            "context_window" => %{"max_context_tokens" => 32_000}
+          })
+        )
+
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+
+      assert {:ok, _} =
+               StepRunner.run(wp(run, ContextCaptureAction, "search", 0), %{context_window: []})
+
+      assert ContextProbe.get_context().context_window == %{max_context_tokens: 32_000}
+      assert [step] = Workflows.list_step_runs(run.id)
+      assert step.step_name == "search"
+      assert step.status == "completed"
+    end
+
+    test "omission preserves an existing caller budget and does not invent one" do
+      run = create_run()
+      window = %{max_context_tokens: 8_000}
+
+      assert {:ok, _} =
+               StepRunner.run(wp(run, ContextCaptureAction, "with_budget", 0), %{
+                 context_window: window
+               })
+
+      assert ContextProbe.get_context().context_window == window
+      assert {:ok, _} = StepRunner.run(wp(run, ContextCaptureAction, "without_budget", 1), %{})
+      refute Map.has_key?(ContextProbe.get_context(), :context_window)
+    end
+
+    test "resuming a reloaded run uses its snapshot after the workflow is edited" do
+      nodes =
+        for {name, index} <- [{"initial", 0}, {"next", 1}] do
+          %{
+            name: name,
+            type: "action",
+            module: inspect(ContextCaptureAction),
+            params: %{},
+            index: index
+          }
+        end
+
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Snapshot on resume",
+          status: "active",
+          nodes: nodes,
+          edges: [%{from: "initial", to: "next"}],
+          settings: %{"context_window" => %{"max_context_tokens" => 32_000}}
+        })
+
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+      assert {:ok, _} = StepRunner.run(wp(run, ContextCaptureAction, "initial", 0), %{})
+      assert ContextProbe.get_context().context_window.max_context_tokens == 32_000
+
+      {:ok, _} =
+        Workflows.update_workflow(workflow, %{
+          settings: %{"context_window" => %{"max_context_tokens" => 64_000}}
+        })
+
+      {:ok, _} = Workflows.update_run(run, %{status: "paused"})
+      reloaded = Workflows.get_run!(run.id)
+      assert {:ok, %{status: "completed"}} = Workflows.resume_run(reloaded)
+      assert ContextProbe.get_context().step_name == "next"
+      assert ContextProbe.get_context().context_window.max_context_tokens == 32_000
+    end
+  end
+
   describe "run/2 — context injection" do
     setup do
       start_supervised!(ContextProbe)

@@ -434,7 +434,8 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   end
 
   defp enrich_context(context, run_id, step_name, step_index, prev_cascade) do
-    source_event = run_id |> Workflows.get_run!() |> Map.get(:source_event)
+    run = Workflows.get_run!(run_id)
+    source_event = run.source_event
 
     (context || %{})
     |> Map.merge(%{
@@ -451,7 +452,21 @@ defmodule Zaq.Engine.Workflows.StepRunner do
       __cascade__: prev_cascade
     })
     |> Map.put(:node_router, Zaq.RuntimeDeps.workflow_step_node_router())
+    |> maybe_put_context_window(run.settings_snapshot)
   end
+
+  defp maybe_put_context_window(context, %{
+         "context_window" => %{"max_context_tokens" => capacity}
+       })
+       when is_integer(capacity) and capacity > 0 do
+    window = Map.get(context, :context_window)
+    window = if is_map(window), do: window, else: %{}
+    window = Map.put(window, :max_context_tokens, capacity)
+
+    Map.put(context, :context_window, window)
+  end
+
+  defp maybe_put_context_window(context, _settings), do: context
 
   # Recursively converts action_params to a JSON-safe structure for Postgres JSONB.
   # Tuples (e.g. {Module, params} pipeline steps) become lists; atoms become strings.
