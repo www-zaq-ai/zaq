@@ -516,6 +516,86 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # Existing tests (unchanged)
   # ────────────────────────────────────────────────────────────────
 
+  test "labels an uningested file through the shared editor without ingesting content", %{
+    conn: conn
+  } do
+    user = Repo.get!(Accounts.User, get_session(conn, :user_id))
+
+    {:ok, label} =
+      Ingestion.Labels.save_definition(
+        %{name: "Approved", resources: ["document"], value_type: "boolean"},
+        %{user_id: user.id}
+      )
+
+    source = disk_source("alpha.md")
+    {:ok, view, _} = live(conn, ~p"/bo/ingestion")
+    add = ~s(button[phx-click=open_label_editor][phx-value-type=source][phx-value-id="alpha.md"])
+    status = ~s|tr:has(button[phx-click=open_preview][phx-value-path="alpha.md"]) td:nth-child(4)|
+
+    assert has_element?(view, add)
+    assert has_element?(view, status, "—")
+    render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+    assert has_element?(view, add)
+    refute has_element?(view, ~s(button[phx-click=open_label_editor][phx-value-id="docs"]))
+    render_hook(view, "toggle_view_mode", %{"mode" => "list"})
+
+    view |> element(add) |> render_click()
+    assert has_element?(view, "#resource-label-modal")
+    refute Repo.get_by(Document, source: source)
+    view |> form("#search-resource-labels", query: "Approved") |> render_change()
+    view |> element("#label-option-#{label.id}") |> render_click()
+    view |> element("button[phx-click=close_label_editor]", "Cancel") |> render_click()
+    refute Repo.get_by(Document, source: source)
+
+    view |> element(add) |> render_click()
+    view |> form("#search-resource-labels", query: "Approved") |> render_change()
+    view |> element("#label-option-#{label.id}") |> render_click()
+
+    view
+    |> form("#label-value-form-#{label.id}")
+    |> render_change(%{"label_id" => to_string(label.id), "value" => "false"})
+
+    staff_role = role_fixture(%{name: "staff"})
+    user |> Ecto.Changeset.change(role_id: staff_role.id) |> Repo.update!()
+    view |> element("#save-resource-labels") |> render_click()
+    assert has_element?(view, "#resource-label-modal [role=alert]")
+    assert has_element?(view, "#label-option-#{label.id}[checked]")
+    assert has_element?(view, "#label-value-#{label.id} input[value=false]")
+    refute Repo.get_by(Document, source: source)
+
+    Accounts.User
+    |> Repo.get!(user.id)
+    |> Ecto.Changeset.change(role_id: user.role_id)
+    |> Repo.update!()
+
+    view |> element("#save-resource-labels") |> render_click()
+    refute has_element?(view, "#resource-label-modal")
+    assert has_element?(view, ".zaq-label-chip", "Approved: False")
+    assert has_element?(view, status, "—")
+    document = Repo.get_by!(Document, source: source)
+    assert is_nil(document.content)
+    assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^document.id), :count) == 0
+    refute Repo.exists?(from(j in IngestJob, where: j.file_path == ^source))
+
+    assert %{value: false} =
+             Repo.get_by!(Ingestion.Labels.Assignment,
+               document_id: document.id,
+               label_id: label.id
+             )
+
+    view |> element("#edit-labels-document-#{document.id}") |> render_click()
+    assert has_element?(view, "#label-option-#{label.id}[checked]")
+  end
+
+  test "source label entry points reject folders and unknown browser records", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/bo/ingestion")
+
+    for id <- ["docs", "not-listed.md"] do
+      render_hook(view, "open_label_editor", %{"type" => "source", "id" => id})
+      refute has_element?(view, "#resource-label-modal")
+    end
+  end
+
   describe "provider browsing" do
     setup do
       Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)

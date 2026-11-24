@@ -5,6 +5,50 @@ defmodule ZaqWeb.SearchableSelectTest do
 
   alias ZaqWeb.Components.SearchableSelect
 
+  test "clear action is opt-in, accessible and hidden for an empty value" do
+    base = [id: "clearable", name: "value", options: [{"No value", ""}, {"Paris", "Paris"}]]
+
+    refute render_component(&SearchableSelect.searchable_select/1, base) =~ "data-select-clear"
+
+    for {value, disabled} <- [{"Paris", false}, {"", false}, {"Paris", true}] do
+      html =
+        render_component(
+          &SearchableSelect.searchable_select/1,
+          base ++ [clearable: true, value: value, disabled: disabled]
+        )
+
+      button = html |> LazyHTML.from_fragment() |> LazyHTML.query("button[data-select-clear]")
+      assert LazyHTML.attribute(button, "aria-label") == ["Clear value"]
+      assert LazyHTML.attribute(button, "hidden") != [] == (value == "")
+      assert LazyHTML.attribute(button, "disabled") != [] == disabled
+    end
+  end
+
+  test "supports component event routing and an optional disabled value creation picker" do
+    html =
+      render_component(&SearchableSelect.searchable_select/1,
+        id: "value-picker",
+        name: "value",
+        options: [],
+        target: 12,
+        event_context: %{label_id: "34"},
+        on_search: "search_values",
+        on_create_event: "create_value",
+        allow_create: true,
+        create_on_no_exact_match: true,
+        disabled: true,
+        maxlength: 200
+      )
+
+    assert html =~ ~s(data-event-target="12")
+    assert html =~ "label_id"
+    assert html =~ ~s(data-server-search="search_values")
+    assert html =~ ~s(data-create-event="create_value")
+    assert html =~ ~s(data-create-on-no-exact-match="true")
+    assert html =~ ~s(maxlength="200")
+    assert html =~ "disabled"
+  end
+
   test "renders inline label and wraps control by default" do
     html =
       render_component(&SearchableSelect.searchable_select/1,

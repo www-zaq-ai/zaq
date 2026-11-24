@@ -404,7 +404,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert html =~ "Empty directory"
     end
 
-    test "renders folder stats with completed count and fallback dash for empty folder size" do
+    test "renders folder stats with completed count and omits empty folder size" do
       html =
         render_component(&IngestionFileGridView.file_grid_view/1,
           entries: [
@@ -421,7 +421,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
 
       assert html =~ "2.0 KB"
       assert html =~ "3/3"
-      assert html =~ <<0xE2, 0x80, 0x94>>
+      refute html =~ <<0xE2, 0x80, 0x94>>
       assert html =~ "zaq-ingestion-file-grid-card--selected"
     end
 

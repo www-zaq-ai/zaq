@@ -115,7 +115,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
     end
 
     test "selects ParadeDB on a fresh install when the probe works before chunks exists" do
-      Repo.query!("DROP TABLE IF EXISTS chunks")
+      Chunk.drop_table()
       Repo.query!("DROP INDEX IF EXISTS chunks_bm25_idx")
       ensure_callable_paradedb_version_info()
       FTSBackend.reset_cache()
@@ -238,7 +238,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
     # chunks itself is only created at runtime.
     @tag :paradedb
     test "activates ParadeDB after the chunks table is created on a fresh install" do
-      Repo.query!("DROP TABLE IF EXISTS chunks")
+      Chunk.drop_table()
       FTSBackend.reset_cache()
 
       # Boot-time detection on a fresh database: no chunks table exists yet,

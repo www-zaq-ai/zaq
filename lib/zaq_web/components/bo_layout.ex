@@ -909,6 +909,12 @@ defmodule ZaqWeb.Components.BOLayout do
             active: current_path == "/bo/ingestion"
           },
           %{
+            href: ~p"/bo/labels",
+            icon: "tag",
+            label: "Labels",
+            active: current_path == "/bo/labels"
+          },
+          %{
             href: ~p"/bo/people",
             icon: "people",
             label: "People Directory",
@@ -965,6 +971,7 @@ defmodule ZaqWeb.Components.BOLayout do
     String.starts_with?(current_path, "/bo/ai") or
       String.starts_with?(current_path, "/bo/prompt") or
       String.starts_with?(current_path, "/bo/ingestion") or
+      current_path == "/bo/labels" or
       String.starts_with?(current_path, "/bo/people") or
       String.starts_with?(current_path, "/bo/ontology") or
       current_path == "/bo/knowledge-gap"

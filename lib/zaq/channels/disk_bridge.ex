@@ -18,10 +18,15 @@ defmodule Zaq.Channels.DiskBridge do
   straight to storage rather than back through here — which is why `materialize_document`
   answers with the bytes alone rather than a record.
 
-  A file is named by its source — volume plus relative path — which is the id `list_files/3`
-  returns and `get_file/3`, `update_file/3`, and `delete_file/3` accept. It is deliberately
-  not the `documents.id`: any file on a mounted volume is reachable whether or not it was
-  ever ingested, so identity cannot depend on a document row existing.
+  Source metadata lookups (`describe_document`, `document_ancestors` and
+  `list_document_grants`) mark their nested Storage request confidential so
+  source selectors and trusted actor identity stay out of router broadcasts.
+
+  Canonical Record ids are Storage-owned EntryCatalog UUIDs, preserved across managed
+  renames and moves. Volume and relative path remain navigation metadata; Storage
+  resolves legacy source locators for existing operations. Canonical source references
+  pair the UUID with the selected provider configuration. Identity is independent of
+  `documents.id`, so a mounted file is addressable before ingestion creates a document.
   """
 
   @behaviour Zaq.Channels.Bridge
@@ -157,6 +162,24 @@ defmodule Zaq.Channels.DiskBridge do
     with {:ok, %Entry{} = entry} <-
            dispatch(:describe_document, %{file_id: file_id}, config, context) do
       {:ok, %{record: map_entry(entry, config)}}
+    end
+  end
+
+  @doc "Returns a readable catalog chain after checking the target's requested source right."
+  @impl true
+  def record_ancestors(config, %{file_id: file_id, right: right}, context) do
+    request = %{file_id: file_id, right: right}
+
+    with {:ok, ancestors} <- dispatch(:document_ancestors, request, config, context) do
+      {:ok,
+       Enum.map(ancestors, fn entry ->
+         %Record{
+           id: entry.id,
+           kind: :folder,
+           parent_id: entry.parent_id,
+           parent_ids: Enum.reject([entry.parent_id], &is_nil/1)
+         }
+       end)}
     end
   end
 
@@ -491,10 +514,18 @@ defmodule Zaq.Channels.DiskBridge do
       TrustedContext.event_builder_opts(context,
         node_router: node_router,
         config: fetch(config, "config"),
-        event_opts: maybe_put([], :config_id, config_id)
+        event_opts: storage_event_opts(action, config_id)
       )
 
     Events.build_and_dispatch_event(action, request, event_builder_opts)
+  end
+
+  defp storage_event_opts(action, config_id) do
+    opts = maybe_put([], :config_id, config_id)
+
+    if action in [:describe_document, :document_ancestors, :list_document_grants],
+      do: Keyword.put(opts, :confidential, true),
+      else: opts
   end
 
   defp maybe_put(opts, _key, nil), do: opts

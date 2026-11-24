@@ -638,6 +638,24 @@ are available only to bridges that implement `owns_permission_checks?/0` and ret
 Disk does this because Storage owns source ACLs and checks them with current filesystem
 context.
 
+Internal metadata consumers use `DataSourceBridge.record_context/3` through the
+confidential `:data_source_record_context` Channels event. Its request contains
+`source_ref: %{provider: string, config_id: integer_or_string, record_id: string}`
+and `right: :read | :update`; actor and bypass authority come only from the event
+envelope. The result is a `Zaq.Contracts.SourceRecordContext` with a canonical
+reference, provenance-verified Record, current permission evidence and readable
+folder ancestors ordered nearest-first. Source update requires external Record
+edit permission or Storage update permission. Disk ancestry and effective grants
+are read together through Storage and its existing EntryCatalog; external sources
+walk immediate parent IDs with a 64-ancestor limit. Multiple parents, cycles,
+unreadable/missing ancestors and incomplete permission snapshots return typed
+errors without partial metadata. This operation does not create Documents,
+materialize bytes, enqueue ingestion or expose an agent tool.
+Its nested Disk Storage metadata requests are confidential too; normal file
+mutation events keep their existing broadcast behavior. Ancestor `reference`
+is authoritative identity; returned ancestor Records use the same verified
+provider/config normalization as the source Record.
+
 Disk filename searches honor the optional `path`: use a volume name, a canonical
 `volume/folder` path, or a catalog folder id to search that subtree recursively.
 An absent/empty path, `/`, or `.` searches all volumes of the selected disk
@@ -696,6 +714,7 @@ Channels action after locator and actor validation.
 - `:data_source_list_files`
 - `:data_source_create_file`
 - `:data_source_get_file`
+- `:data_source_record_context` — internal canonical source metadata, permissions and readable ancestry; use the Channels event builder to preserve confidential handling.
 - `:data_source_update_file` — accepts `%{record: %Zaq.Contracts.Record{}, params: map()}`; Channels verifies record provenance, derives provider/config/file identity from signed claims, and forwards only update fields to the provider bridge. The agent-facing `update_document` tool requires mutations under `changes` (`name`, `content`, `path`, `parent_id`, `mime_type`); `path` means destination parent path and must be omitted for content-only edits and renames.
 - `:data_source_delete_file` — accepts `%{record: %Zaq.Contracts.Record{}}`; Channels translates the record to provider parameters at the data-source bridge boundary.
 - `:data_source_search_files`

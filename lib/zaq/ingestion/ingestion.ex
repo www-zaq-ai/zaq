@@ -33,6 +33,7 @@ defmodule Zaq.Ingestion do
     Chunk,
     ContentSource,
     Document,
+    ExternalPermissions,
     ExternalSource,
     IngestChunkJob,
     IngestJob,
@@ -43,8 +44,6 @@ defmodule Zaq.Ingestion do
 
   alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
-  alias Zaq.Events.Helper
-  alias Zaq.Events.TrustedContext
   alias Zaq.Permissions
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
@@ -625,8 +624,9 @@ defmodule Zaq.Ingestion do
   defp sync_data_source_documents(provider, params, file_ids, context) do
     config_id = Map.get(params, "config_id") || Map.get(params, :config_id)
 
-    Enum.reduce_while(file_ids, :ok, fn file_id, :ok ->
-      sync_data_source_document(provider, config_id, params, file_id, context)
+    Enum.reduce(Enum.uniq(file_ids), :ok, fn file_id, first_result ->
+      result = sync_data_source_document(provider, config_id, params, file_id, context)
+      if first_result == :ok, do: result, else: first_result
     end)
   end
 
@@ -636,7 +636,7 @@ defmodule Zaq.Ingestion do
 
     case Document.get_by_source(source) do
       nil ->
-        {:cont, :ok}
+        :ok
 
       %Document{} = document ->
         replace_document_permissions(document, provider, params, file_id, context)
@@ -644,53 +644,34 @@ defmodule Zaq.Ingestion do
   end
 
   defp replace_document_permissions(document, provider, params, file_id, context) do
-    with {:ok, grants} <- list_source_permission_records(provider, params, file_id, context),
-         {:ok, _} <- Permissions.replace(document, document_grants(grants)) do
-      {:cont, :ok}
-    else
-      {:error, reason} -> {:halt, {:error, {:document_sync_failed, file_id, reason}}}
-      other -> {:halt, {:error, {:document_sync_failed, file_id, other}}}
+    reference = %{
+      provider: to_string(provider),
+      config_id: params["config_id"],
+      record_id: to_string(file_id)
+    }
+
+    case ExternalPermissions.refresh(reference, [document], context) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        invalidate_failed_source_projection(reference, document, context)
+        {:error, {:document_sync_failed, file_id, reason}}
     end
   end
 
-  defp list_source_permission_records(provider, params, file_id, context) do
-    request_params = Map.put(params, "file_id", file_id)
+  defp invalidate_failed_source_projection(reference, document, context) do
+    if Map.get(context, :source_acl_mutation_committed) == true and
+         is_map(Map.get(context, :actor)) do
+      case ExternalPermissions.invalidate_after_mutation(reference, [document], context) do
+        :ok ->
+          :ok
 
-    response =
-      :channels
-      |> Helper.build_and_dispatch_invoke_event(
-        %{provider: provider, params: request_params},
-        :data_source_list_permissions,
-        TrustedContext.event_builder_opts(context)
-      )
-      |> Map.get(:response)
-
-    case response do
-      {:ok, %{records: records}} when is_list(records) -> {:ok, records}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
+        {:error, reason} ->
+          Logger.error("Source permission invalidation failed: #{inspect(reason)}")
+      end
     end
   end
-
-  defp document_grants(records) do
-    records
-    |> Enum.map(&document_grant/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp document_grant(%Record{attributes: %{"type" => "public"}}),
-    do: %{team_id: Permissions.everyone_team_id(), access_rights: ["read"]}
-
-  defp document_grant(%Record{attributes: %{"type" => "person", "target_id" => id} = attrs}),
-    do: %{person_id: parse_int(id), access_rights: Map.get(attrs, "access_rights", ["read"])}
-
-  defp document_grant(%Record{attributes: %{"type" => "team", "target_id" => id} = attrs}),
-    do: %{team_id: parse_int(id), access_rights: Map.get(attrs, "access_rights", ["read"])}
-
-  defp document_grant(_record), do: nil
-
-  defp parse_int(value) when is_integer(value), do: value
-  defp parse_int(value) when is_binary(value), do: String.to_integer(value)
 
   def list_person_permissions(person_id) do
     perms =

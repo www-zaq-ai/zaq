@@ -1,50 +1,272 @@
 defmodule Zaq.Ingestion.ExternalPermissions do
   @moduledoc """
   Imports canonical provider record permissions into ZAQ document permissions.
+
+  Verified source Records and trusted Channels refreshes share the source key
+  `source:` followed by the canonical document source. Complete permission lists
+  reconcile only that source; `[]` revokes its grants and `nil` changes nothing.
+  Manual sharing and other source grants remain independent. Authenticated
+  permission principal/role/rights fields are authority; unsigned owners, raw
+  provider payloads and display names are not. Canonical `edit` maps to document
+  `update`; move/create never imply update and write remains write.
+
+  Projection locks matching persisted Documents and checks every permission write
+  in one transaction. Callers composing further writes must propagate errors into
+  their outer transaction. Unsigned compatibility records may affect only genuine
+  non-source Documents; they can never prune canonical source grants.
   """
 
   alias Zaq.Accounts.People
+  alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Events.TrustedContext
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.{Document, ExternalSource}
   alias Zaq.Permissions
+  alias Zaq.Repo
+  alias Zaq.Utils.ParseUtils
+
+  import Ecto.Query
 
   require Logger
 
-  @spec apply(Record.t(), [map() | struct()]) :: :ok
+  @spec apply(Record.t(), [map() | struct()]) :: :ok | {:error, term()}
   def apply(%Record{} = record, documents) when is_list(documents) do
-    desired = desired_permissions(record)
-
-    Enum.each(documents, fn document ->
-      Enum.each(desired, fn {target_type, target_id, rights} ->
-        Ingestion.set_document_permission(document.id, target_type, target_id, rights)
-      end)
-
-      if complete_snapshot?(record) do
-        prune_stale_permissions(document.id, desired)
-      end
-    end)
-
-    :ok
+    with {:ok, scope, record} <- source_scope(record) do
+      project(record, documents, scope)
+    end
   end
 
-  defp desired_permissions(%Record{} = record) do
-    record
-    |> principals()
-    |> Enum.flat_map(fn principal ->
-      with {:ok, target_type, target_id} <- ensure_target(record, principal),
-           rights when rights != [] <- rights_for(principal) do
-        [{target_type, to_string(target_id), rights}]
-      else
-        {:error, reason} ->
-          log_skipped_principal(record, principal, reason)
-          []
+  @doc "Refreshes matching source Documents from a trusted Channels permission snapshot."
+  @spec refresh(map(), [struct()], map()) :: :ok | {:error, term()}
+  def refresh(%{provider: provider, config_id: config_id, record_id: id}, documents, context)
+      when is_binary(provider) and provider != "" and is_binary(id) and id != "" do
+    case ParseUtils.parse_int_strict(config_id) do
+      {:ok, value} when value > 0 -> refresh_source(provider, value, id, documents, context)
+      _ -> {:error, :invalid_source_record}
+    end
+  end
 
-        [] ->
-          log_skipped_principal(record, principal, :no_rights)
-          []
+  def refresh(_reference, _documents, _context), do: {:error, :invalid_source_record}
+
+  @doc "Clears only a confirmed mutation's failed source projection; never manual sharing."
+  @spec invalidate_after_mutation(map(), [struct()], map()) :: :ok | {:error, term()}
+  def invalidate_after_mutation(reference, documents, context) do
+    if Map.get(context, :source_acl_mutation_committed) == true and
+         is_map(Map.get(context, :actor)) do
+      invalidate_source(reference, documents)
+    else
+      {:error, :unconfirmed_source_mutation}
+    end
+  end
+
+  defp invalidate_source(%{provider: provider, config_id: config_id, record_id: id}, documents) do
+    case ParseUtils.parse_int_strict(config_id) do
+      {:ok, config_id} when config_id > 0 ->
+        record = %Record{
+          id: id,
+          kind: :file,
+          permissions: [],
+          attributes: %{"provider" => provider, "config_id" => config_id}
+        }
+
+        project(record, documents, ExternalSource.source(record))
+
+      _ ->
+        {:error, :invalid_source_record}
+    end
+  end
+
+  defp refresh_source(provider, config_id, id, documents, context) do
+    params = %{"config_id" => to_string(config_id), "file_id" => id}
+
+    response =
+      ChannelEvents.build_and_dispatch_data_source_list_permissions_event(
+        provider,
+        params,
+        TrustedContext.event_builder_opts(context)
+      ).response
+
+    with {:ok, permissions} <- permission_snapshot(response) do
+      record = %Record{
+        id: id,
+        kind: :file,
+        permissions: permissions,
+        attributes: %{"provider" => provider, "config_id" => config_id}
+      }
+
+      project(record, documents, ExternalSource.source(record))
+    end
+  end
+
+  defp permission_snapshot({:ok, %{pagination: %{has_more?: true}}}),
+    do: {:error, :incomplete_permissions}
+
+  defp permission_snapshot({:ok, %{pagination: %{truncated?: true}}}),
+    do: {:error, :incomplete_permissions}
+
+  defp permission_snapshot({:ok, %{records: permissions}}) when is_list(permissions),
+    do: {:ok, permissions}
+
+  defp permission_snapshot({:error, _} = error), do: error
+  defp permission_snapshot(_), do: {:error, :invalid_permission_snapshot}
+
+  defp source_scope(record) do
+    case Provenance.verify(record) do
+      {:ok, claims} ->
+        verified_source_scope(record, claims)
+
+      {:error, :missing_record_provenance} ->
+        {:ok, :legacy, record}
+
+      {:error, _} ->
+        {:error, :invalid_source_record}
+    end
+  end
+
+  defp verified_source_scope(record, %{
+         "provider" => provider,
+         "config_id" => config_id,
+         "provider_record_id" => id
+       })
+       when is_binary(provider) and provider not in ["", "local"] and not is_nil(config_id) and
+              is_binary(id) and id != "" do
+    canonical = %{
+      record
+      | attributes:
+          Map.merge(
+            record.attributes || %{},
+            %{"provider" => provider, "config_id" => config_id, "provider_record_id" => id}
+          )
+    }
+
+    {:ok, ExternalSource.source(canonical), canonical}
+  end
+
+  defp verified_source_scope(record, _claims), do: {:ok, :legacy, record}
+
+  defp project(record, documents, scope) do
+    Repo.transaction(fn ->
+      if scope != :legacy and not (is_list(record.permissions) or is_nil(record.permissions)),
+        do: Repo.rollback(:invalid_permission_snapshot)
+
+      documents = lock_documents!(documents, scope)
+      desired = desired_permissions(record, scope)
+      Enum.each(documents, &project_document!(&1, desired, record, scope))
+    end)
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp lock_documents!(documents, scope) do
+    ids = Enum.map(documents, & &1.id) |> Enum.uniq() |> Enum.sort()
+
+    documents =
+      Repo.all(from d in Document, where: d.id in ^ids, order_by: d.id, lock: "FOR UPDATE")
+
+    if length(documents) != length(ids), do: Repo.rollback(:not_found)
+
+    Enum.each(documents, &validate_document_source!(&1, scope))
+
+    documents
+  end
+
+  defp validate_document_source!(document, :legacy) do
+    if String.starts_with?(document.source, "data_source/"),
+      do: Repo.rollback(:invalid_source_record)
+  end
+
+  defp validate_document_source!(document, source) do
+    if document.source != source, do: Repo.rollback(:source_mismatch)
+  end
+
+  defp project_document!(document, desired, record, :legacy) do
+    Enum.each(desired, fn {type, id, rights} ->
+      case Ingestion.set_document_permission(document.id, type, id, rights) do
+        {:ok, _} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> Enum.uniq_by(fn {target_type, target_id, _rights} -> {target_type, target_id} end)
+
+    if complete_snapshot?(record), do: prune_stale_permissions(document.id, desired)
+  end
+
+  defp project_document!(document, desired, record, source) do
+    source_key = "source:" <> source
+
+    grants =
+      Enum.map(desired, fn {type, id, rights} ->
+        Map.put(%{access_rights: rights}, if(type == :person, do: :person_id, else: :team_id), id)
+      end)
+
+    result =
+      if complete_snapshot?(record) do
+        Permissions.replace_source(document, source_key, grants)
+      else
+        {:ok, []}
+      end
+
+    case result do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp desired_permissions(record, scope) do
+    desired = Enum.flat_map(principals(record, scope), &principal_grant(record, &1, scope))
+
+    if scope == :legacy do
+      Enum.uniq_by(desired, fn {type, id, _rights} -> {type, id} end)
+    else
+      desired
+      |> Enum.group_by(fn {type, id, _rights} -> {type, id} end, &elem(&1, 2))
+      |> Enum.map(fn {{type, id}, rights} ->
+        {type, id, rights |> List.flatten() |> Enum.uniq() |> Enum.sort()}
+      end)
+      |> Enum.sort()
+    end
+  end
+
+  defp principal_grant(record, principal, scope) do
+    with {:ok, rights} <- document_rights(principal, scope),
+         false <- rights == [],
+         {:ok, target_type, target_id} <- ensure_target(record, principal) do
+      [{target_type, to_string(target_id), rights}]
+    else
+      true ->
+        log_skipped_principal(record, principal, :no_rights)
+        []
+
+      {:error, reason} ->
+        if scope == :legacy do
+          log_skipped_principal(record, principal, reason)
+          []
+        else
+          Repo.rollback({:permission_projection_failed, reason})
+        end
+    end
+  end
+
+  defp document_rights(principal, :legacy), do: {:ok, rights_for(principal)}
+
+  defp document_rights(principal, _source) do
+    rights = rights_for(principal)
+
+    if Enum.all?(rights, &(&1 in ~w(read write update delete edit manage move create))) do
+      {:ok,
+       rights
+       |> Enum.reject(&(&1 in ["move", "create"]))
+       |> Enum.map(fn
+         "edit" -> "update"
+         right -> right
+       end)
+       |> Enum.uniq()}
+    else
+      {:error, :unsupported_access_rights}
+    end
   end
 
   defp complete_snapshot?(%Record{permissions: permissions}) when is_list(permissions), do: true
@@ -56,7 +278,12 @@ defmodule Zaq.Ingestion.ExternalPermissions do
     document_id
     |> Ingestion.list_document_permissions()
     |> Enum.reject(fn permission -> permission_key(permission) in desired_keys end)
-    |> Enum.each(&Ingestion.delete_document_permission(&1.id))
+    |> Enum.each(fn permission ->
+      case Ingestion.delete_document_permission(permission.id) do
+        {:ok, _} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   defp permission_key(%{person_id: person_id}) when not is_nil(person_id),
@@ -74,10 +301,37 @@ defmodule Zaq.Ingestion.ExternalPermissions do
     )
   end
 
-  defp principals(%Record{} = record) do
+  defp principals(record, scope) when scope != :legacy do
+    case Provenance.permission_projection(record.permissions) do
+      %{"entries" => entries} when is_list(entries) -> Enum.map(entries, &permission_principal/1)
+      _ -> []
+    end
+  end
+
+  defp principals(%Record{} = record, :legacy) do
     owner_principals = Enum.map(record.owners || [], &Map.put(normalize_map(&1), "role", "owner"))
     permission_principals = Enum.map(record.permissions || [], &permission_principal/1)
     owner_principals ++ permission_principals
+  end
+
+  defp permission_principal(
+         %{"principal" => %{"type" => type, "key" => key}, "rights" => rights} = entry
+       ) do
+    principal = %{"type" => type, "id" => key, "role" => entry["role"], "access_rights" => rights}
+
+    cond do
+      type in ["person", "team"] ->
+        Map.put(principal, "target_id", key)
+
+      type in ["user", "email"] and is_binary(key) and String.contains?(key, "@") ->
+        Map.put(principal, "email", key)
+
+      type == "public" ->
+        principal
+
+      true ->
+        Map.put(principal, "target_id", key)
+    end
   end
 
   defp permission_principal(%Record{} = permission) do
@@ -152,7 +406,11 @@ defmodule Zaq.Ingestion.ExternalPermissions do
     attrs =
       extra_attrs |> Map.put("channel_id", channel_id) |> Map.put("display_name", display_name)
 
-    People.find_or_create_from_channel(provider, attrs)
+    case People.match_person(Map.take(attrs, ["email"])) do
+      {:ok, person} -> {:ok, person}
+      {:error, :not_found} -> People.find_or_create_from_channel(provider, attrs)
+      {:error, _} = error -> error
+    end
   end
 
   defp rights_for(principal) do

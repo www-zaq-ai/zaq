@@ -13,6 +13,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
   alias Zaq.Ingestion.DocumentProcessor
+  alias Zaq.Ingestion.ExternalPermissions
   alias Zaq.Ingestion.RecordSource
   alias Zaq.Permissions
   alias Zaq.Repo
@@ -123,6 +124,101 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
            attributes: %{"encoding" => "base64"}
          }
        }}
+    end
+  end
+
+  describe "canonical source permission lifecycle" do
+    setup do
+      original = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        if original,
+          do: Application.put_env(:zaq, :ingestion_data_source_bridge_module, original),
+          else: Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+      end)
+
+      {:ok, person} = People.create_person(%{full_name: "Source lifecycle editor"})
+      id = "source-lifecycle-#{System.unique_integer([:positive])}"
+
+      record =
+        signed_record(%Record{
+          id: id,
+          kind: :file,
+          name: "Lifecycle.pdf",
+          mime_type: "application/pdf",
+          attributes: %{"provider" => "google_drive", "config_id" => "12"},
+          permissions: [
+            %Record{
+              id: "editor",
+              kind: :permission,
+              attributes: %{
+                "type" => "person",
+                "target_id" => to_string(person.id),
+                "access_rights" => ["read", "edit"]
+              }
+            }
+          ]
+        })
+
+      {:ok, document} = Document.insert_new(%{source: "data_source/google_drive/12/#{id}"})
+      assert :ok = ExternalPermissions.apply(record, [document])
+      job = create_job(%{source_record: RecordSource.to_storage_map(record)})
+      {:ok, person: person, document: document, job: job}
+    end
+
+    test "later ingestion retains source ownership and independent manual sharing", state do
+      {:ok, manual} =
+        Permissions.grant(state.document, %{person_id: state.person.id, access_rights: ["delete"]})
+
+      source =
+        Enum.find(
+          Permissions.list_direct(state.document),
+          &String.starts_with?(&1.source_key, "source:")
+        )
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, opts ->
+        assert opts[:source_override] == state.document.source
+        Document.upsert(%{source: state.document.source, content: "Now indexed"})
+      end)
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => state.job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      permissions = Permissions.list_direct(state.document)
+      assert Enum.sort(Enum.map(permissions, & &1.id)) == Enum.sort([manual.id, source.id])
+      assert Permissions.can?(state.person, :update, state.document)
+      assert Repo.get!(IngestJob, state.job.id).status == "completed"
+      assert Document.get(state.document.id).content == "Now indexed"
+    end
+
+    test "a failed source projection cannot mark ingestion complete or schedule chunk jobs",
+         state do
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
+        {:ok, create_document()}
+      end)
+
+      assert {:error, :source_mismatch} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => state.job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      refute Repo.get!(IngestJob, state.job.id).status == "completed"
+
+      refute Repo.exists?(
+               from child in IngestChunkJob, where: child.ingest_job_id == ^state.job.id
+             )
     end
   end
 

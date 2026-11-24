@@ -168,7 +168,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   attr :class, :any, default: nil
 
   attr :rest, :global,
-    include: ~w(phx-click phx-value-id phx-value-path name id aria-label data-testid)
+    include: ~w(phx-click phx-value-id phx-value-path name id aria-label data-testid disabled)
 
   def table_checkbox(assigns) do
     ~H"""

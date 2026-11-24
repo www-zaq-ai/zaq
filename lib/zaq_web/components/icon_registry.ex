@@ -90,6 +90,15 @@ defmodule ZaqWeb.Components.IconRegistry do
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
+      <% {"nav", "tag"} -> %>
+        <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M3 3h7l11 11-7 7L3 10V3z"
+          />
+          <circle cx="7.5" cy="7.5" r="1" />
+        </svg>
       <% {"nav", "ontology"} -> %>
         <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3" /><path d="M12 2v4" /><path d="M12 18v4" />
