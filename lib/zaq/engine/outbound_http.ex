@@ -33,6 +33,7 @@ defmodule Zaq.Engine.OutboundHttp do
          query: normalized.query,
          body: normalized.body,
          body_format: normalized.body_format,
+         response_format: normalized.response_format,
          timeout_ms: normalized.timeout_ms,
          doc_reference: normalized.doc_reference,
          policy: policy,

@@ -99,6 +99,9 @@ defmodule Zaq.MixProject do
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.6", override: true},
+      # Preserve trailers on empty chunked HTTP/1.1 responses (sneako/finch#412).
+      # Remove this override when a compatible Hex release contains the fix (zaq-bjp).
+      {:finch, github: "sneako/finch", branch: "main", override: true},
       # Wake queued Finch callers after borrower cancellation (upstream PR #54).
       # Replace this pin with a Hex release containing the fix when available.
       {:nimble_pool,

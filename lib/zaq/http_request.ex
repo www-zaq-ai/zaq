@@ -39,6 +39,7 @@ defmodule Zaq.HttpRequest do
           query: %{String.t() => String.t()},
           body: term(),
           body_format: String.t(),
+          response_format: String.t(),
           timeout_ms: pos_integer(),
           doc_reference: String.t(),
           credential_id: pos_integer() | nil
@@ -50,6 +51,7 @@ defmodule Zaq.HttpRequest do
             query: %{},
             body: nil,
             body_format: "json",
+            response_format: "decoded",
             timeout_ms: @default_timeout_ms,
             doc_reference: "",
             credential_id: nil
@@ -58,7 +60,7 @@ defmodule Zaq.HttpRequest do
   Validates `params` and returns the request spec.
 
   `params` is the `http_request` tool parameter map: `method`, `url`,
-  `headers`, `query`, `body`, `body_format`, `timeout_ms`, and
+  `headers`, `query`, `body`, `body_format`, `response_format`, `timeout_ms`, and
   `doc_reference`. Errors are returned as sentences addressed to the model,
   since they are fed back to it as the tool result.
   """
@@ -78,6 +80,7 @@ defmodule Zaq.HttpRequest do
            query: request.query,
            body: request.body,
            body_format: request.body_format,
+           response_format: request.response_format,
            timeout_ms: request.timeout_ms,
            doc_reference: request.doc_reference,
            credential_id: request.credential_id
@@ -106,6 +109,7 @@ defmodule Zaq.HttpRequest do
       query: request.query,
       body: request.body,
       body_format: request.body_format,
+      response_format: request.response_format,
       timeout_ms: request.timeout_ms,
       doc_reference: request.doc_reference,
       credential_id: request.credential_id

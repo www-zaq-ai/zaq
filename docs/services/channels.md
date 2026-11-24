@@ -372,6 +372,55 @@ for cache refresh/expiry and eventual-consistency limitations.
 
 ---
 
+## Outbound HTTP response formats
+
+The registered `general.http_request` Action accepts `response_format: "decoded"`
+(default) or `"raw"`. Both use `HttpRequest.build/2`, Channels dispatch, Engine's
+`OutboundHttp.prepare/2`, and `Channels.HttpClient`. Destination, DNS, credential
+and method policies apply to both; redirects and transport retries remain disabled.
+
+Decoded responses retain their existing body decoding, post-reception truncation,
+and comma-joined header values. Raw responses return a Base64 `body`, the explicit
+`body_encoding: "base64"` marker, and lowercase header names mapped to value lists.
+Raw responses also include a separate `trailers` map with lowercase names and value
+lists, empty when absent. Headers and trailers are not merged, even when they share
+a name. Duplicate values retain their order. Both formats filter `set-cookie`,
+`authorization`, and `proxy-authorization` response headers; raw trailers use the
+same filtering. Raw mode rejects retained non-UTF-8 header or trailer values with
+`:invalid_response_headers` so the result remains JSON-safe without rewriting
+signing metadata.
+
+Trailers remain separate from initial headers even when a chunked HTTP/1.1
+response has an empty body.
+
+Raw bytes are the HTTP entity after transfer framing, before content decoding or
+decompression. Raw requests send `accept-encoding: identity`; if the peer sends
+compressed content anyway, its bytes and `content-encoding` are preserved. The
+caller owns signatures and protocol interpretation. The same contract applies to
+non-2xx responses, with `success: false`.
+
+Raw reception counts every body chunk against the policy's `max_response_bytes`,
+independently of `Content-Length`. An overflow stops reception and returns
+`:response_too_large`; a disconnect before completion returns a transport error.
+Neither produces a truncated success. Complete raw responses have `truncated: false`.
+The byte limit precedes Base64 expansion; callers transporting the result inside
+another envelope must account for that expansion, headers and trailers.
+
+Trusted Action context `event_opts: [confidential: true]` suppresses observer
+broadcasts for both the HTTP request and Engine preparation. Caller parameters
+cannot enable it. Failures arising within the Action's `run/2` become
+`confidential_http_request_failed` Jido errors with safe classification details
+before error logging; ordinary error behavior is preserved.
+
+Action parameters must be safe for ordinary validation diagnostics. Callers pass
+`credential_id`, not credential values: Engine prepares BO-managed credentials and
+Channels injects them at the outbound edge. Jido validates the Action schema before
+`run/2`, and its schema-error diagnostics are unchanged by `confidential: true`.
+The flag is not a blanket secrecy guarantee for arbitrary Action inputs. Generic
+request/response payloads are not secrets by name, so confidential callers must use
+a non-debug execution log level (for example `log_level: :info`) rather than enable
+payload-bearing debug logs. This does not suppress schema-error diagnostics.
+
 ## Module Map
 
 | Module                              | File                                         | Role                                            |

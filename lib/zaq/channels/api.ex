@@ -973,9 +973,14 @@ defmodule Zaq.Channels.Api do
         :http_request,
         _context
       ) do
+    preparation_opts =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: [action: :prepare_http_request, confidential: true],
+        else: [action: :prepare_http_request]
+
     response =
       request
-      |> Event.new(:engine, opts: [action: :prepare_http_request])
+      |> Event.new(:engine, opts: preparation_opts)
       |> NodeRouter.dispatch()
       |> Map.fetch!(:response)
       |> case do

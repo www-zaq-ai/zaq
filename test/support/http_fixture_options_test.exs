@@ -1,5 +1,5 @@
 defmodule Zaq.TestSupport.HTTPFixtureOptionsTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true, group: :req_default_options
 
   alias Zaq.TestSupport.{HTTPFixtureOptions, OpenAIStub}
 
