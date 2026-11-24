@@ -8,12 +8,44 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
 
   alias Zaq.Accounts.{People, Team}
   alias Zaq.Agent.Tools.{GetKnowledgeBaseChunks, KnowledgeBaseOverview, SearchKnowledgeBase}
+  alias Zaq.Engine.Workflows
+  alias Zaq.Event
   alias Zaq.Ingestion.{Chunk, ChunkLanguages, Document, KnowledgeChunks}
   alias Zaq.Permissions
   alias Zaq.System.OperationModelConfig, as: RAGModelConfig
   alias Zaq.SystemConfigFixtures
 
   @dimension 1536
+
+  defmodule BudgetedSearch do
+    use Zaq.Engine.Workflows.Action,
+      name: "budgeted_knowledge_search",
+      schema: Zoi.object(%{term: Zoi.string()}),
+      output_schema: Zoi.object(%{chunks: Zoi.list(Zoi.map())})
+
+    import ExUnit.Assertions
+
+    @impl Jido.Action
+    def run(%{term: term}, context) do
+      assert context.skip_permissions == false
+      refute Map.has_key?(context, :person_id)
+      refute Map.has_key?(context, :team_ids)
+
+      # Direct workflow actions have no configured-agent model budget.
+      context =
+        Map.merge(context, %{
+          context_window: %{max_context_tokens: 128_000},
+          reranking_config: %RAGModelConfig{}
+        })
+
+      params = %{query: term, lexical_terms: [term], search_mode: "keyword"}
+
+      case Jido.Exec.run(SearchKnowledgeBase, params, context) do
+        {:ok, %{chunks: chunks, errors: [], partial: false}} -> {:ok, %{chunks: chunks}}
+        other -> {:error, {:search_not_completed, other}}
+      end
+    end
+  end
 
   setup do
     Chunk.create_table(@dimension)
@@ -196,6 +228,55 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
     assert {:ok, fetched} = fetch(ctx.fixtures, context)
     assert accessible_ids(fetched.chunks) == [private.chunk.id]
     assert_overview([private], context)
+  end
+
+  test "an imported workflow uses its persisted person actor for search and exact fetch", ctx do
+    Mox.stub(Zaq.NodeRouterMock, :dispatch, &Zaq.NodeRouter.dispatch/1)
+
+    [public, personal, shared, private] = ctx.fixtures
+    {:ok, _} = Permissions.grant(private.document, %{person_id: ctx.other_person.id})
+
+    assert {:ok, workflow} =
+             Workflows.import_workflow(%{
+               "name" => "Search and fetch granted content",
+               "nodes" => [
+                 %{
+                   "name" => "search",
+                   "type" => "action",
+                   "module" => inspect(BudgetedSearch),
+                   "params" => %{"term" => "permissionneedle"},
+                   "index" => 0
+                 },
+                 %{
+                   "name" => "fetch",
+                   "type" => "action",
+                   "module" => inspect(GetKnowledgeBaseChunks),
+                   "params" => %{"chunk_ids" => fixture_ids(ctx.fixtures)},
+                   "index" => 1
+                 }
+               ],
+               "edges" => [%{"from" => "search", "to" => "fetch"}]
+             })
+
+    source_event = Event.new(%{}, :engine, actor: person_actor(ctx))
+    assert {:ok, run} = Workflows.create_run(workflow, source_event)
+    persisted = Workflows.get_run!(run.id)
+
+    assert persisted.source_event.actor == %{
+             "person" => %{"id" => ctx.person.id, "team_ids" => []}
+           }
+
+    refute Map.has_key?(persisted.source_event.assigns, "skip_permissions")
+
+    assert {:ok, %{status: "completed"}} = Workflows.start_run(persisted)
+
+    steps = Map.new(Workflows.list_step_runs(run.id), &{&1.step_name, &1})
+    assert %{status: "completed", results: search_result} = steps["search"]
+    assert %{status: "completed", results: fetch_result} = steps["fetch"]
+    assert accessible_ids(search_result["chunks"]) == fixture_ids([public, personal])
+    assert accessible_ids(fetch_result["chunks"]) == fixture_ids([public, personal])
+    assert Enum.sort(fetch_result["unavailable_ids"]) == fixture_ids([shared, private])
+    refute Enum.any?(search_result["chunks"], &(&1["content"] == private.chunk.content))
   end
 
   test "exact tool fetch does not distinguish denied, missing and deleted IDs", ctx do
