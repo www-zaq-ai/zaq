@@ -12,9 +12,8 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
 
   ## Expected context keys
 
-  - `:person_id` — ID of the requesting person; `nil` returns only public docs.
-  - `:team_ids` — list of team IDs the person belongs to (default `[]`).
-  - `:skip_permissions` — when `true`, bypasses permission filtering (admin use).
+  - `:actor` — trusted caller identity. Without a person, only public docs are visible by default.
+  - `:skip_permissions` — when explicitly `true`, bypasses permission filtering (admin use).
   - `:source_filter` — list of source path prefixes to restrict results; `nil` means all.
   - `:incoming` — `%Incoming{}` passed to `Status.broadcast/4` for streaming progress events.
   - `:node_router` — override the NodeRouter module (default `Zaq.NodeRouter`).
@@ -53,7 +52,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
     """,
     schema: []
 
-  alias Zaq.Agent.Status
+  alias Zaq.Agent.{KnowledgeAccess, Status}
   alias Zaq.Event
   alias Zaq.Ingestion.DocumentAccess
   alias Zaq.NodeRouter
@@ -68,25 +67,18 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
       Map.get(context, :node_router, NodeRouter)
     )
 
-    person_id = Map.get(context, :person_id)
-    team_ids = Map.get(context, :team_ids, [])
-    skip_permissions = Map.get(context, :skip_permissions, false)
-    source_filter = Map.get(context, :source_filter)
     node_router_mod = Map.get(context, :node_router, NodeRouter)
-
-    opts =
-      [
-        person_id: person_id,
-        team_ids: team_ids,
-        skip_permissions: skip_permissions,
-        source_filter: source_filter
-      ]
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    access_opts = KnowledgeAccess.options(context)
 
     router_result =
       Event.new(
-        %{module: DocumentAccess, function: :list_files_with_ingestion_status, args: [opts]},
+        %{
+          module: DocumentAccess,
+          function: :list_files_with_ingestion_status,
+          args: [access_opts]
+        },
         :ingestion,
+        actor: context[:actor],
         opts: [action: :invoke]
       )
       |> node_router_mod.dispatch()

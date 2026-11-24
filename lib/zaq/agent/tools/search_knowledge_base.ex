@@ -366,13 +366,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
         context,
         @trace_context_keys ++
           [
-            :person_id,
-            :team_ids,
+            :actor,
             :skip_permissions,
             :source_filter,
             :node_router,
             :document_processor,
-            :execution_actor,
             :translation_config,
             :generation,
             :reranking_config,
@@ -389,7 +387,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
     event =
       Event.new(request, :ingestion,
-        actor: context[:execution_actor],
+        actor: context[:actor],
         opts: [
           action: action,
           document_processor: Map.get(context, :document_processor, DocumentProcessor)

@@ -9,13 +9,8 @@ defmodule Zaq.Agent.Tools.Accounts.History do
 
   ## Identity and permissions
 
-  The person whose history is fetched is resolved from the **trusted execution
-  context**, never from LLM-supplied parameters:
-
-  - workflow path: `ctx[:actor]["person"]["id"]` — set by `StepRunner` from
-    the workflow run's normalized `source_event.actor`
-  - chat path: `ctx[:person_id]` — set by the agent pipeline from the
-    channel-resolved author
+  The caller is resolved from `context.actor`, whether supplied by the
+  configured agent or by the workflow runner.
 
   The `person_id` **parameter** is honored only when the context carries an
   explicit `skip_permissions: true` (machine/admin runs targeting a person).
@@ -56,7 +51,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   ## Example
 
       # chat: "what did we decide about Company X?"
-      History.run(%{query: "Company X"}, %{person_id: 42})
+      History.run(%{query: "Company X"}, %{actor: %{person: %{id: 42}}})
 
       # workflow machine run targeting a person
       History.run(%{person_id: 7, last_n_days: 30}, %{skip_permissions: true})
@@ -149,7 +144,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   require Logger
 
   alias Zaq.Engine.Conversations
-  alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
 
   @impl Jido.Action
   def run(params, ctx) do
@@ -183,8 +178,10 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   end
 
   defp context_person_id(ctx) do
-    ActorNormalizer.normalize_id(ActorNormalizer.person_id(ctx[:actor])) ||
-      ActorNormalizer.normalize_id(ctx[:person_id])
+    case ExecutionActor.validate(ctx[:actor]) do
+      {:ok, actor} -> ActorNormalizer.person_id(actor)
+      {:error, _reason} -> nil
+    end
   end
 
   # ── Time range resolution ────────────────────────────────────────────

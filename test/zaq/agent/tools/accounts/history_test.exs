@@ -10,11 +10,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
   alias Zaq.Engine.Conversations.Conversation
   alias Zaq.Engine.Conversations.Message
 
-  # Identity is resolved from the trusted execution context:
-  # - chat path:     ctx[:person_id] (set by the pipeline from the channel author)
-  # - workflow path: ctx[:actor][:person][:id] (set by StepRunner from source_event.actor)
-  # - machine path:  ctx[:skip_permissions] == true honors params[:person_id]
-  # The LLM-facing person_id param is ignored on non-machine paths.
+  defp actor_context(person), do: %{actor: %{person: %{id: person.id}}}
 
   defp create_person(email) do
     {:ok, person} = People.create_person(%{full_name: "Test Person", email: email})
@@ -100,13 +96,13 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
   # ── identity resolution — chat path ─────────────────────────────────
 
-  describe "run/2 — chat identity (ctx person_id)" do
+  describe "run/2 — chat identity (execution actor)" do
     test "returns the context person's conversations" do
       person = create_person("chat_self@example.com")
       conv = create_conversation(person.id)
       add_messages(conv, 2)
 
-      assert {:ok, result} = History.run(%{}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{}, actor_context(person))
       assert conversation_ids(result) == [conv.id]
     end
 
@@ -118,17 +114,19 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(my_conv, 1)
       add_messages(target_conv, 1)
 
-      assert {:ok, result} = History.run(%{person_id: target.id}, %{person_id: me.id})
+      assert {:ok, result} = History.run(%{person_id: target.id}, actor_context(me))
       assert conversation_ids(result) == [my_conv.id]
       refute target_conv.id in conversation_ids(result)
     end
 
-    test "accepts string ctx person_id" do
+    test "accepts a string actor person ID" do
       person = create_person("chat_str@example.com")
       conv = create_conversation(person.id)
       add_messages(conv, 1)
 
-      assert {:ok, result} = History.run(%{}, %{person_id: to_string(person.id)})
+      assert {:ok, result} =
+               History.run(%{}, %{actor: %{person: %{id: to_string(person.id)}}})
+
       assert conversation_ids(result) == [conv.id]
     end
   end
@@ -200,7 +198,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(conv, 1)
 
       assert {:ok, result} =
-               History.run(%{}, %{skip_permissions: true, person_id: person.id})
+               History.run(%{}, Map.put(actor_context(person), :skip_permissions, true))
 
       assert conversation_ids(result) == [conv.id]
     end
@@ -251,6 +249,13 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert {:error, :unauthorized} = History.run(%{}, %{person_id: nil})
     end
 
+    test "flat context person ID does not grant history access" do
+      person = create_person("neg_flat@example.com")
+      add_messages(create_conversation(person.id), 1)
+
+      assert {:error, :unauthorized} = History.run(%{}, %{person_id: person.id})
+    end
+
     test "nil actor grants nothing" do
       assert {:error, :unauthorized} = History.run(%{}, %{actor: nil})
     end
@@ -281,7 +286,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       miss = create_conversation(person.id)
       add_messages(miss, 1, "lunch plans")
 
-      assert {:ok, result} = History.run(%{query: "Company X"}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{query: "Company X"}, actor_context(person))
       assert conversation_ids(result) == [hit.id]
       refute miss.id in conversation_ids(result)
     end
@@ -293,7 +298,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       miss = create_conversation(person.id, %{title: "Standup"})
       add_messages(miss, 1)
 
-      assert {:ok, result} = History.run(%{query: "salary"}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{query: "salary"}, actor_context(person))
       assert conversation_ids(result) == [hit.id]
     end
 
@@ -305,7 +310,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       theirs = create_conversation(other.id, %{title: "Project Atlas"})
       add_messages(theirs, 1)
 
-      assert {:ok, result} = History.run(%{query: "Atlas"}, %{person_id: me.id})
+      assert {:ok, result} = History.run(%{query: "Atlas"}, actor_context(me))
       assert conversation_ids(result) == [mine.id]
     end
 
@@ -317,7 +322,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(content_only, 1, "we should ship Falcon soon")
 
       assert {:ok, result} =
-               History.run(%{query: "Falcon", search_in: "title"}, %{person_id: person.id})
+               History.run(%{query: "Falcon", search_in: "title"}, actor_context(person))
 
       assert conversation_ids(result) == [title_hit.id]
       refute content_only.id in conversation_ids(result)
@@ -331,7 +336,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(content_hit, 1, "we should ship Falcon soon")
 
       assert {:ok, result} =
-               History.run(%{query: "Falcon", search_in: "content"}, %{person_id: person.id})
+               History.run(%{query: "Falcon", search_in: "content"}, actor_context(person))
 
       assert conversation_ids(result) == [content_hit.id]
       refute title_only.id in conversation_ids(result)
@@ -345,7 +350,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(content_hit, 1, "we should ship Falcon soon")
 
       assert {:ok, result} =
-               History.run(%{query: "Falcon", search_in: "sideways"}, %{person_id: person.id})
+               History.run(%{query: "Falcon", search_in: "sideways"}, actor_context(person))
 
       ids = conversation_ids(result)
       assert title_hit.id in ids
@@ -366,7 +371,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(old, 1)
       :ok = set_updated_at(old, DateTime.add(now, -30, :day))
 
-      assert {:ok, result} = History.run(%{last_n_days: 7}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{last_n_days: 7}, actor_context(person))
       assert conversation_ids(result) == [recent.id]
     end
 
@@ -384,7 +389,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert {:ok, result} =
                History.run(
                  %{from_date: "2026-06-01", to_date: "2026-06-05"},
-                 %{person_id: person.id}
+                 actor_context(person)
                )
 
       assert conversation_ids(result) == [inside.id]
@@ -402,7 +407,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert {:ok, result} =
                History.run(
                  %{last_n_days: 7, from_date: "2000-01-01"},
-                 %{person_id: person.id}
+                 actor_context(person)
                )
 
       assert conversation_ids(result) == []
@@ -413,7 +418,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
       for bad <- [0, -3, "fortnight"] do
         assert {:error, message} =
-                 History.run(%{last_n_days: bad}, %{person_id: person.id})
+                 History.run(%{last_n_days: bad}, actor_context(person))
 
         assert message =~ "invalid last_n_days"
       end
@@ -423,7 +428,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       person = create_person("p_baddate@example.com")
 
       assert {:error, message} =
-               History.run(%{from_date: "junk"}, %{person_id: person.id})
+               History.run(%{from_date: "junk"}, actor_context(person))
 
       assert message =~ "invalid date"
     end
@@ -439,7 +444,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(outside, 1)
       :ok = set_updated_at(outside, ~U[2026-06-07 12:00:00.000000Z])
 
-      assert {:ok, result} = History.run(%{to_date: "2026-06-05"}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{to_date: "2026-06-05"}, actor_context(person))
 
       assert conversation_ids(result) == [inside.id]
     end
@@ -448,7 +453,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       person = create_person("p_badtypedate@example.com")
 
       assert {:error, message} =
-               History.run(%{from_date: ~D[2026-06-01]}, %{person_id: person.id})
+               History.run(%{from_date: ~D[2026-06-01]}, actor_context(person))
 
       assert message =~ "invalid date"
     end
@@ -476,7 +481,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       end
 
       add_message(conversation, "user", "Legacy unknown")
-      assert {:ok, result} = History.run(%{}, %{person_id: owner.id})
+      assert {:ok, result} = History.run(%{}, actor_context(owner))
       assert [entry] = result.conversations
       assert Enum.map(entry.messages, &Map.delete(&1, :inserted_at)) == result.messages
       assert Enum.map(result.messages, & &1.author.name) == ["Alice", "Bob", "Unknown author"]
@@ -498,7 +503,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       conv = create_conversation(person.id, %{title: "Quarterly budget"})
       add_messages(conv, 2)
 
-      assert {:ok, %{conversations: [entry]}} = History.run(%{}, %{person_id: person.id})
+      assert {:ok, %{conversations: [entry]}} = History.run(%{}, actor_context(person))
       assert entry.id == conv.id
       assert entry.title == "Quarterly budget"
       assert %DateTime{} = entry.updated_at
@@ -520,7 +525,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       :ok = set_message_inserted_at(second, ~U[2026-06-01 10:00:00.000000Z])
       :ok = set_message_inserted_at(third, ~U[2026-06-01 11:00:00.000000Z])
 
-      assert {:ok, %{messages: messages}} = History.run(%{}, %{person_id: person.id})
+      assert {:ok, %{messages: messages}} = History.run(%{}, actor_context(person))
 
       assert messages == [
                %{
@@ -546,7 +551,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
     test "messages field is [] when the person has no history" do
       person = create_person("flat_empty@example.com")
-      assert {:ok, %{messages: []}} = History.run(%{}, %{person_id: person.id})
+      assert {:ok, %{messages: []}} = History.run(%{}, actor_context(person))
     end
 
     test "includes metadata for total and current message windows" do
@@ -560,7 +565,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_message(conv2, "assistant", "second assistant")
 
       assert {:ok, result} =
-               History.run(%{messages_per_conversation: 1}, %{person_id: person.id})
+               History.run(%{messages_per_conversation: 1}, actor_context(person))
 
       assert result.metadata.total.messages == 4
       assert result.metadata.total.user_messages == 2
@@ -583,7 +588,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(hit, 3, "included")
       add_messages(miss, 2, "excluded")
 
-      assert {:ok, result} = History.run(%{query: "Included"}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{query: "Included"}, actor_context(person))
 
       assert conversation_ids(result) == [hit.id]
       assert result.metadata.total.messages == 3
@@ -598,7 +603,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
         add_messages(conv, 1)
       end
 
-      assert {:ok, result} = History.run(%{}, %{person_id: person.id})
+      assert {:ok, result} = History.run(%{}, actor_context(person))
       assert length(result.conversations) == 10
     end
 
@@ -611,7 +616,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       end
 
       assert {:ok, result} =
-               History.run(%{conversation_limit: 2}, %{person_id: person.id})
+               History.run(%{conversation_limit: 2}, actor_context(person))
 
       assert length(result.conversations) == 2
     end
@@ -624,7 +629,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(conv2, 10)
 
       assert {:ok, %{conversations: conversations}} =
-               History.run(%{messages_per_conversation: 3}, %{person_id: person.id})
+               History.run(%{messages_per_conversation: 3}, actor_context(person))
 
       assert Enum.all?(conversations, &(length(&1.messages) == 3))
     end
@@ -633,7 +638,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       person = create_person("noconv@example.com")
 
       assert {:ok, %{conversations: [], metadata: metadata}} =
-               History.run(%{}, %{person_id: person.id})
+               History.run(%{}, actor_context(person))
 
       assert metadata.total == %{
                messages: 0,
@@ -652,7 +657,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       add_messages(conv, 1)
 
       assert {:error, reason} =
-               History.run(%{conversation_limit: "not-an-integer"}, %{person_id: person.id})
+               History.run(%{conversation_limit: "not-an-integer"}, actor_context(person))
 
       assert reason =~ "cannot be cast to type :integer"
     end

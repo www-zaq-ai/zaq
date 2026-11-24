@@ -469,10 +469,10 @@ defmodule Zaq.Engine.Notifications do
   end
 
   defp authorization_context(opts) do
-    %{}
-    |> Map.put(:actor, Keyword.get(opts, :actor))
-    |> Map.put(:person_id, Keyword.get(opts, :person_id))
-    |> Map.put(:skip_permissions, Keyword.get(opts, :skip_permissions, false))
+    %{
+      actor: Keyword.get(opts, :actor),
+      skip_permissions: Keyword.get(opts, :skip_permissions, false)
+    }
   end
 
   defp authorized_user_ids(query, user_ids) do

@@ -521,7 +521,7 @@ defmodule Zaq.Engine.Api do
 
           opts =
             event.opts
-            |> Keyword.take([:accounts_module, :people_module, :skip_permissions, :person_id])
+            |> Keyword.take([:accounts_module, :people_module, :skip_permissions])
             |> Keyword.put(:actor, event.actor)
 
           %{event | response: notifications_module.notify_users(user_ids, attrs, opts)}

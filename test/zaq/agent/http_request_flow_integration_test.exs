@@ -125,7 +125,7 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
 
     assert {:ok, %{request: request, events: events}} =
              Factory.ask_with_config(pid, "Send GET to the test API", context.agent,
-               tool_context: %{actor: actor, person_id: person.id}
+               tool_context: %{actor: actor}
              )
 
     assert_receive {:tool_http_barrier, worker}, 5_000

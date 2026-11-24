@@ -9,8 +9,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   alias Zaq.SystemConfigFixtures
 
   defmodule Router do
-    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
-      do: %{event | response: {:ok, ["simple"]}}
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event) do
+      report_actor(event, :discovery)
+      %{event | response: {:ok, ["simple"]}}
+    end
 
     def dispatch(%Event{request: %{access_opts: opts}} = event) do
       mode = opts[:search_mode]
@@ -38,8 +40,15 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
       %{event | response: {:ok, chunks}}
     end
 
-    def dispatch(%Event{opts: [{:action, action} | _]} = event),
-      do: Api.handle_event(event, action, %{})
+    def dispatch(%Event{opts: [{:action, action} | _]} = event) do
+      report_actor(event, action)
+      Api.handle_event(event, action, %{})
+    end
+
+    defp report_actor(%Event{actor: %{test_pid: pid} = actor}, action),
+      do: send(pid, {:search_event_actor, action, actor})
+
+    defp report_actor(_event, _action), do: :ok
   end
 
   defmodule Reranker do
@@ -79,7 +88,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   end
 
   test "hybrid is the default, shares one global cap, and starts both legs concurrently" do
-    ctx = context(%{execution_actor: %{test_pid: self(), gate: true}})
+    ctx = context(%{actor: %{test_pid: self(), gate: true}})
 
     task =
       Task.async(fn ->
@@ -96,6 +105,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
 
     assert length(Enum.uniq_by(chunks, & &1["chunk_id"])) == 100
     assert Enum.all?(chunks, &is_number(&1["rrf_score"]))
+    actor = ctx.actor
+    assert_received {:search_event_actor, :discovery, ^actor}
+    assert_received {:search_event_actor, :fuse_knowledge_results, ^actor}
   end
 
   test "semantic requires no lexical terms and never starts keyword retrieval or fusion" do
@@ -103,7 +115,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
              Jido.Exec.run(
                SearchKnowledgeBase,
                %{query: "query", search_mode: "semantic", max_total_results: 3},
-               context(%{execution_actor: %{test_pid: self()}})
+               context(%{actor: %{test_pid: self()}})
              )
 
     assert_receive {:search_leg, :semantic, _}
@@ -122,7 +134,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
                  search_mode: "keyword",
                  max_total_results: 2
                },
-               context(%{execution_actor: %{test_pid: self()}})
+               context(%{actor: %{test_pid: self()}})
              )
 
     assert_receive {:search_leg, :keyword, _}
@@ -176,7 +188,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
                Jido.Exec.run(
                  SearchKnowledgeBase,
                  Map.merge(%{query: "query", lexical_terms: ["term"]}, params),
-                 context(%{execution_actor: %{test_pid: self()}})
+                 context(%{actor: %{test_pid: self()}})
                )
     end
 
@@ -196,7 +208,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   test "the overall deadline cancels blocked retrieval workers rather than leaving orphan requests" do
     ctx =
       context(%{
-        execution_actor: %{test_pid: self(), gate: true},
+        actor: %{test_pid: self(), gate: true},
         retrieval_deadline: System.monotonic_time(:millisecond) + 2_000
       })
 
@@ -215,7 +227,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   end
 
   test "caller cancellation also terminates both active retrieval legs" do
-    ctx = context(%{execution_actor: %{test_pid: self(), gate: true}})
+    ctx = context(%{actor: %{test_pid: self(), gate: true}})
 
     task =
       Task.async(fn ->

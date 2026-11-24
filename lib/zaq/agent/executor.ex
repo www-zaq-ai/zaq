@@ -161,11 +161,9 @@ defmodule Zaq.Agent.Executor do
   - `:conversation_binding` — trusted Engine-issued conversation and user-message references
   - `:question` — override the question text; defaults to `incoming.content`
   - `:system_prompt` — override the agent's `job` field for this run only
-  - `:person_id` — passed into the retrieval context for permission scoping
-  - `:team_ids` — list of team IDs passed into the retrieval context
   - `:context` — a pre-built `Jido.AI.Context` used as the agent's cold-start context (e.g. `RunAgent`'s step turns); when present the server spawns with it and skips history loading. Only consumed on cold start
   - `:config` — optional configuration provider for the runtime's cold-start drain timeout
-  - `:event` — the dispatching `%Zaq.Event{}`; its validated actor binds the server lifecycle and is exposed to tools. Without an event actor, a trusted Incoming Person is required; missing identity never becomes anonymous implicitly
+  - `:event` — the dispatching `%Zaq.Event{}`; its validated actor binds the server lifecycle and is exposed as `tool_context.actor`. Without an event actor, a trusted Incoming Person is required; missing identity never becomes anonymous implicitly
   - `:agent_module`, `:server_manager_module`, `:factory_module`, `:node_router` — injectable runtime dependencies
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t() | RequestControl.handoff()
@@ -242,8 +240,6 @@ defmodule Zaq.Agent.Executor do
                busy_context: %{incoming: incoming, actor: actor, opts: execution_opts},
                tool_context: %{
                  incoming: incoming,
-                 person_id: Keyword.get(execution_opts, :person_id),
-                 team_ids: Keyword.get(execution_opts, :team_ids, []),
                  source_filter: Keyword.get(execution_opts, :source_filter),
                  skip_permissions: Keyword.get(execution_opts, :skip_permissions, false),
                  actor: actor,

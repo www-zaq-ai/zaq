@@ -650,8 +650,9 @@ defmodule Zaq.Agent.ApiTest do
 
     assert result.actor == %{provider: :web, person: %{id: 99, full_name: "Alice", team_ids: [4]}}
     assert_received {:pipeline_called, %{person: %{id: 99}}, opts}
-    assert Keyword.get(opts, :person_id) == 99
-    assert Keyword.get(opts, :team_ids) == [4]
+    assert opts[:event].actor == result.actor
+    refute Keyword.has_key?(opts, :person_id)
+    refute Keyword.has_key?(opts, :team_ids)
   end
 
   test "run_pipeline leaves the actor untouched when identity stays unresolved" do
@@ -1242,7 +1243,8 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response.body == "selected"
 
     assert_received {:executor_called, ^incoming, opts}
-    assert Keyword.get(opts, :team_ids) == []
+    assert opts[:event].actor == result.actor
+    refute Keyword.has_key?(opts, :team_ids)
   end
 
   test "pipeline path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
@@ -1951,7 +1953,8 @@ defmodule Zaq.Agent.ApiTest do
 
       assert_received {:executor_called, resolved_incoming, opts}
       assert Incoming.person_id(resolved_incoming) == 99
-      assert Keyword.get(opts, :team_ids) == [3]
+      assert opts[:event].actor.person.team_ids == [3]
+      refute Keyword.has_key?(opts, :team_ids)
       assert Keyword.get(opts, :agent_id) == "42"
       refute Keyword.has_key?(opts, :server_id)
     end

@@ -357,7 +357,7 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
       assert {:error, :not_found} =
                ResourceProvider.handle(
                  %{operation: :load, skill: spec, resource_id: "unregistered-" <> suffix},
-                 %{node_router: Router, person_id: nil}
+                 %{node_router: Router, actor: nil}
                )
 
       refute_received {:dispatch, _, _}

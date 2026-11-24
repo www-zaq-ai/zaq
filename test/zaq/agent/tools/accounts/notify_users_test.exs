@@ -132,14 +132,14 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
                    subject: "Hello",
                    message: "Body"
                  },
-                 %{node_router: OkRouter, actor: actor, person_id: 10, skip_permissions: true}
+                 %{node_router: OkRouter, actor: actor, person_id: 99, skip_permissions: true}
                )
 
       assert_received {:dispatched, event}
       assert event.next_hop.destination == :engine
       assert event.actor == actor
       assert event.opts[:action] == :notify_users
-      assert event.opts[:person_id] == 10
+      refute Keyword.has_key?(event.opts, :person_id)
       assert event.opts[:skip_permissions] == true
       assert event.request == %{user_ids: [1, 2], subject: "Hello", message: "Body"}
     end

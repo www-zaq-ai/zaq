@@ -172,7 +172,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
                    context_window: %{max_context_tokens: 25_000},
                    generation: FixtureGeneration,
                    translation_config: config,
-                   person_id: nil
+                   actor: nil
                  }
                )
 

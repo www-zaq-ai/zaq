@@ -330,7 +330,7 @@ defmodule Zaq.Engine.ApiTest do
           action: :notify_users,
           notifications_module: StubNotifications,
           skip_permissions: true,
-          person_id: 10
+          person_id: 99
         ]
       )
 
@@ -341,7 +341,7 @@ defmodule Zaq.Engine.ApiTest do
     assert_received {:notify_users_called, [1, 2], %{subject: "Hello", message: "Body"}, opts}
     assert opts[:actor] == %{person: %{id: 10, team_ids: [20]}}
     assert opts[:skip_permissions] == true
-    assert opts[:person_id] == 10
+    refute Keyword.has_key?(opts, :person_id)
   end
 
   test "returns invalid request for non-integer notify_users ids" do

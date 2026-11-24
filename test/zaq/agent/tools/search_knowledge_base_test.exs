@@ -92,7 +92,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "find elixir", lexical_terms: ["test"]}, %{
                  node_router: BudgetRouter,
-                 execution_actor: %{test_pid: self()},
+                 actor: %{test_pid: self()},
                  context_window: %{max_context_tokens: maximum}
                })
 
@@ -559,8 +559,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
     test "returns formatted chunks and count on success" do
       context = %{
-        person_id: 42,
-        team_ids: [1, 2],
+        actor: %{person: %{id: 42, team_ids: [1, 2]}},
         node_router: StubNodeRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -578,7 +577,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
     test "returns error message when NodeRouter returns error" do
       context = %{
-        person_id: 42,
+        actor: %{person: %{id: 42}},
         node_router: StubNodeRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -594,7 +593,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
     test "returns wrapped error when node router raises exception" do
       context = %{
-        person_id: 42,
+        actor: %{person: %{id: 42}},
         node_router: RaisingNodeRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -608,7 +607,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
     test "returns empty chunks when no results found" do
       context = %{
-        person_id: 42,
+        actor: %{person: %{id: 42}},
         node_router: StubNodeRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -622,9 +621,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   describe "run/2 — permission enforcement" do
-    test "nil person_id without skip_permissions passes skip_permissions: false (public data only)" do
+    test "nil actor without skip_permissions passes skip_permissions: false (public data only)" do
       context = %{
-        person_id: nil,
+        actor: nil,
         node_router: SkipPermissionsRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -633,7 +632,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                SearchKnowledgeBase.run(%{query: "anything", lexical_terms: ["test"]}, context)
     end
 
-    test "nil person_id absent from context also passes skip_permissions: false" do
+    test "absent actor passes skip_permissions: false even with a flat team ID" do
       context = %{
         team_ids: [1],
         node_router: SkipPermissionsRouter,
@@ -644,9 +643,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                SearchKnowledgeBase.run(%{query: "anything", lexical_terms: ["test"]}, context)
     end
 
-    test "nil person_id with explicit skip_permissions: true passes skip_permissions: true (admin)" do
+    test "nil actor with explicit skip_permissions: true passes skip_permissions: true (admin)" do
       context = %{
-        person_id: nil,
+        actor: nil,
         skip_permissions: true,
         node_router: SkipPermissionsRouter,
         context_window: %{max_context_tokens: 5_000}
@@ -656,10 +655,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                SearchKnowledgeBase.run(%{query: "anything", lexical_terms: ["test"]}, context)
     end
 
-    test "forwards person_id and team_ids to query_extraction" do
+    test "forwards actor-derived person_id and team_ids to query_extraction" do
       context = %{
-        person_id: 42,
-        team_ids: [1, 2],
+        actor: %{person: %{id: 42, team_ids: [1, 2]}},
         node_router: PermissionRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -670,8 +668,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
     test "sets skip_permissions: false when person_id is present" do
       context = %{
-        person_id: 1,
-        team_ids: [],
+        actor: %{person: %{id: 1, team_ids: []}},
         node_router: SkipPermissionsRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -680,9 +677,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                SearchKnowledgeBase.run(%{query: "test", lexical_terms: ["test"]}, context)
     end
 
-    test "defaults team_ids to [] when absent from context" do
+    test "defaults team_ids to [] when absent from the actor" do
       context = %{
-        person_id: 1,
+        actor: %{person: %{id: 1}},
         node_router: DefaultTeamIdsRouter,
         context_window: %{max_context_tokens: 5_000}
       }
@@ -695,8 +692,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       # PermissionRouter only matches team_ids: [1, 2] — passing [99] must fail,
       # proving the value comes from context and not a hardcoded fallback.
       context = %{
-        person_id: 42,
-        team_ids: [99],
+        actor: %{person: %{id: 42, team_ids: [99]}},
         node_router: PermissionRouter,
         context_window: %{max_context_tokens: 5_000}
       }
