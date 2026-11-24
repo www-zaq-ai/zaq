@@ -51,7 +51,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   ## Example
 
       # chat: "what did we decide about Company X?"
-      History.run(%{query: "Company X"}, %{person_id: 42})
+      History.run(%{query: "Company X"}, %{actor: %{person: %{id: 42}}})
 
       # workflow machine run targeting a person
       History.run(%{person_id: 7, last_n_days: 30}, %{skip_permissions: true})
