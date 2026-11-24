@@ -7,18 +7,23 @@ defmodule Zaq.Agent.Actions.SemanticKnowledgeSearchTest do
 
   defmodule Router do
     def dispatch(%Event{request: %{query: query, access_opts: opts}} = event) do
-      %{event | response: {:ok, [%{"query" => query, "opts" => Map.new(opts)}]}}
+      %{
+        event
+        | response: {:ok, [%{"query" => query, "opts" => Map.new(opts), "actor" => event.actor}]}
+      }
     end
   end
 
   test "semantic Action needs no lexical input and forwards trusted access without fusion" do
+    actor = %{"person" => %{"id" => 42, "team_ids" => [8]}}
+
     assert {:ok, %{chunks: [chunk]}} =
              Jido.Exec.run(
                SemanticKnowledgeSearch,
                %{query: "a semantic question", language: "english"},
                %{
                  node_router: Router,
-                 person_id: 42,
+                 actor: actor,
                  source_filter: ["knowledge"]
                }
              )
@@ -28,8 +33,10 @@ defmodule Zaq.Agent.Actions.SemanticKnowledgeSearchTest do
     assert chunk["opts"][:language] == "english"
     assert chunk["opts"][:unbounded]
     assert chunk["opts"][:person_id] == 42
+    assert chunk["opts"][:team_ids] == [8]
     assert chunk["opts"][:skip_permissions] == false
     assert chunk["opts"][:source_filter] == ["knowledge"]
+    assert chunk["actor"] == actor
     assert :ok = Action.validate(SemanticKnowledgeSearch)
   end
 
