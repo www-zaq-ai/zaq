@@ -949,6 +949,12 @@ Shared routing helpers pass normalized incoming envelopes to Engine admission.
 Engine persists the prompt before Agent execution and finalizes the outcome before
 delivery; bridges do not write whole exchanges.
 
+BO capability modals display "Capabilities unavailable" after a failed lookup and
+retry when opened again. This applies to generic communication channels, data-source
+providers, SMTP, IMAP and widgets. Successful snapshots, including empty results,
+remain cached for modal reopening. Retries preserve drafts and other page state;
+data-source connector refreshes also update capability data and failure state.
+
 ---
 
 ## Jido Chat Bridge
@@ -1247,11 +1253,13 @@ stored-map projections; none of these shared helpers accesses Repo or credential
 
 `Zaq.Channels.WebBridge` serves the ChatLive web channel.
 
-`capability_snapshot/1` reports text, streaming, and message editing over
-`websocket`; widgets also support typing indicators. Media attachments, reactions,
-and threaded replies are unsupported. These delivery capabilities are independent
-of connector readiness; the snapshot retains adapter `runtime` and `installation` flags for widget
-enablement. The widget BO page loads the shared snapshot with provider scope and
+For the built-in `web` and `web_widget` providers, `capability_snapshot/1` reports
+text, streaming, and message editing over `websocket`; widgets also support typing
+indicators. Media attachments, reactions, and threaded replies are unsupported.
+These delivery capabilities are independent of connector readiness; the snapshot
+retains adapter `runtime` and `installation` flags for widget enablement. Custom
+providers retain their adapter flags without inheriting the built-in delivery
+profile. The widget BO page loads the shared snapshot with provider scope and
 displays it in the existing capabilities modal, without requiring a connector.
 
 BO history retrieval dispatches the Engine-owned authorized `:display_history`

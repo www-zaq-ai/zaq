@@ -3,7 +3,58 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
 
   import Mox
   import Phoenix.LiveViewTest
+  import Zaq.ChannelCapabilityFixtures
   import Zaq.AccountsFixtures
+
+  test "successful empty capability snapshots are cached on every settings page" do
+    observe_capability_lookups()
+
+    for module <- [
+          ZaqWeb.Live.BO.Communication.NotificationSmtpLive,
+          ZaqWeb.Live.BO.Communication.NotificationImapLive,
+          ZaqWeb.Live.BO.Communication.WebWidgetLive
+        ] do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          __changed__: %{},
+          capabilities_snapshot: %{},
+          capabilities_error: false,
+          capability_modal_open: false
+        }
+      }
+
+      assert {:noreply, opened} = module.handle_event("open_capabilities", %{}, socket)
+      assert opened.assigns.capability_modal_open
+      refute opened.assigns.capabilities_error
+      assert opened.assigns.capabilities_snapshot == %{}
+    end
+
+    assert capability_lookup_count() == 0
+  end
+
+  test "capability failures retry on open and recovered snapshots stay cached", %{conn: conn} do
+    channels = remove_capability_bridge(:email)
+    observe_capability_lookups()
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert capability_lookup_count() == 2
+
+    view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+    assert has_element?(view, "#capabilities-modal", "Capabilities unavailable")
+    assert capability_lookup_count() == 3
+    view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+    refute has_element?(view, "#capabilities-modal")
+
+    Application.put_env(:zaq, :channels, channels)
+    view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+    assert has_element?(view, "#capabilities-modal li", "Mode: none")
+    refute has_element?(view, "#capabilities-modal", "Capabilities unavailable")
+    assert capability_lookup_count() == 4
+
+    view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+    view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+    assert has_element?(view, "#capabilities-modal li", "Mode: none")
+    assert capability_lookup_count() == 4
+  end
 
   alias Zaq.Accounts
   alias Zaq.Engine.ChannelConfig

@@ -34,6 +34,33 @@ defmodule ZaqWeb.Components.ChannelCapabilitiesTest do
   end
 
   describe "icon_with_modal/1" do
+    test "failure is explicit and hides any stale capabilities" do
+      html =
+        render_component(&ChannelCapabilities.icon_with_modal/1,
+          modal_open?: true,
+          title: "Unavailable channel",
+          error?: true,
+          snapshot: %{required: [:text], resolved: %{text: :native}, labels: %{text: "Text"}}
+        )
+
+      assert html =~ "Capabilities unavailable"
+      refute html =~ "text-emerald-700"
+      assert html =~ "channel-capabilities-close"
+    end
+
+    test "successful empty snapshots remain distinct from failures" do
+      for options <- [[], [error?: false]] do
+        html =
+          render_component(
+            &ChannelCapabilities.icon_with_modal/1,
+            [modal_open?: true, title: "Empty channel", snapshot: %{}] ++ options
+          )
+
+        refute html =~ "Capabilities unavailable"
+        assert html =~ "Empty channel"
+      end
+    end
+
     test "modal closed state: only button renders, no modal" do
       html =
         render_component(&ChannelCapabilities.icon_with_modal/1,

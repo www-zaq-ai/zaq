@@ -31,7 +31,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
      socket
      |> assign(:current_path, "/bo/channels/retrieval/email/imap")
      |> assign(:page_title, "IMAP Configuration")
-     |> assign(:capabilities_snapshot, capability_snapshot())
+     |> load_capabilities()
      |> assign(:capability_modal_open, false)
      |> assign(:form, to_form(changeset))
      |> assign(:imap_enabled, config.enabled)
@@ -53,6 +53,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   @impl true
   def handle_event("open_capabilities", _params, socket) do
+    socket = if socket.assigns[:capabilities_error], do: load_capabilities(socket), else: socket
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
@@ -489,16 +490,23 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     end)
   end
 
-  defp capability_snapshot do
+  defp load_capabilities(socket) do
     event =
       Zaq.Event.new(%{provider: @imap_provider, scope: :provider}, :channels,
         opts: [action: :channel_capability_snapshot]
       )
 
     case NodeRouter.dispatch(event).response do
-      {:ok, snapshot} when is_map(snapshot) -> snapshot
-      _ -> %{}
+      {:ok, snapshot} when is_map(snapshot) ->
+        assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
+
+      _ ->
+        assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
     end
+  rescue
+    _error -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
+  catch
+    _kind, _reason -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
   end
 
   defp email_settings(socket, op, request) do

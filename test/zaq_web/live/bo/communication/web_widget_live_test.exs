@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
   import Phoenix.LiveViewTest
   import Mox
   import Zaq.AccountsFixtures
+  import Zaq.ChannelCapabilityFixtures
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.Supervisor, as: ChannelsSupervisor
@@ -11,7 +12,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
   alias Zaq.Engine.{ChannelConfig, IncomingMessageRouting}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
-  alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.Communication.{AgentRoutingOptions, WebWidgetLive}
 
   defmodule Adapter do
     @behaviour Zaq.Channels.WebBridge
@@ -49,6 +50,139 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :channels@localhost end)
     user = admin_fixture(%{must_change_password: false})
     %{conn: init_test_session(conn, %{user_id: user.id})}
+  end
+
+  for connector_count <- [0, 2] do
+    test "capability retries preserve drafts with #{connector_count} widget connectors", %{
+      conn: conn
+    } do
+      configure_adapter()
+
+      configs =
+        for index <- Enum.take(1..2, unquote(connector_count)) do
+          %ChannelConfig{}
+          |> ChannelConfig.changeset(%{
+            name: "Retry widget #{index}",
+            provider: "web_widget",
+            kind: "retrieval",
+            enabled: false
+          })
+          |> Repo.insert!()
+        end
+
+      channels = remove_capability_bridge(:web_widget)
+      observe_capability_lookups()
+      {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+      render_async(view)
+      assert capability_lookup_count() == 2
+
+      case configs do
+        [] -> view |> element("#new-widget-config") |> render_click()
+        [_, selected] -> view |> element("#edit-widget-#{selected.id}") |> render_click()
+      end
+
+      view
+      |> form("#widget-config-form", widget: %{"name" => "Unsaved retry name"})
+      |> render_change()
+
+      render_async(view)
+      assert capability_lookup_count() == 3
+      view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+      assert has_element?(view, "#capabilities-modal", "Capabilities unavailable")
+      assert capability_lookup_count() == 4
+      view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+
+      Application.put_env(:zaq, :channels, channels)
+      view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+      assert has_element?(view, "#capabilities-modal li", "Mode: websocket")
+      refute has_element?(view, "#capabilities-modal", "Capabilities unavailable")
+      assert capability_lookup_count() == 5
+
+      assert has_element?(
+               view,
+               "#widget-config-form input[name='widget[name]'][value='Unsaved retry name']"
+             )
+
+      if selected = List.last(configs) do
+        assert has_element?(view, "#widget-connector-#{selected.id} button[aria-current='true']")
+        assert Repo.get!(ChannelConfig, selected.id).name == selected.name
+      end
+
+      view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+      view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+      assert has_element?(view, "#capabilities-modal li", "Mode: websocket")
+      assert capability_lookup_count() == 5
+    end
+  end
+
+  test "focused capability retry preserves installation, form and one-time key state" do
+    user = admin_fixture(%{must_change_password: false})
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        current_user: user,
+        capabilities_error: true,
+        capabilities_snapshot: %{},
+        capability_modal_open: false,
+        selected: %{id: 41},
+        form: %{params: %{"name" => "Draft"}},
+        installation_config: %{id: 42},
+        snippet: {:ok, "installation snippet"},
+        authentication_key: "one-time-key",
+        changed_settings: MapSet.new(["same_site"]),
+        adapter: {:error, :widget_runtime_not_configured}
+      }
+    }
+
+    assert {:noreply, retried} = WebWidgetLive.handle_event("open_capabilities", %{}, socket)
+    refute retried.assigns.capabilities_error
+    keys = [:__changed__, :capabilities_error, :capabilities_snapshot, :capability_modal_open]
+    assert Map.drop(retried.assigns, keys) == Map.drop(socket.assigns, keys)
+  end
+
+  for connector_count <- [0, 2] do
+    test "each mount shares one capability lookup with #{connector_count} connectors", %{
+      conn: conn
+    } do
+      configure_adapter(nil)
+
+      for index <- Enum.take(1..2, unquote(connector_count)) do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Shared snapshot #{index}",
+          provider: "web_widget",
+          kind: "retrieval",
+          enabled: false
+        })
+        |> Repo.insert!()
+      end
+
+      mfa = {Zaq.Channels.Bridge, :capability_snapshot, 2}
+      :erlang.trace_pattern(mfa, true, [:call_count])
+      on_exit(fn -> :erlang.trace_pattern(mfa, false, [:call_count]) end)
+
+      conn = get(conn, ~p"/bo/channels/retrieval/web_widget")
+      assert {:call_count, 1} = :erlang.trace_info(mfa, :call_count)
+      {:ok, view, _} = live(conn)
+      assert {:call_count, 2} = :erlang.trace_info(mfa, :call_count)
+
+      view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+      assert has_element?(view, "#capabilities-modal li", "Mode: websocket")
+      assert {:call_count, 2} = :erlang.trace_info(mfa, :call_count)
+      view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+      view |> element("#new-widget-config") |> render_click()
+      assert has_element?(view, "#widget-adapter-error")
+      assert {:call_count, 3} = :erlang.trace_info(mfa, :call_count)
+    end
+  end
+
+  test "settings failure retains a retryable capability failure state" do
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, current_user: nil, flash: %{}}}
+    assert {:ok, mounted} = WebWidgetLive.mount(%{}, %{}, socket)
+    assert mounted.assigns.capabilities_error
+    assert mounted.assigns.configs == []
+    assert mounted.assigns.selected == nil
   end
 
   for connector_count <- [0, 2] do

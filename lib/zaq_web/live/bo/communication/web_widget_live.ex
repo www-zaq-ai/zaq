@@ -24,7 +24,8 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       socket
       |> assign(:current_path, "/bo/channels/retrieval/web_widget")
       |> assign(:page_title, ChannelProvider.label("web_widget"))
-      |> assign(:capabilities_snapshot, capability_snapshot(socket))
+      |> assign(:capabilities_snapshot, %{})
+      |> assign(:capabilities_error, true)
       |> assign(:capability_modal_open, false)
       |> assign(:configs, [])
       |> assign(:selected, nil)
@@ -67,8 +68,22 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   end
 
   @impl true
-  def handle_event("open_capabilities", _params, socket),
-    do: {:noreply, assign(socket, :capability_modal_open, true)}
+  def handle_event("open_capabilities", _params, socket) do
+    socket =
+      if socket.assigns[:capabilities_error] do
+        capabilities =
+          dispatch(socket, :channels, :channel_capability_snapshot, %{
+            provider: "web_widget",
+            scope: :provider
+          })
+
+        apply_capabilities(socket, capabilities)
+      else
+        socket
+      end
+
+    {:noreply, assign(socket, :capability_modal_open, true)}
+  end
 
   def handle_event("close_capabilities", _params, socket),
     do: {:noreply, assign(socket, :capability_modal_open, false)}
@@ -263,6 +278,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   defp apply_snapshot(socket, snapshot) do
     socket
     |> clear_key()
+    |> apply_capabilities(snapshot.capabilities)
     |> assign(:configs, snapshot.configs)
     |> assign(:selected, snapshot.selected)
     |> assign(:live_update_policy, snapshot.selected && snapshot.selected.live_updates)
@@ -276,7 +292,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     |> assign(:snippet, {:error, :selection_required})
     |> assign(:changed_settings, MapSet.new())
     |> assign(:ingress_statuses, %{})
-    |> refresh_health()
+    |> refresh_health(snapshot)
   end
 
   defp update_live_update_draft(socket, event) do
@@ -309,15 +325,14 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     end)
   end
 
-  defp refresh_health(socket) do
+  defp refresh_health(socket, snapshot \\ nil) do
     socket = cancel_health_timer(socket)
 
     if connected?(socket) do
       user = socket.assigns.current_user
 
       start_async(socket, :widget_statuses, fn ->
-        {:ok, snapshot} =
-          dispatch_user(user, :engine, :widget_connector_settings, %{op: :snapshot, id: :new})
+        snapshot = snapshot || fetch_settings_snapshot(user)
 
         enabled = Enum.filter(snapshot.configs, & &1.enabled)
 
@@ -336,6 +351,13 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     else
       socket
     end
+  end
+
+  defp fetch_settings_snapshot(user) do
+    {:ok, snapshot} =
+      dispatch_user(user, :engine, :widget_connector_settings, %{op: :snapshot, id: :new})
+
+    snapshot
   end
 
   defp fetch_widget_health(user, config) do
@@ -507,15 +529,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   defp settings(socket, request),
     do: dispatch(socket, :engine, :widget_connector_settings, request)
 
-  defp capability_snapshot(socket) do
-    case dispatch(socket, :channels, :channel_capability_snapshot, %{
-           provider: "web_widget",
-           scope: :provider
-         }) do
-      {:ok, snapshot} when is_map(snapshot) -> snapshot
-      _ -> %{}
-    end
+  defp apply_capabilities(socket, {:ok, snapshot}) when is_map(snapshot) do
+    assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
   end
+
+  defp apply_capabilities(socket, {:error, _reason}),
+    do: assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
 
   defp dispatch(socket, role, action, request) do
     dispatch_user(socket.assigns.current_user, role, action, request)

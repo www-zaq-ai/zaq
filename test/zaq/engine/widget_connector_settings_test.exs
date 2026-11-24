@@ -35,6 +35,39 @@ defmodule Zaq.Engine.WidgetConnectorSettingsTest do
 
   @opts [node_router: Router]
 
+  test "settings retain the capability result and derive availability from one lookup" do
+    snapshot = %{
+      kind: :communication,
+      resolved: %{runtime: true, installation: true, text: :native, mode: "websocket"},
+      labels: %{text: "Text"},
+      unsupported: [:file]
+    }
+
+    for {capabilities, adapter} <- [
+          {{:ok, snapshot}, {:ok, %{available?: true}}},
+          {{:ok, put_in(snapshot.resolved.runtime, false)}, {:ok, %{available?: false}}},
+          {{:ok, put_in(snapshot.resolved.installation, false)}, {:ok, %{available?: false}}},
+          {{:ok, %{}}, {:error, :widget_runtime_not_configured}},
+          {{:error, :unavailable}, {:error, :widget_runtime_not_configured}}
+        ] do
+      Mox.expect(Zaq.NodeRouterMock, :dispatch, fn %Event{request: request, opts: opts} = event ->
+        assert request == %{provider: "web_widget", scope: :provider}
+        assert opts[:action] == :channel_capability_snapshot
+        assert opts[:confidential]
+        %{event | response: capabilities}
+      end)
+
+      assert {:ok, settings} =
+               WidgetConnectorSettings.execute(%{op: :snapshot}, node_router: Zaq.NodeRouterMock)
+
+      assert settings.capabilities == capabilities
+      assert settings.adapter == adapter
+      assert settings.configs == []
+      assert settings.selected == nil
+      Mox.verify!(Zaq.NodeRouterMock)
+    end
+  end
+
   test "canonical NONE aliases persist and project consistently" do
     for choice <- ["__none__", "none", :none] do
       assert {:ok, result} =

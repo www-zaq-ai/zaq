@@ -293,17 +293,20 @@ defmodule Zaq.Channels.WebBridge do
           %{runtime: false, installation: false}
       end
 
-    {:ok,
-     %{
-       resolved:
-         Map.merge(resolved, %{
-           text: :native,
-           streaming: :native,
-           typing: if(config.provider in [:web_widget, "web_widget"], do: :native, else: false),
-           edit_messages: :native,
-           mode: "websocket"
-         })
-     }}
+    resolved =
+      if config.provider in [:web, "web", :web_widget, "web_widget"] do
+        Map.merge(resolved, %{
+          text: :native,
+          streaming: :native,
+          typing: if(config.provider in [:web_widget, "web_widget"], do: :native, else: false),
+          edit_messages: :native,
+          mode: "websocket"
+        })
+      else
+        resolved
+      end
+
+    {:ok, %{resolved: resolved}}
   end
 
   @doc "Generates a bounded installation snippet through the confidential installation read."

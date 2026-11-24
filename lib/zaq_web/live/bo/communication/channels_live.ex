@@ -89,7 +89,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:oauth_claim_url, nil)
      |> assign(:confirm_delete, nil)
      |> assign(:capability_modal_open, false)
-     |> assign(:capabilities_snapshot, capability_snapshot(provider))
+     |> load_capabilities()
      # test connection
      |> assign(:test_config, nil)
      |> assign(:test_status, :idle)
@@ -364,6 +364,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("open_capabilities", _params, socket) do
+    socket = if socket.assigns[:capabilities_error], do: load_capabilities(socket), else: socket
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
@@ -1595,14 +1596,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp ensure_global_base_url_for_oauth2(_), do: :ok
 
-  defp capability_snapshot(provider) do
+  defp load_capabilities(socket) do
     event =
-      Event.new(%{provider: provider}, :channels, opts: [action: :channel_capability_snapshot])
+      Event.new(%{provider: socket.assigns.provider}, :channels,
+        opts: [action: :channel_capability_snapshot]
+      )
 
     case NodeRouter.dispatch(event).response do
-      {:ok, map} when is_map(map) -> map
-      _ -> %{}
+      {:ok, snapshot} when is_map(snapshot) ->
+        assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
+
+      _ ->
+        assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
     end
+  rescue
+    _error -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
+  catch
+    _kind, _reason -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
   end
 
   defp ingress_statuses(configs) when is_list(configs) do
