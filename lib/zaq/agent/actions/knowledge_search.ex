@@ -6,6 +6,7 @@ defmodule Zaq.Agent.Actions.KnowledgeSearch do
   without allowing model parameters to override actor, permissions or sources.
   """
 
+  alias Zaq.Agent.KnowledgeAccess
   alias Zaq.Event
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
@@ -13,23 +14,22 @@ defmodule Zaq.Agent.Actions.KnowledgeSearch do
   @doc "Executes one retrieval leg through Ingestion, deferring final answer limits."
   def search(query, params, context, mode) do
     access_opts =
-      [
-        person_id: context[:person_id],
-        team_ids: Map.get(context, :team_ids, []),
-        skip_permissions: Map.get(context, :skip_permissions, false),
-        source_filter: context[:source_filter],
-        language: params[:language],
-        lexical_terms: params[:lexical_terms],
-        search_mode: mode,
-        unbounded: true
-      ]
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      KnowledgeAccess.options(context) ++
+        Enum.reject(
+          [
+            language: params[:language],
+            lexical_terms: params[:lexical_terms],
+            search_mode: mode,
+            unbounded: true
+          ],
+          fn {_key, value} -> is_nil(value) end
+        )
 
     router = Map.get(context, :node_router, NodeRouter)
 
     event =
       Event.new(%{query: query, access_opts: access_opts}, :ingestion,
-        actor: context[:execution_actor],
+        actor: context[:actor],
         opts: [
           action: :search_knowledge_base,
           document_processor: Map.get(context, :document_processor, DocumentProcessor)

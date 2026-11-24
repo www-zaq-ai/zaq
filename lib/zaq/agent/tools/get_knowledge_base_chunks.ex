@@ -32,24 +32,16 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunks do
         unavailable_ids: Zoi.list(Zoi.integer())
       })
 
+  alias Zaq.Agent.KnowledgeAccess
   alias Zaq.Agent.Tools.KnowledgeSources
   alias Zaq.Event
   alias Zaq.NodeRouter
 
   @impl Jido.Action
   def run(%{chunk_ids: ids}, context) do
-    access_opts =
-      [
-        person_id: context[:person_id],
-        team_ids: Map.get(context, :team_ids, []),
-        skip_permissions: Map.get(context, :skip_permissions, false),
-        source_filter: context[:source_filter]
-      ]
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-
     event =
-      Event.new(%{chunk_ids: ids, access_opts: access_opts}, :ingestion,
-        actor: context[:execution_actor],
+      Event.new(%{chunk_ids: ids, access_opts: KnowledgeAccess.options(context)}, :ingestion,
+        actor: context[:actor],
         opts: [action: :get_knowledge_base_chunks]
       )
 

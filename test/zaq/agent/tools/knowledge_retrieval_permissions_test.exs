@@ -1,13 +1,13 @@
 defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
   @moduledoc """
-  Exercises both knowledge tools through real NodeRouter/Ingestion and persisted
+  Exercises the knowledge tools through real NodeRouter/Ingestion and persisted
   permissions. Only the external embedding provider is stubbed.
   """
   use Zaq.DataCase, async: false
   use ExUnitProperties
 
   alias Zaq.Accounts.{People, Team}
-  alias Zaq.Agent.Tools.{GetKnowledgeBaseChunks, SearchKnowledgeBase}
+  alias Zaq.Agent.Tools.{GetKnowledgeBaseChunks, KnowledgeBaseOverview, SearchKnowledgeBase}
   alias Zaq.Ingestion.{Chunk, ChunkLanguages, Document, KnowledgeChunks}
   alias Zaq.Permissions
   alias Zaq.System.OperationModelConfig, as: RAGModelConfig
@@ -31,6 +31,7 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
     end)
 
     {:ok, person} = People.create_person(%{full_name: "Knowledge reader"})
+    {:ok, other_person} = People.create_person(%{full_name: "Other knowledge reader"})
 
     team =
       %Team{}
@@ -47,6 +48,7 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
 
     %{
       person: person,
+      other_person: other_person,
       team: team,
       fixtures: [public, personal, shared, private],
       context: %{
@@ -62,9 +64,11 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
 
       for {access, allowed} <- [
             {%{}, [public]},
-            {%{person_id: nil}, [public]},
-            {%{person_id: ctx.person.id}, [public, personal]},
-            {%{person_id: ctx.person.id, team_ids: [ctx.team.id]}, [public, personal, shared]},
+            {%{actor: nil}, [public]},
+            {%{actor: person_actor(ctx)}, [public, personal]},
+            {%{actor: person_actor(ctx, [ctx.team.id])}, [public, personal, shared]},
+            {%{actor: %{"person" => %{"id" => ctx.person.id, "team_ids" => [ctx.team.id]}}},
+             [public, personal, shared]},
             {%{skip_permissions: true}, ctx.fixtures}
           ] do
         context = Map.merge(ctx.context, access)
@@ -87,6 +91,8 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
 
         assert Enum.sort(fetched.unavailable_ids) ==
                  fixture_ids(ctx.fixtures -- allowed)
+
+        assert_overview(allowed, context)
       end
     end
 
@@ -100,6 +106,7 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
       assert {:ok, fetched} = fetch(ctx.fixtures, context)
       assert accessible_ids(fetched.chunks) == [public.chunk.id]
       assert length(fetched.unavailable_ids) == 3
+      assert_overview([public], context)
 
       :ok = Permissions.revoke_public(public.document)
 
@@ -113,6 +120,7 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
       [public | _] = ctx.fixtures
 
       untrusted = %{
+        actor: person_actor(ctx, [ctx.team.id]),
         person_id: ctx.person.id,
         team_ids: [ctx.team.id],
         skip_permissions: true,
@@ -141,7 +149,53 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
                )
 
       assert accessible_ids(fetched.chunks) == [public.chunk.id]
+      assert_overview([public], ctx.context, untrusted)
+
+      for bypass <- ["true", 1, :admin] do
+        context = Map.put(ctx.context, :skip_permissions, bypass)
+        assert {:ok, fetched} = fetch(ctx.fixtures, context)
+        assert accessible_ids(fetched.chunks) == [public.chunk.id]
+        assert_overview([public], context)
+      end
     end
+  end
+
+  test "only the actor grants private or team access, even with conflicting flat keys", ctx do
+    [public, personal, _shared, private] = ctx.fixtures
+    {:ok, _} = Permissions.grant(private.document, %{person_id: ctx.other_person.id})
+
+    for {actor, allowed} <- [
+          {person_actor(ctx), [public, personal]},
+          {nil, [public]},
+          {%{kind: :system, subject: "workflow"}, [public]},
+          {%{kind: :system, subject: "workflow", person_id: ctx.other_person.id}, [public]}
+        ] do
+      context =
+        Map.merge(ctx.context, %{
+          actor: actor,
+          person_id: ctx.other_person.id,
+          team_ids: [ctx.team.id]
+        })
+
+      assert {:ok, result} = search("keyword", context)
+      assert accessible_ids(result.chunks) == fixture_ids(allowed)
+      assert {:ok, fetched} = fetch(ctx.fixtures, context)
+      assert accessible_ids(fetched.chunks) == fixture_ids(allowed)
+      assert_overview(allowed, context)
+    end
+  end
+
+  test "trusted bypass retains source restrictions for all three tools", ctx do
+    [_public, _personal, _shared, private] = ctx.fixtures
+
+    context =
+      Map.merge(ctx.context, %{source_filter: [private.document.source], skip_permissions: true})
+
+    assert {:ok, result} = search("keyword", context)
+    assert accessible_ids(result.chunks) == [private.chunk.id]
+    assert {:ok, fetched} = fetch(ctx.fixtures, context)
+    assert accessible_ids(fetched.chunks) == [private.chunk.id]
+    assert_overview([private], context)
   end
 
   test "exact tool fetch does not distinguish denied, missing and deleted IDs", ctx do
@@ -164,7 +218,7 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
     [public, personal, shared, private] = ctx.fixtures
     allowed_ids = MapSet.new([public.chunk.id, personal.chunk.id, shared.chunk.id])
     all_ids = [public.chunk.id, personal.chunk.id, shared.chunk.id, private.chunk.id]
-    context = Map.merge(ctx.context, %{person_id: ctx.person.id, team_ids: [ctx.team.id]})
+    context = Map.put(ctx.context, :actor, person_actor(ctx, [ctx.team.id]))
 
     check all(ids <- list_of(member_of(all_ids), min_length: 1, max_length: 16), max_runs: 20) do
       requested = Enum.uniq(ids)
@@ -176,6 +230,31 @@ defmodule Zaq.Agent.Tools.KnowledgeRetrievalPermissionsTest do
       assert result.unavailable_ids == Enum.reject(requested, &MapSet.member?(allowed_ids, &1))
       assert result.count == length(result.chunks)
     end
+  end
+
+  property "untrusted flat identities cannot widen exact fetch without an actor", ctx do
+    [public | _] = ctx.fixtures
+
+    check all(
+            person_id <- member_of([nil, ctx.person.id, ctx.other_person.id]),
+            team_ids <- list_of(member_of([ctx.team.id, 0]), max_length: 3),
+            max_runs: 12
+          ) do
+      context = Map.merge(ctx.context, %{person_id: person_id, team_ids: team_ids})
+      assert {:ok, result} = fetch(ctx.fixtures, context)
+      assert accessible_ids(result.chunks) == [public.chunk.id]
+    end
+  end
+
+  defp person_actor(ctx, team_ids \\ []), do: %{person: %{id: ctx.person.id, team_ids: team_ids}}
+
+  defp assert_overview(allowed, context, params \\ %{}) do
+    assert {:ok, overview} = KnowledgeBaseOverview.run(params, context)
+
+    assert Enum.sort(Enum.map(overview.documents, & &1.source)) ==
+             Enum.sort(Enum.map(allowed, & &1.document.source))
+
+    assert overview.total == length(allowed)
   end
 
   defp document_chunk(label) do

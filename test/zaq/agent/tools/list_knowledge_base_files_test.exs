@@ -73,7 +73,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
 
   describe "run/2 — basic behaviour" do
     test "returns total, ingested_count, and documents on success" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.total == 2
@@ -82,7 +82,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "adds preview_url to each document" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       sources = Enum.map(result.documents, & &1.source)
@@ -93,7 +93,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "preview_url uses /bo/preview base path" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
 
@@ -112,7 +112,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "ingested_count counts only ingested: true documents" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.ingested_count == Enum.count(result.documents, & &1.ingested)
@@ -152,8 +152,8 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
   # ---------------------------------------------------------------------------
 
   describe "run/2 — permission enforcement" do
-    test "forwards person_id and team_ids from context to router" do
-      context = %{person_id: 42, team_ids: [1, 2], node_router: CaptureRouter}
+    test "forwards actor-derived person_id and team_ids to router" do
+      context = %{actor: %{person: %{id: 42, team_ids: [1, 2]}}, node_router: CaptureRouter}
 
       assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
@@ -163,7 +163,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "nil person_id is excluded from opts (nil is not an implicit permission grant)" do
-      context = %{person_id: nil, node_router: CaptureRouter}
+      context = %{actor: nil, node_router: CaptureRouter}
 
       assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
@@ -180,8 +180,8 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
       refute Keyword.has_key?(opts, :person_id)
     end
 
-    test "team_ids defaults to [] when absent from context" do
-      context = %{person_id: 1, node_router: CaptureRouter}
+    test "team_ids defaults to [] when absent from the actor" do
+      context = %{actor: %{person: %{id: 1}}, node_router: CaptureRouter}
 
       assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
@@ -190,7 +190,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "skip_permissions defaults to false" do
-      context = %{person_id: 1, node_router: CaptureRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: CaptureRouter}
 
       assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
@@ -226,7 +226,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "forwards exact person_id and team_ids to PermissionRouter without extra opts" do
-      context = %{person_id: 42, team_ids: [1, 2], node_router: PermissionRouter}
+      context = %{actor: %{person: %{id: 42, team_ids: [1, 2]}}, node_router: PermissionRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.documents == []
@@ -250,7 +250,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
 
   describe "run/2 — output format" do
     test "tool result is JSON-encodable (LLM can receive it)" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert {:ok, encoded} = Jason.encode(result)
@@ -262,7 +262,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "each document in output has source, ingested, and preview_url keys" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
 
@@ -274,7 +274,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
     end
 
     test "ingested_count matches number of ingested: true documents in JSON output" do
-      context = %{person_id: 1, node_router: StubRouter}
+      context = %{actor: %{person: %{id: 1}}, node_router: StubRouter}
 
       assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert {:ok, encoded} = Jason.encode(result)

@@ -79,7 +79,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   end
 
   test "hybrid is the default, shares one global cap, and starts both legs concurrently" do
-    ctx = context(%{execution_actor: %{test_pid: self(), gate: true}})
+    ctx = context(%{actor: %{test_pid: self(), gate: true}})
 
     task =
       Task.async(fn ->
@@ -103,7 +103,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
              Jido.Exec.run(
                SearchKnowledgeBase,
                %{query: "query", search_mode: "semantic", max_total_results: 3},
-               context(%{execution_actor: %{test_pid: self()}})
+               context(%{actor: %{test_pid: self()}})
              )
 
     assert_receive {:search_leg, :semantic, _}
@@ -122,7 +122,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
                  search_mode: "keyword",
                  max_total_results: 2
                },
-               context(%{execution_actor: %{test_pid: self()}})
+               context(%{actor: %{test_pid: self()}})
              )
 
     assert_receive {:search_leg, :keyword, _}
@@ -176,7 +176,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
                Jido.Exec.run(
                  SearchKnowledgeBase,
                  Map.merge(%{query: "query", lexical_terms: ["term"]}, params),
-                 context(%{execution_actor: %{test_pid: self()}})
+                 context(%{actor: %{test_pid: self()}})
                )
     end
 
@@ -196,7 +196,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   test "the overall deadline cancels blocked retrieval workers rather than leaving orphan requests" do
     ctx =
       context(%{
-        execution_actor: %{test_pid: self(), gate: true},
+        actor: %{test_pid: self(), gate: true},
         retrieval_deadline: System.monotonic_time(:millisecond) + 2_000
       })
 
@@ -215,7 +215,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   end
 
   test "caller cancellation also terminates both active retrieval legs" do
-    ctx = context(%{execution_actor: %{test_pid: self(), gate: true}})
+    ctx = context(%{actor: %{test_pid: self(), gate: true}})
 
     task =
       Task.async(fn ->

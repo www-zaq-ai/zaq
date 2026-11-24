@@ -38,9 +38,7 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunksTest do
     assert {:ok, %{count: 0, unavailable_ids: [3, 7]}} =
              Jido.Exec.run(GetKnowledgeBaseChunks, %{chunk_ids: [3, 7, 3]}, %{
                node_router: Router,
-               execution_actor: %{test_pid: self()},
-               person_id: 42,
-               team_ids: [8],
+               actor: %{test_pid: self(), person: %{id: 42, team_ids: [8]}},
                source_filter: ["allowed"]
              })
 
@@ -65,7 +63,7 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunksTest do
     assert {:ok, _} =
              Jido.Exec.run(GetKnowledgeBaseChunks, %{chunk_ids: [1]}, %{
                node_router: Router,
-               execution_actor: %{test_pid: self()}
+               actor: %{test_pid: self()}
              })
 
     assert_receive {:fetch_request, [1], access, _}

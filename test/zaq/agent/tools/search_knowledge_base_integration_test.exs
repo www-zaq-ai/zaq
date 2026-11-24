@@ -106,7 +106,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       insert_chunk(private_doc.id, "Private content about Elixir internals.", 0)
       insert_chunk(public_doc.id, "Public Elixir documentation.", 0)
 
-      context = translation_context(%{person_id: nil})
+      context = translation_context(%{actor: nil})
 
       assert {:ok, result} =
                SearchKnowledgeBase.run(%{query: "elixir", lexical_terms: ["elixir"]}, context)
@@ -144,7 +144,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       private_doc = create_doc()
       insert_chunk(private_doc.id, "Restricted Elixir content.", 0)
 
-      context = translation_context(%{person_id: nil, skip_permissions: true})
+      context = translation_context(%{actor: nil, skip_permissions: true})
 
       assert {:ok, result} =
                SearchKnowledgeBase.run(
@@ -162,7 +162,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       doc = create_doc()
       insert_chunk(doc.id, "Elixir is a functional language built on the BEAM VM.", 0)
 
-      context = translation_context(%{person_id: 999_999, team_ids: []})
+      context = translation_context(%{actor: %{person: %{id: 999_999}}})
 
       assert {:ok, result} =
                SearchKnowledgeBase.run(
