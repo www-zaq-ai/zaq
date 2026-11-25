@@ -231,7 +231,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # (image-to-text) and therefore the only one that emits progress. The other
   # converters are synchronous, single-shot calls with no progress to report, so
   # they intentionally ignore `opts`.
-  defp read_as_markdown(file_path, opts) do
+  @doc "Converts a trusted local file path without indexing it. The caller owns its scratch files."
+  @spec read_as_markdown(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def read_as_markdown(file_path, opts) do
     case Path.extname(file_path) |> String.downcase() do
       ".pdf" ->
         md_path = Path.rootname(file_path) <> ".md"
@@ -286,7 +288,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp convert_pdf(file_path, md_path, opts) do
-    with {:ok, _} <- pdf_pipeline_module().run(file_path, Keyword.take(opts, [:on_progress])),
+    pipeline_opts = Keyword.take(opts, [:on_progress, :images_dir, :require_image_descriptions])
+
+    with {:ok, _} <- pdf_pipeline_module().run(file_path, pipeline_opts),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
       {:ok, FTSBackend.sanitize_utf8_text(raw)}

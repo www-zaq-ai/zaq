@@ -6,6 +6,15 @@ defmodule Zaq.Ingestion.Events do
   alias Zaq.Event
   alias Zaq.Events.Helper
 
+  @doc "Builds a conversion event without broadcasting materialized content."
+  @spec build_convert_document_event(map(), keyword()) :: Event.t()
+  def build_convert_document_event(request, opts \\ []) when is_map(request) do
+    Event.new(request, :ingestion,
+      actor: opts[:actor],
+      opts: [action: :convert_document_to_markdown, confidential: true]
+    )
+  end
+
   @doc "Builds an Ingestion event that reads a document's bytes off its volume."
   @spec build_materialize_document_event(map(), keyword()) :: Event.t()
   def build_materialize_document_event(request, opts \\ []) when is_map(request) do

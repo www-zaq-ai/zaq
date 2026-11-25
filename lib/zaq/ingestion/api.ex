@@ -9,7 +9,15 @@ defmodule Zaq.Ingestion.Api do
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor, KnowledgeChunks}
+
+  alias Zaq.Ingestion.{
+    ChunkLanguages,
+    Document,
+    DocumentConversion,
+    DocumentProcessor,
+    KnowledgeChunks
+  }
+
   alias Zaq.InternalBoundaries
   alias Zaq.Permissions
 
@@ -21,6 +29,14 @@ defmodule Zaq.Ingestion.Api do
       )
       when is_list(records) and is_map(params) do
     %{event | response: Ingestion.ingest_records(records, put_actor(params, event.actor))}
+  end
+
+  def handle_event(
+        %Event{request: %{record: record} = request} = event,
+        :convert_document_to_markdown,
+        _context
+      ) do
+    %{event | response: DocumentConversion.to_markdown(record, request[:image_handling])}
   end
 
   def handle_event(%Event{request: request} = event, :process_data_source_changes, _context)

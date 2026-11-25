@@ -34,6 +34,33 @@ Canonical records (from any data-source bridge)
 
 ---
 
+## Convert a downloaded document without indexing
+
+The [`ConvertDocumentToMarkdown` Action](../../lib/zaq/agent/tools/ingestion/convert_document_to_markdown.ex)
+accepts the materialized `record` returned by `DownloadDocument`. It uses the
+downloaded representation (including its MIME type and base64 encoding), not the
+source service's original document type. A Record without content must be
+downloaded first. Conversion does not fetch the source, create an ingestion job,
+or write to the knowledge base.
+
+- **PDF:** `image_handling: "describe"` uses the PDF pipeline's vision descriptions.
+  This is the PDF default. Missing vision credentials cause conversion to fail
+  rather than return text-only Markdown. Existing ingestion can still fall back
+  to text-only output.
+- **DOCX, PPTX, XLSX:** `image_handling: "ignore"` drops embedded image references
+  without calling a vision model. Captions, text, and tables remain. This is the
+  Office default.
+- **CSV and Markdown:** omit `image_handling`. Unsupported formats and explicit
+  modes return errors; standalone images and image export are not supported.
+
+The Action limits decoded input to 20 MiB and Markdown output to 5 MiB. To save
+the result, pass `content`, `name`, and `mime_type` to `CreateDocument` with an
+explicit destination provider and folder. The `source` field is descriptive
+metadata, not authorization to write. Do not expose conversion workflow history
+to users who are not authorized to read its source content.
+
+---
+
 ## Modules
 
 ### Public API (`Zaq.Ingestion`)
