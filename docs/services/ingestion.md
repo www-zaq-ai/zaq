@@ -59,6 +59,13 @@ explicit destination provider and folder. The `source` field is descriptive
 metadata, not authorization to write. Do not expose conversion workflow history
 to users who are not authorized to read its source content.
 
+Ingestion and standalone conversion share downloaded-format selection, scratch
+staging, and file converters. Downloads marked `utf-8` already contain text.
+Base64 is decoded internally with the standard alphabet, so raw binary bytes
+never become a workflow output. Standalone conversion accepts wrapped or
+unpadded Base64; existing ingestion still requires padding where applicable and
+rejects whitespace.
+
 ---
 
 ## Modules

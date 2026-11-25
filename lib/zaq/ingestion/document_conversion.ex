@@ -1,20 +1,25 @@
 defmodule Zaq.Ingestion.DocumentConversion do
   @moduledoc """
-  Converts a materialized document to Markdown without indexing or saving it.
+  Owns file-to-Markdown conversion for ingestion and standalone callers.
 
   A Record supplies the downloaded representation, not permission to use its
-  source identity elsewhere. The converter never redeems handles or opens paths
-  supplied by the caller.
+  source identity elsewhere. Standalone conversion never redeems handles or
+  opens user-supplied paths. Ingestion can also convert its trusted local files.
   """
 
   alias Zaq.Contracts.Record
-  alias Zaq.Ingestion.{ArtifactType, DocumentProcessor, OfficeMarkdown}
+  alias Zaq.Ingestion.{FTSBackend, ImageMarkdown, OfficeMarkdown, RecordSource}
+  alias Zaq.Ingestion.Python.Pipeline
+  alias Zaq.Ingestion.Python.Steps.{DocxToMd, PptxToMd, XlsxToMd}
+  alias Zaq.Ingestion.TemporaryMaterializationStore
+
+  NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
+  alias Zaq.Ingestion.CSVParser
 
   @office_extensions ~w(.docx .pptx .xlsx)
   @text_extensions ~w(.csv .md .markdown)
   @input_extensions [".pdf" | @text_extensions ++ @office_extensions]
   @max_input_bytes 20 * 1024 * 1024
-  @max_base64_bytes div(@max_input_bytes + 2, 3) * 4
   @max_markdown_bytes 5 * 1024 * 1024
 
   @doc """
@@ -24,40 +29,34 @@ defmodule Zaq.Ingestion.DocumentConversion do
   caller-supplied mode must be supported by the downloaded format.
   """
   @spec to_markdown(Record.t(), String.t() | nil) :: {:ok, map()} | {:error, atom()}
-  def to_markdown(record, image_handling \\ nil)
+  def to_markdown(record, image_handling \\ nil) do
+    with {:ok, input} <- prepare(record, image_handling, %{}), do: convert_prepared(input)
+  end
 
-  def to_markdown(%Record{id: id, kind: :file, content: content} = record, image_handling)
+  @doc """
+  Prepares private converter input before dispatching to the Ingestion role.
+
+  Decoding inherits the parent Action's local audit context. Decoded bytes are
+  private event input, never a workflow result.
+  """
+  @spec prepare(Record.t(), String.t() | nil, map()) :: {:ok, map()} | {:error, atom()}
+  def prepare(%Record{id: id, kind: :file, content: content} = record, image_handling, context)
       when is_binary(id) and is_binary(content) and content != "" do
-    with {:ok, extension} <- extension(record),
+    extension = RecordSource.download_extension(record, record)
+
+    with :ok <- supported_extension(extension),
          {:ok, mode} <- image_mode(extension, image_handling),
-         {:ok, bytes} <- decode(content, encoding(record)),
-         {:ok, markdown} <- convert(bytes, extension, mode) do
+         {:ok, bytes} <-
+           RecordSource.download_bytes(record, {:conversion, @max_input_bytes}, context) do
       {:ok,
-       %{
-         content: markdown,
-         name: markdown_name(record.name),
-         mime_type: "text/markdown",
-         source: source_metadata(record)
-       }}
+       %{bytes: bytes, extension: extension, image_mode: mode, source: source_metadata(record)}}
     end
   end
 
-  def to_markdown(_record, _image_handling), do: {:error, :materialized_file_required}
+  def prepare(_record, _image_handling, _context), do: {:error, :materialized_file_required}
 
-  defp extension(%Record{name: name, mime_type: mime_type}) do
-    extension = ArtifactType.filename_extension(name)
-
-    selected =
-      cond do
-        ArtifactType.nonspecific_mime?(mime_type) -> extension
-        ArtifactType.compatible_extension?(mime_type, extension) -> extension
-        true -> ArtifactType.canonical_extension(mime_type)
-      end
-
-    if selected in @input_extensions,
-      do: {:ok, selected},
-      else: {:error, :unsupported_document_format}
-  end
+  defp supported_extension(extension) when extension in @input_extensions, do: :ok
+  defp supported_extension(_extension), do: {:error, :unsupported_document_format}
 
   defp image_mode(".pdf", mode) when mode in [nil, "describe"], do: {:ok, :describe}
 
@@ -68,58 +67,105 @@ defmodule Zaq.Ingestion.DocumentConversion do
   defp image_mode(extension, nil) when extension in @text_extensions, do: {:ok, :none}
   defp image_mode(_extension, _mode), do: {:error, :unsupported_image_handling}
 
-  defp encoding(%Record{attributes: attrs}) when is_map(attrs),
-    do: Map.get(attrs, "encoding", Map.get(attrs, :encoding))
+  @doc "Converts private input from `prepare/3` on the Ingestion node."
+  @spec convert_prepared(map()) :: {:ok, map()} | {:error, atom()}
+  def convert_prepared(%{
+        bytes: bytes,
+        extension: extension,
+        image_mode: mode,
+        source: %{record_id: id} = source
+      })
+      when is_binary(id) and is_binary(bytes) and byte_size(bytes) <= @max_input_bytes and
+             extension in @input_extensions do
+    record = %Record{id: id, kind: :file}
 
-  defp encoding(%Record{}), do: nil
+    result =
+      TemporaryMaterializationStore.with_original(record, bytes, extension, fn stored ->
+        read_file(stored.absolute_path, conversion_options(stored.root_path, mode))
+      end)
 
-  defp decode(content, "base64") when byte_size(content) > @max_base64_bytes,
-    do: {:error, :document_too_large}
-
-  defp decode(content, "base64") do
-    case Base.decode64(content) do
-      {:ok, bytes} -> check_size(bytes)
-      :error -> {:error, :invalid_document_encoding}
-    end
-  end
-
-  defp decode(content, nil), do: check_size(content)
-  defp decode(_content, _encoding), do: {:error, :invalid_document_encoding}
-
-  defp check_size(bytes) when byte_size(bytes) > @max_input_bytes,
-    do: {:error, :document_too_large}
-
-  defp check_size(bytes), do: {:ok, bytes}
-
-  defp convert(bytes, extension, mode) do
-    suffix = Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
-    root = Path.join(System.tmp_dir!(), "zaq_conversion_" <> suffix)
-
-    case File.mkdir(root) do
-      :ok ->
-        try do
-          convert_in_directory(root, bytes, extension, mode)
-        after
-          File.rm_rf(root)
-        end
+    with {:ok, markdown} <- result, {:ok, markdown} <- finalize(markdown, mode) do
+      {:ok,
+       %{
+         content: markdown,
+         name: markdown_name(source[:name]),
+         mime_type: "text/markdown",
+         source: source
+       }}
+    else
+      {:error, reason} = error
+      when reason in [:image_description_unavailable, :markdown_too_large] ->
+        error
 
       {:error, _reason} ->
         {:error, :document_conversion_failed}
     end
   end
 
-  defp convert_in_directory(root, bytes, extension, mode) do
-    input_path = Path.join(root, "document" <> extension)
-    opts = conversion_options(root, mode)
+  def convert_prepared(_input), do: {:error, :document_conversion_failed}
 
-    with :ok <- File.chmod(root, 0o700),
-         :ok <- File.write(input_path, bytes),
-         {:ok, markdown} <- DocumentProcessor.read_as_markdown(input_path, opts) do
-      finalize(markdown, mode)
-    else
-      {:error, :image_description_unavailable} = error -> error
-      {:error, _reason} -> {:error, :document_conversion_failed}
+  @doc """
+  Converts a trusted local file without indexing it. The caller owns its scratch
+  files. Ingestion can report PDF progress, and does not require vision for PDF.
+  """
+  @spec read_file(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def read_file(path, opts) do
+    output = Path.rootname(path) <> ".md"
+
+    case path |> Path.extname() |> String.downcase() do
+      ".pdf" ->
+        pipeline = Zaq.Config.get(:zaq, :pdf_pipeline_module, Pipeline, opts)
+
+        pipeline_opts =
+          Keyword.take(opts, [:on_progress, :images_dir, :require_image_descriptions])
+
+        read_converted(pipeline.run(path, pipeline_opts), output)
+
+      ".docx" ->
+        convert_office(path, output, opts, :docx_to_md_module, DocxToMd)
+
+      ".pptx" ->
+        convert_office(path, output, opts, :pptx_to_md_module, PptxToMd)
+
+      ".xlsx" ->
+        convert_office(path, output, opts, :xlsx_to_md_module, XlsxToMd)
+
+      extension when extension in [".png", ".jpg", ".jpeg"] ->
+        ImageMarkdown.convert(path, output, opts)
+
+      ".csv" ->
+        with {:ok, text} <- read_text(path) do
+          rows = CSVParser.parse_string(text, skip_headers: false)
+          {:ok, rows_to_markdown_table(rows)}
+        end
+
+      _extension ->
+        read_text(path)
     end
+  end
+
+  defp convert_office(path, output, opts, config_key, default) do
+    converter = Zaq.Config.get(:zaq, config_key, default, opts)
+    read_converted(converter.run(path, output), output)
+  end
+
+  defp read_converted({:ok, _}, output), do: read_text(output)
+  defp read_converted(error, _output), do: error
+
+  defp read_text(path) do
+    with {:ok, content} <- File.read(path), do: {:ok, FTSBackend.sanitize_utf8_text(content)}
+  end
+
+  defp rows_to_markdown_table([]), do: ""
+
+  defp rows_to_markdown_table([header | rest]) do
+    header_row = "| " <> Enum.map_join(header, " | ", &to_string/1) <> " |"
+    separator = "|" <> Enum.map_join(header, "|", fn _ -> " --- " end) <> "|"
+
+    data_rows =
+      Enum.map(rest, fn row -> "| " <> Enum.map_join(row, " | ", &to_string/1) <> " |" end)
+
+    Enum.join([header_row, separator | data_rows], "\n")
   end
 
   defp conversion_options(root, :describe) do

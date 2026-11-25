@@ -8,7 +8,9 @@ defmodule Zaq.Agent.Tools.Ingestion.ConvertDocumentToMarkdownTest do
   alias Zaq.Event
   alias Zaq.Ingestion.Api
   alias Zaq.Ingestion.{Document, DocumentConversion, IngestJob}
+  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Ingestion.Python.Pipeline
+  alias Zaq.Ingestion.RecordSource
   alias Zaq.Repo
 
   @fixtures Path.expand("../../../../fixtures/offline_conversion", __DIR__)
@@ -16,9 +18,9 @@ defmodule Zaq.Agent.Tools.Ingestion.ConvertDocumentToMarkdownTest do
   defmodule IngestionRouter do
     import ExUnit.Assertions
 
-    def dispatch(%Event{actor: actor, opts: opts, request: %{record: record}} = event) do
+    def dispatch(%Event{actor: actor, opts: opts, request: %{source: source}} = event) do
       assert opts[:confidential]
-      if record.id == "downloaded", do: assert(actor == %{person_id: "actor-1"})
+      if source.record_id == "downloaded", do: assert(actor == %{person_id: "actor-1"})
       Api.handle_event(event, opts[:action], %{})
     end
   end
@@ -122,11 +124,107 @@ defmodule Zaq.Agent.Tools.Ingestion.ConvertDocumentToMarkdownTest do
       kind: :file,
       name: "budget.xlsx",
       mime_type: "text/csv; charset=utf-8",
-      content: "Item,Amount\nOrchard,15\n"
+      content: "Item,Amount\nOrchard,15\n",
+      attributes: %{"encoding" => "utf-8"}
     }
 
     assert {:ok, %{name: "budget.md", content: markdown}} = convert(record)
     assert markdown =~ "| Orchard | 15 |"
+  end
+
+  test "round-trips producer UTF-8 downloads through a serialized workflow value" do
+    for {mime_type, input, expected} <- [
+          {"text/csv", "Name,Count\nÉrable,2\n", "| Érable | 2 |"},
+          {"text/markdown", "# Résumé\n", "# Résumé\n"}
+        ] do
+      assert {:ok, record} =
+               Provenance.seal(%Record{
+                 id: "export",
+                 kind: :file,
+                 mime_type: mime_type,
+                 content: input,
+                 attributes: %{"encoding" => "utf-8"}
+               })
+
+      assert {:ok, result} = DownloadDocument.validate_output(%{record: record})
+      resumed = result |> Jason.encode!() |> Jason.decode!()
+      context = %{node_router: IngestionRouter}
+
+      assert {:ok, %{content: markdown}} =
+               Jido.Exec.run(ConvertDocumentToMarkdown, resumed, context)
+
+      assert markdown =~ expected
+    end
+  end
+
+  test "records nested decode lifecycle without tracing the encoded or decoded payload" do
+    parent = self()
+    text = "# Confidential title"
+    data = Base.encode64(text, padding: false)
+
+    record = %Record{
+      id: "notes",
+      kind: :file,
+      name: "notes.md",
+      content: "\n#{data}\n",
+      attributes: %{"encoding" => "base64"}
+    }
+
+    context = %{
+      node_router: IngestionRouter,
+      tool_call_id: "convert",
+      on_tool_event: &send(parent, &1)
+    }
+
+    assert {:ok, %{content: ^text}} =
+             Jido.Exec.run(ConvertDocumentToMarkdown, %{record: record}, context)
+
+    assert_received %{kind: :tool_started, tool_name: "decode_base64", data: started}
+    assert_received %{kind: :tool_completed, tool_name: "decode_base64", data: completed}
+    assert started.parent_id == "convert"
+    assert completed.outcome == "succeeded"
+
+    for event <- [started, completed],
+        payload <- [text, data],
+        do: refute(inspect(event) =~ payload)
+  end
+
+  test "ingestion and standalone conversion produce the same CSV Markdown from a binary download" do
+    record = %Record{
+      id: "shared",
+      kind: :file,
+      name: "shared.xlsx",
+      mime_type: "text/csv",
+      content: Base.encode64("Fruit,Count\nÉrable,2\n"),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    assert {:ok, source} =
+             Provenance.seal(%Record{
+               id: "shared",
+               kind: :file,
+               name: "shared.xlsx",
+               attributes: %{
+                 "provider" => "google_drive",
+                 "config_id" => "1",
+                 "provider_record_id" => "shared"
+               }
+             })
+
+    assert {:ok, %{content: markdown}} = convert(record)
+    refute Repo.exists?(Document)
+
+    Mox.expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.opts[:action] == :data_source_download_document
+      %{event | response: {:ok, %{record: record}}}
+    end)
+
+    assert {:ok, staged} = RecordSource.materialize(source, %{node_router: Zaq.NodeRouterMock})
+    on_exit(fn -> Enum.each(staged.cleanup_paths, &File.rm_rf/1) end)
+    assert Path.extname(staged.path) == ".csv"
+
+    assert {:ok, %Document{content: ^markdown}, [_ | _]} =
+             DocumentProcessor.prepare_file_chunks(staged.path, staged.processor_opts)
   end
 
   test "passes through a Markdown download without a converter or image mode" do

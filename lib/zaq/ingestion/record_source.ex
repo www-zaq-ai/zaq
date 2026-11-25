@@ -15,6 +15,8 @@ defmodule Zaq.Ingestion.RecordSource do
   and row/plain-text downloads continue to use Markdown.
   """
 
+  alias Zaq.Agent.Tools.ActionContract
+  alias Zaq.Agent.Tools.General.DecodeBase64
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Event
@@ -88,7 +90,7 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp materialize_external(%Record{} = record, context) do
     with {:ok, %{record: %Record{} = downloaded}} <- download_external(record, context),
-         {:ok, stored} <- store_download(record, downloaded) do
+         {:ok, stored} <- store_download(record, downloaded, context) do
       source = ExternalSource.source(record)
 
       {:ok,
@@ -137,34 +139,85 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
-  defp store_download(record, %Record{content: rows}) when is_list(rows) do
+  defp store_download(record, %Record{content: rows}, _context) when is_list(rows) do
     record
     |> TemporaryMaterializationStore.write_markdown(rows_to_markdown(rows))
     |> with_cleanup_root()
   end
 
-  defp store_download(record, %Record{content: content} = downloaded)
+  defp store_download(record, %Record{content: content} = downloaded, context)
        when is_binary(content) do
-    encoding = attr(downloaded, "encoding") || attr(downloaded, :encoding)
+    extension =
+      if download_encoding(downloaded) == "base64",
+        do: download_extension(record, downloaded),
+        else: ".md"
 
-    if encoding == "base64" do
-      with {:ok, binary} <- Base.decode64(content),
-           {:ok, stored} <-
-             TemporaryMaterializationStore.write_original(
-               record,
-               binary,
-               extension_for(record, downloaded)
-             ) do
-        {:ok, Map.put(stored, :cleanup_paths, [stored.root_path])}
-      end
-    else
+    with {:ok, bytes} <- download_bytes(downloaded, :ingestion, context) do
       record
-      |> TemporaryMaterializationStore.write_markdown(content)
+      |> TemporaryMaterializationStore.write_original(bytes, extension)
       |> with_cleanup_root()
     end
   end
 
-  defp store_download(_record, _downloaded), do: {:error, :unsupported_downloaded_record}
+  defp store_download(_record, _downloaded, _context),
+    do: {:error, :unsupported_downloaded_record}
+
+  @doc """
+  Reads bytes from a retrieved Record without exposing the decoded value as an
+  Action result. Ingestion keeps its padded Base64 and text fallback contract;
+  standalone conversion accepts the decoder's standard alphabet semantics and
+  enforces the configured byte limit before and after decoding.
+  """
+  @spec download_bytes(Record.t(), :ingestion | {:conversion, pos_integer()}, map()) ::
+          {:ok, binary()} | {:error, atom()} | :error
+  def download_bytes(%Record{content: content} = record, mode, context) when is_binary(content) do
+    case {download_encoding(record), mode} do
+      {"base64", :ingestion} ->
+        decode_ingestion_base64(content, context)
+
+      {"base64", {:conversion, max_bytes}} ->
+        with :ok <- check_size(content, div(max_bytes + 2, 3) * 4),
+             {:ok, bytes} <- decode_base64(content, context),
+             :ok <- check_size(bytes, max_bytes) do
+          {:ok, bytes}
+        end
+
+      {_encoding, :ingestion} ->
+        {:ok, content}
+
+      {encoding, {:conversion, max_bytes}} when encoding in [nil, "utf-8"] ->
+        with :ok <- check_size(content, max_bytes), do: {:ok, content}
+
+      {_encoding, {:conversion, _max_bytes}} ->
+        {:error, :invalid_document_encoding}
+    end
+  end
+
+  defp download_encoding(record), do: attr(record, "encoding") || attr(record, :encoding)
+
+  defp decode_ingestion_base64(content, context) do
+    with true <- padded_base64?(content),
+         {:ok, bytes} <- decode_base64(content, context) do
+      {:ok, bytes}
+    else
+      _ -> :error
+    end
+  end
+
+  defp decode_base64(content, context) do
+    case ActionContract.execute(DecodeBase64, %{data: content, variant: "standard"}, context,
+           trace_payload: false
+         ) do
+      {:ok, %{decoded: bytes}} -> {:ok, bytes}
+      _ -> {:error, :invalid_document_encoding}
+    end
+  end
+
+  defp padded_base64?(content),
+    do: rem(byte_size(content), 4) == 0 and not Regex.match?(~r/\s/, content)
+
+  defp check_size(content, max_bytes) when byte_size(content) <= max_bytes, do: :ok
+  defp check_size(_content, _max_bytes), do: {:error, :document_too_large}
 
   defp with_cleanup_root({:ok, %{root_path: root_path} = stored}),
     do: {:ok, Map.put(stored, :cleanup_paths, [root_path])}
@@ -256,7 +309,9 @@ defmodule Zaq.Ingestion.RecordSource do
     Protocol.UndefinedError -> ""
   end
 
-  defp extension_for(%Record{} = original, %Record{} = downloaded) do
+  @doc "Returns the safe extension for the downloaded representation, not the source format."
+  @spec download_extension(Record.t(), Record.t()) :: String.t()
+  def download_extension(%Record{} = original, %Record{} = downloaded) do
     extension = ArtifactType.filename_extension(downloaded.name)
     nonspecific? = ArtifactType.nonspecific_mime?(downloaded.mime_type)
     canonical_extension = ArtifactType.canonical_extension(downloaded.mime_type)

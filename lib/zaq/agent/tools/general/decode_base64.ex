@@ -24,9 +24,9 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
   The two consumers differ in what they can accept, which is why the refusal
   that used to live here is now a description hint rather than a hard error:
 
-  - **In a workflow**, the output travels along a DAG edge straight into the
-    next action. Nothing serialises it, so binary passes through intact — which
-    is the case that matters for building a file from a decoded payload.
+  - **In a persisted workflow**, step results must be JSON-safe. To use binary
+    output, compose this Action inside the operation that consumes the bytes,
+    rather than return them from a workflow step.
   - **In a ReAct turn**, the result becomes a tool message; `ReqLLM`'s
     `encode_tool_output/1` calls `Jason.encode!/1` on it, which raises on bytes
     that are not valid UTF-8. Binary genuinely cannot travel that path, and no

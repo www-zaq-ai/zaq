@@ -8,6 +8,7 @@ defmodule Zaq.Agent.Tools.Ingestion.ConvertDocumentToMarkdown do
 
   alias Jido.Action.Tool
   alias Zaq.Contracts.Record
+  alias Zaq.Ingestion.DocumentConversion
   alias Zaq.Ingestion.Events
   alias Zaq.NodeRouter
 
@@ -46,18 +47,16 @@ defmodule Zaq.Agent.Tools.Ingestion.ConvertDocumentToMarkdown do
   def on_before_validate_params(params), do: {:ok, params}
 
   @impl Jido.Action
-  def run(params, context) do
-    event =
-      params
-      |> Map.take([:record, :image_handling])
-      |> Events.build_convert_document_event(actor: context[:actor])
+  def run(%{record: record} = params, context) do
+    with {:ok, input} <- DocumentConversion.prepare(record, params[:image_handling], context) do
+      event = Events.build_convert_document_event(input, actor: context[:actor])
+      router = context[:node_router] || NodeRouter
 
-    router = context[:node_router] || NodeRouter
-
-    case router.dispatch(event).response do
-      {:ok, markdown} -> {:ok, markdown}
-      {:error, reason} when is_atom(reason) -> {:error, reason}
-      _ -> {:error, :document_conversion_failed}
+      case router.dispatch(event).response do
+        {:ok, markdown} -> {:ok, markdown}
+        {:error, reason} when is_atom(reason) -> {:error, reason}
+        _ -> {:error, :document_conversion_failed}
+      end
     end
   end
 end
