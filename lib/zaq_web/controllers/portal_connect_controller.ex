@@ -28,35 +28,37 @@ defmodule ZaqWeb.PortalConnectController do
 
   def new(conn, _params) do
     case pending_setup(conn) do
-      {:ok, _user, _token} -> render(conn, :new, error: nil)
+      {:ok, user, _token} -> render(conn, :new, username: user.username, error: nil)
       _ -> unavailable(conn)
     end
   end
 
   def create(conn, params) do
-    with {:ok, user, token} <- pending_setup(conn),
-         {:ok, password} <- validate_password(params) do
-      case Onboarding.connect_bootstrap(user, token, password) do
-        {:ok, user, job_id, confirmation} ->
-          conn
-          |> complete_session(user)
-          |> report_confirmation(confirmation)
-          |> redirect(to: ~p"/bo/connect/status/#{job_id}")
-
-        {:error, reason} when reason in [:installation_enqueue_failed, :local_setup_failed] ->
-          conn
-          |> delete_session(:portal_setup)
-          |> form_error(message(reason))
-
-        {:error, :bootstrap_unavailable} ->
-          unavailable(conn)
-
-        {:error, reason} ->
-          form_error(conn, message(reason))
-      end
-    else
+    case pending_setup(conn) do
+      {:ok, user, token} -> connect(conn, user, token, params)
       {:error, :setup_unavailable} -> unavailable(conn)
-      {:error, reason} -> form_error(conn, message(reason))
+    end
+  end
+
+  defp connect(conn, user, token, params) do
+    with {:ok, password} <- validate_password(params),
+         {:ok, registered, job_id, confirmation} <-
+           Onboarding.connect_bootstrap(user, token, password) do
+      conn
+      |> complete_session(registered)
+      |> report_confirmation(confirmation)
+      |> redirect(to: ~p"/bo/connect/status/#{job_id}")
+    else
+      {:error, reason} when reason in [:installation_enqueue_failed, :local_setup_failed] ->
+        conn
+        |> delete_session(:portal_setup)
+        |> form_error(user, reason)
+
+      {:error, :bootstrap_unavailable} ->
+        unavailable(conn)
+
+      {:error, reason} ->
+        form_error(conn, user, reason)
     end
   end
 
@@ -112,8 +114,10 @@ defmodule ZaqWeb.PortalConnectController do
     |> put_resp_header("referrer-policy", "no-referrer")
   end
 
-  defp form_error(conn, message) do
-    conn |> put_status(:unprocessable_entity) |> render(:new, error: message)
+  defp form_error(conn, user, reason) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> render(:new, username: user.username, error: message(reason))
   end
 
   defp message(:password_mismatch), do: "Passwords do not match."

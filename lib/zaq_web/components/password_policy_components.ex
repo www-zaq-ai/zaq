@@ -43,6 +43,7 @@ defmodule ZaqWeb.Components.PasswordPolicyComponents do
             class="zaq-icon-sm"
           />
           <span>{requirement.label}</span>
+          <span class="sr-only">{if(requirement.met?, do: "Met", else: "Not met")}</span>
         </li>
       </ul>
     </div>
