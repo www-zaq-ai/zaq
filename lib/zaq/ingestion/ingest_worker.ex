@@ -274,12 +274,21 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp structural_error?(:dimension_mismatch), do: true
   defp structural_error?(:no_searchable_content), do: true
+  defp structural_error?(:image_extraction_skipped), do: true
   defp structural_error?(_), do: false
 
   defp format_error(reason) when is_binary(reason), do: reason
 
   defp format_error(:no_searchable_content) do
     "No searchable text was extracted. For scanned PDFs, check the image-to-text provider credentials and retry ingestion."
+  end
+
+  defp format_error(:image_extraction_skipped) do
+    "Image-to-text extraction was skipped because it is not configured. Configure the image-to-text provider, then retry ingestion for scanned or image-only documents."
+  end
+
+  defp format_error(:image_extraction_failed) do
+    "Image-to-text extraction failed. Check the image-to-text provider credentials and endpoint, then retry ingestion."
   end
 
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)

@@ -28,7 +28,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     DocumentChunker,
     DocumentIngestionSummary,
     FTSBackend,
-    KnowledgeChunks
+    KnowledgeChunks,
+    PreparationOutcome
   }
 
   alias Zaq.Ingestion.LanguageDetector
@@ -158,33 +159,24 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Prepares a file for chunk ingestion without generating embeddings.
 
   Returns `{ :ok, document, indexed_chunk_payloads }` where payloads are
-  `{chunk_payload_map, chunk_index}` tuples.
+  `{chunk_payload_map, chunk_index}` tuples and payloads are non-empty.
 
-  Converted Markdown is stored on the primary document; any files created while
-  converting are temporary materialization artifacts owned by the caller.
+  When preparation yields no searchable chunks, returns
+  `{:error, :image_extraction_skipped}` or `{:error, :no_searchable_content}`
+  **without** upserting the document, so failed re-preparation leaves an
+  existing document unchanged.
+
+  Converted Markdown is stored on the primary document only for the happy
+  path; any files created while converting are temporary materialization
+  artifacts owned by the caller.
   """
   def prepare_file_chunks(file_path, opts \\ []) do
     Logger.info("Preparing file chunks: #{file_path}")
 
-    with {:ok, content} <- read_as_markdown(file_path, opts),
-         {:ok, source} <- extract_source(content, file_path, opts),
-         {:ok, document} <-
-           store_document(
-             content,
-             source,
-             source_metadata(opts),
-             document_title(opts)
-           ) do
-      sections = DocumentChunker.parse_layout(content, format: :markdown)
-      chunks = DocumentChunker.chunk_sections(sections)
+    case convert_classify_and_store(file_path, opts) do
+      {:ok, document, _content, indexed_payloads} ->
+        {:ok, document, indexed_payloads}
 
-      indexed_payloads =
-        chunks
-        |> Enum.with_index(1)
-        |> Enum.map(fn {chunk, index} -> {chunk_to_payload(chunk), index} end)
-
-      {:ok, document, indexed_payloads}
-    else
       {:error, reason} = error ->
         Logger.error("Failed to prepare chunks for #{file_path}: #{inspect(reason)}")
         error
@@ -194,27 +186,52 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Processes a single file and returns an ingestion report with chunk-level progress.
 
-  Converted Markdown is stored on the primary document.
+  Converted Markdown is stored on the primary document only when preparation
+  yields searchable chunks. Empty/skipped preparation returns
+  `{:error, atom}` without upserting or deleting existing chunks.
   """
   def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")
 
+    case convert_classify_and_store(file_path, opts) do
+      {:ok, document, content, _indexed_payloads} ->
+        case process_and_store_chunks_report(content, document.id, opts) do
+          {:ok, report} ->
+            Logger.info("Successfully processed: #{document.source}")
+            {:ok, document, report}
+
+          {:error, reason} = error ->
+            Logger.error("Failed to process #{file_path}: #{inspect(reason)}")
+            error
+        end
+
+      {:error, reason} = error ->
+        Logger.error("Failed to process #{file_path}: #{inspect(reason)}")
+        error
+    end
+  end
+
+  # Shared async/sync preparation gate: classify empty outcomes before
+  # Document.upsert and before any chunk reset/delete.
+  defp convert_classify_and_store(file_path, opts) do
+    {opts, take_outcome} = capture_preparation_outcome(opts)
+
     with {:ok, content} <- read_as_markdown(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
+         indexed_payloads = build_indexed_payloads(content),
+         :ok <-
+           PreparationOutcome.classify(%{
+             payloads_empty?: indexed_payloads == [],
+             image_to_text: Map.get(take_outcome.(), :image_to_text)
+           }),
          {:ok, document} <-
            store_document(
              content,
              source,
              source_metadata(opts),
              document_title(opts)
-           ),
-         {:ok, report} <- process_and_store_chunks_report(content, document.id, opts) do
-      Logger.info("Successfully processed: #{source}")
-      {:ok, document, report}
-    else
-      {:error, reason} = error ->
-        Logger.error("Failed to process #{file_path}: #{inspect(reason)}")
-        error
+           ) do
+      {:ok, document, content, indexed_payloads}
     end
   end
 
@@ -286,11 +303,51 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp convert_pdf(file_path, md_path, opts) do
-    with {:ok, _} <- pdf_pipeline_module().run(file_path, Keyword.take(opts, [:on_progress])),
+    pipeline_opts = Keyword.take(opts, [:on_progress, :on_preparation_outcome])
+
+    with {:ok, _} <- pdf_pipeline_module().run(file_path, pipeline_opts),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
       {:ok, FTSBackend.sanitize_utf8_text(raw)}
     end
+  end
+
+  defp build_indexed_payloads(content) do
+    content
+    |> DocumentChunker.parse_layout(format: :markdown)
+    |> DocumentChunker.chunk_sections()
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chunk, index} -> {chunk_to_payload(chunk), index} end)
+  end
+
+  # Captures Pipeline optional-step outcomes for empty-payload classification.
+  # Uses a same-process mailbox message so non-PDF paths (no callback) yield %{}.
+  defp capture_preparation_outcome(opts) do
+    parent = self()
+    ref = make_ref()
+    user_cb = Keyword.get(opts, :on_preparation_outcome)
+
+    capture_cb = fn outcome ->
+      send(parent, {ref, outcome})
+
+      if is_function(user_cb, 1) do
+        user_cb.(outcome)
+      end
+
+      :ok
+    end
+
+    opts = Keyword.put(opts, :on_preparation_outcome, capture_cb)
+
+    take_outcome = fn ->
+      receive do
+        {^ref, outcome} when is_map(outcome) -> outcome
+      after
+        0 -> %{}
+      end
+    end
+
+    {opts, take_outcome}
   end
 
   defp convert_docx(file_path, md_path) do

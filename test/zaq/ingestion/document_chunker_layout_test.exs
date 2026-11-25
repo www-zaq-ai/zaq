@@ -278,6 +278,17 @@ defmodule Zaq.Ingestion.DocumentChunkerLayoutTest do
       assert hd(figures).title == "chart.png"
     end
 
+    test "discards whitespace-only vision descriptions and keeps the following figure" do
+      md =
+        "> **[Image: blank.png]**\n> \t\n>  \n\n" <>
+          "> **[Image: chart.png]** Revenue trend."
+
+      assert [%{type: :figure, title: "chart.png", content: content}] =
+               DocumentChunker.parse_layout(md)
+
+      assert content =~ "Revenue trend."
+    end
+
     test "vision image with blank filename keeps blank title" do
       md = """
       > **[Image: ]**
