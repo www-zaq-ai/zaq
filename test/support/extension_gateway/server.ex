@@ -64,6 +64,13 @@ defmodule Zaq.ExtensionGateway.Server do
 
   defp stream_response({:frame, frame}, _id, _gateway), do: frame
 
+  defp stream_response({:health_version, version}, id, gateway),
+    do: %GatewayEnvelope{
+      request_id: id,
+      protocol_version: version,
+      payload: {:health_response, reply({:ok, "ok"}, gateway)}
+    }
+
   defp stream_response(response, id, gateway),
     do: envelope(id, {:health_response, reply(response, gateway)})
 

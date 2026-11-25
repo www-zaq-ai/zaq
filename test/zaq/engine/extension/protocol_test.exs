@@ -3,7 +3,13 @@ defmodule Zaq.Engine.Extension.ProtocolTest do
   use ExUnitProperties
 
   alias Zaq.Engine.Extension.Protocol
-  alias Zaq.Engine.Extension.Rpc.Gateway.V1.{GatewayEnvelope, GatewayHello}
+
+  alias Zaq.Engine.Extension.Rpc.Gateway.V1.{
+    GatewayEnvelope,
+    GatewayHello,
+    HealthResponse,
+    ProtocolError
+  }
 
   property "negotiation never raises the local ceiling or accepts an unimplemented version" do
     check all(
@@ -32,5 +38,40 @@ defmodule Zaq.Engine.Extension.ProtocolTest do
         assert {:error, :incompatible_protocol} == Protocol.negotiate(frame, id)
       end
     end
+  end
+
+  property "ready-state validation accepts only version one envelopes" do
+    id = Ecto.UUID.generate()
+
+    valid = %GatewayEnvelope{
+      request_id: id,
+      protocol_version: 1,
+      payload: {:health_response, %HealthResponse{status: "ok"}}
+    }
+
+    assert :ok = Protocol.validate(valid)
+
+    check all(version <- integer(2..4_294_967_295), max_runs: 50) do
+      assert {:error, :incompatible_protocol} =
+               Protocol.validate(%{valid | protocol_version: version})
+    end
+
+    assert {:error, :incompatible_protocol} = Protocol.validate(%{valid | protocol_version: 0})
+  end
+
+  test "a concrete unsupported version is rejected using a version-one envelope" do
+    id = Ecto.UUID.generate()
+
+    assert {:error, :incompatible_protocol} =
+             Protocol.validate(%GatewayEnvelope{
+               request_id: id,
+               protocol_version: 2
+             })
+
+    assert %{
+             request_id: ^id,
+             protocol_version: 1,
+             payload: {:error, %ProtocolError{code: :INCOMPATIBLE_PROTOCOL}}
+           } = Protocol.reject(id, :incompatible_protocol)
   end
 end

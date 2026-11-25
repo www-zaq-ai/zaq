@@ -2,11 +2,26 @@ defmodule Zaq.Engine.ExtensionTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Engine.Extension
+  alias Zaq.Engine.Extension.Health
 
   test "unconfigured runtime is immediately readable and does not start probes" do
     runtime = start_supervised!({Extension, name: nil, settings: []})
     assert %{status: :unconfigured, checked_at: nil} = Extension.snapshot(server: runtime)
     assert %{response_time_ms: nil} = Extension.snapshot(server: runtime)
+  end
+
+  test "a missing runtime has the exact unavailable health snapshot" do
+    runtime = start_supervised!({Extension, name: nil, settings: []})
+    monitor = Process.monitor(runtime)
+    stop_supervised!(Extension)
+    assert_receive {:DOWN, ^monitor, :process, ^runtime, _reason}
+
+    assert %Health{
+             status: :unreachable,
+             reason: :runtime_unavailable,
+             checked_at: nil,
+             response_time_ms: nil
+           } = Extension.snapshot(server: runtime)
   end
 
   test "invalid configuration cannot prevent runtime startup" do

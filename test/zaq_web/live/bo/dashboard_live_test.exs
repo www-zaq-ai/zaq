@@ -9,6 +9,10 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   alias Zaq.Accounts
   alias Zaq.Accounts.User
   alias Zaq.Addons.FeatureStore
+  alias Zaq.Engine.Extension
+  alias Zaq.Engine.Extension.Health
+  alias Zaq.Event
+  alias Zaq.ExtensionGateway
   alias Zaq.Repo
 
   setup %{conn: conn} do
@@ -24,6 +28,213 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     end)
 
     %{conn: conn, user: user}
+  end
+
+  describe "extension health recovery" do
+    test "a failed Engine read clears previously healthy timing", %{conn: conn, user: user} do
+      start_extension_health_fixture()
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      assert_healthy_extension_health(view)
+
+      {:ok, _user} = Accounts.update_user(user, %{must_change_password: true})
+      :erlang.trace(view.pid, true, [:receive])
+
+      on_exit(fn ->
+        safely_disable_receive_trace(view.pid)
+      end)
+
+      send(view.pid, :refresh_extension_health)
+
+      assert_receive {:trace, view_pid, :receive,
+                      {:phoenix, :async_result,
+                       {:start,
+                        {_async_ref, nil, :extension_health,
+                         {:ok, %Event{response: {:error, :unauthorized}}}}}}},
+                     3_000
+
+      assert view_pid == view.pid
+      :sys.get_state(view.pid)
+      assert_unreachable_extension_health(view)
+      assert has_element?(view, "#dashboard-metric-documents-ingested[href='/bo/ingestion']")
+    end
+
+    test "a cancelled deadline cannot erase a later healthy result", %{conn: conn, user: user} do
+      start_extension_health_fixture()
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      assert_healthy_extension_health(view)
+
+      parent = self()
+      gate_token = make_ref()
+      handler_id = {:dashboard_extension_query_gate, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:zaq, :repo, :query],
+          fn _event, _measurements, metadata, _config ->
+            if extension_health_user_query?(metadata, user.id, view.pid) do
+              worker = self()
+              owner_ref = Process.monitor(parent)
+              send(parent, {:extension_health_query_gated, gate_token, worker})
+
+              try do
+                receive do
+                  {:release_extension_health_query, ^gate_token} -> :ok
+                  {:DOWN, ^owner_ref, :process, ^parent, _reason} -> :ok
+                after
+                  10_000 -> :ok
+                end
+              after
+                Process.demonitor(owner_ref, [:flush])
+              end
+            end
+          end,
+          nil
+        )
+
+      :erlang.trace(view.pid, true, [:receive])
+
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+        safely_disable_receive_trace(view.pid)
+      end)
+
+      send(view.pid, :refresh_extension_health)
+      :sys.get_state(view.pid)
+      first_worker = await_gated_extension_health_read(gate_token)
+      first_monitor = Process.monitor(first_worker)
+
+      assert has_element?(view, "#dashboard-metric-documents-ingested[href='/bo/ingestion']")
+
+      assert_receive {:trace, view_pid, :receive, {:extension_health_timeout, timed_out_ref}},
+                     3_000
+
+      assert view_pid == view.pid
+
+      assert_receive {:DOWN, ^first_monitor, :process, ^first_worker, {:shutdown, :cancel}},
+                     3_000
+
+      assert_receive {:trace, ^view_pid, :receive,
+                      {{Phoenix.LiveView.Async, :extension_health, nil, :start}, _async_ref,
+                       :process, ^first_worker, {:shutdown, :cancel}}},
+                     3_000
+
+      :sys.get_state(view.pid)
+      assert_unreachable_extension_health(view)
+
+      send(view.pid, :refresh_extension_health)
+      :sys.get_state(view.pid)
+      recovery_worker = await_gated_extension_health_read(gate_token)
+      refute recovery_worker == first_worker
+      recovery_monitor = Process.monitor(recovery_worker)
+
+      send(view.pid, {:extension_health_timeout, timed_out_ref})
+      :sys.get_state(view.pid)
+      send(recovery_worker, {:release_extension_health_query, gate_token})
+
+      assert_receive {:trace, ^view_pid, :receive,
+                      {:phoenix, :async_result,
+                       {:start,
+                        {_async_ref, nil, :extension_health,
+                         {:ok,
+                          %Event{
+                            response: {:ok, %Health{status: :healthy, response_time_ms: 17}}
+                          }}}}}},
+                     3_000
+
+      :sys.get_state(view.pid)
+      assert_healthy_extension_health(view)
+      Process.demonitor(recovery_monitor, [:flush])
+    end
+  end
+
+  defp start_extension_health_fixture do
+    directory =
+      Path.join(System.tmp_dir!(), "dashboard-extension-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(directory) end)
+
+    settings = ExtensionGateway.certificates!(directory)
+    gateway = ExtensionGateway.start!(directory)
+    on_exit(fn -> ExtensionGateway.stop(gateway) end)
+    owner = self()
+    calls = :atomics.new(1, [])
+
+    clock = fn ->
+      case :atomics.add_get(calls, 1, 1) do
+        1 ->
+          0
+
+        2 ->
+          17
+
+        3 ->
+          send(owner, {:extension_health_snapshot_committed, self()})
+          17
+
+        _ ->
+          17
+      end
+    end
+
+    runtime =
+      start_supervised!(
+        {Extension, name: nil, settings: settings, clock: clock, poll_interval_ms: 30_000}
+      )
+
+    assert_receive {:extension_health_snapshot_committed, ^runtime}, 3_000
+    assert %{status: :healthy, response_time_ms: 17} = Extension.snapshot(server: runtime)
+
+    original_runtime = Application.fetch_env(:zaq, :extension_runtime)
+
+    on_exit(fn ->
+      case original_runtime do
+        {:ok, value} -> Application.put_env(:zaq, :extension_runtime, value)
+        :error -> Application.delete_env(:zaq, :extension_runtime)
+      end
+    end)
+
+    Application.put_env(:zaq, :extension_runtime, runtime)
+    :ok
+  end
+
+  defp assert_healthy_extension_health(view) do
+    render_async(view, 3_000)
+    assert has_element?(view, "#dashboard-extension-health[data-status='healthy']")
+    assert has_element?(view, "#dashboard-extension-health time")
+    assert has_element?(view, "#dashboard-extension-health", "17 ms")
+  end
+
+  defp assert_unreachable_extension_health(view) do
+    assert has_element?(
+             view,
+             "#dashboard-extension-health[data-status='unreachable']",
+             "Gateway or Engine unavailable; retrying."
+           )
+
+    refute has_element?(view, "#dashboard-extension-health time")
+    refute has_element?(view, "#dashboard-extension-health", "·")
+  end
+
+  defp await_gated_extension_health_read(gate_token) do
+    assert_receive {:extension_health_query_gated, ^gate_token, worker}, 3_000
+    worker
+  end
+
+  defp extension_health_user_query?(metadata, user_id, live_view_pid) do
+    query = Map.get(metadata, :query, "")
+    params = Map.get(metadata, :params, [])
+    callers = Process.get(:"$callers", [])
+
+    is_binary(query) and
+      String.contains?(query, "FROM \"users\"") and
+      user_id in params and
+      live_view_pid in callers
+  end
+
+  defp safely_disable_receive_trace(pid) do
+    if Process.alive?(pid), do: :erlang.trace(pid, false, [:receive])
+    :ok
   end
 
   describe "mount" do

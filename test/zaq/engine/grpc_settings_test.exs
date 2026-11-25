@@ -5,6 +5,7 @@ defmodule Zaq.Engine.GrpcSettingsTest do
 
   alias Zaq.Engine.{Extension, GrpcSettings}
   alias Zaq.ExtensionGateway
+  alias Zaq.Repo
   alias Zaq.System, as: SystemConfig
 
   @mib 1_048_576
@@ -35,6 +36,56 @@ defmodule Zaq.Engine.GrpcSettingsTest do
     {:ok, _} = SystemConfig.set_config("system.global.grpc_max_message_bytes", "broken")
     assert capture_log(fn -> assert :ok = GrpcSettings.load() end) =~ "gRPC message limit"
     assert Application.get_env(:grpc, :max_message_length) == 64 * @mib
+  end
+
+  test "unavailable storage logs a safe warning and uses the bounded startup default" do
+    Application.put_env(:grpc, :max_message_length, 8 * @mib)
+    unavailable_repo = :grpc_settings_unavailable_repo
+    assert Process.whereis(unavailable_repo) == nil
+    parent = self()
+
+    {worker, monitor} =
+      spawn_monitor(fn ->
+        previous_repo = Repo.get_dynamic_repo()
+
+        try do
+          Repo.put_dynamic_repo(unavailable_repo)
+
+          lookup_error =
+            assert_raise RuntimeError, fn ->
+              SystemConfig.get_grpc_max_message_bytes()
+            end
+
+          log =
+            capture_log(
+              [level: :warning],
+              fn -> Process.put(:grpc_load_result, GrpcSettings.load()) end
+            )
+
+          result = Process.delete(:grpc_load_result)
+
+          send(
+            parent,
+            {:unavailable_storage_result, self(), result, log, Exception.message(lookup_error)}
+          )
+        after
+          Repo.put_dynamic_repo(previous_repo)
+        end
+      end)
+
+    try do
+      assert_receive {:unavailable_storage_result, ^worker, :ok, log, lookup_error}, 2_000
+
+      assert log =~
+               "Invalid or unavailable gRPC message limit; using the 64 MiB startup default"
+
+      refute log =~ Atom.to_string(unavailable_repo)
+      refute log =~ lookup_error
+      assert Application.get_env(:grpc, :max_message_length) == 67_108_864
+      assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}, 2_000
+    after
+      if Process.alive?(worker), do: Process.exit(worker, :kill)
+    end
   end
 
   test "the encrypted stream advertises the loaded limit and rejects a larger frame prefix" do

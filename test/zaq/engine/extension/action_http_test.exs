@@ -52,15 +52,17 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
       receipt_timeout_ms: 5_000
     }
 
+    capabilities = Map.get(context, :capabilities, ["health.v1", "actions.v1"])
+
     gateway =
       ExtensionGateway.start!(directory,
         hello:
           {:hello,
            %GatewayHello{
              selected_version: 1,
-             capabilities: ["health.v1", "actions.v1"],
+             capabilities: capabilities,
              max_envelope_bytes: 262_144,
-             action_limits: limits
+             action_limits: if("actions.v1" in capabilities, do: limits)
            }}
       )
 
@@ -83,6 +85,20 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
     assert_receive {:gateway_request, ^gateway, _, _}, 2_000
     Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
     %{gateway: gateway, runtime: runtime, url: "http://127.0.0.1:#{port}/private"}
+  end
+
+  @tag capabilities: ["health.v1"]
+  test "health-only peers reject Action requests and reconnect without dispatching HTTP",
+       %{gateway: gateway, url: url} do
+    # setup's gateway_request is the completed negotiation barrier.
+    assert_receive {:gateway_connected, ^gateway, initial}, 2_000
+    id = invoke(gateway, "general.http_request", %{method: "GET", url: url}, :ASYNC)
+    assert_receive {:gateway_rejection, ^gateway, %{code: :UNSUPPORTED_OPERATION}}, 2_000
+    assert_receive {:gateway_connected, ^gateway, replacement}, 2_000
+    refute replacement == initial
+    assert_receive {:gateway_request, ^gateway, ^replacement, _}, 2_000
+    refute_receive {:gateway_action_reply, ^gateway, ^id, _}, 100
+    refute_receive {:http_waiting, _}, 100
   end
 
   test "a real Channels HTTP Action can wait while another invocation finishes without leaking either hop",

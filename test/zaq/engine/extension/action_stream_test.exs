@@ -61,7 +61,7 @@ defmodule Zaq.Engine.Extension.ActionStreamTest do
     end)
 
     assert_receive {:gateway_request, ^gateway, _, _}, 2_000
-    %{gateway: gateway, runtime: runtime}
+    %{gateway: gateway, runtime: runtime, action_supervisor: action_supervisor}
   end
 
   test "encrypted stream lists metadata, describes schemas and executes through Registry/Jido", %{
@@ -130,6 +130,53 @@ defmodule Zaq.Engine.Extension.ActionStreamTest do
     receipt(gateway, id, 2)
   end
 
+  test "an absent nested Action operation is rejected and reconnects", %{gateway: gateway} do
+    assert_unsupported_operation_reconnect(gateway, %ActionRequest{
+      timeout_ms: 1_000,
+      operation: nil
+    })
+  end
+
+  test "an unknown nested Action operation is rejected and reconnects", %{gateway: gateway} do
+    assert_unsupported_operation_reconnect(gateway, %ActionRequest{
+      timeout_ms: 1_000,
+      operation: nil,
+      __unknown_fields__: [{13, 2, <<>>}]
+    })
+  end
+
+  test "a wrong protocol version is rejected before Action dispatch", %{
+    gateway: gateway,
+    action_supervisor: action_supervisor
+  } do
+    assert_receive {:gateway_connected, ^gateway, old_handler}, 2_000
+    handler_monitor = Process.monitor(old_handler)
+    :erlang.trace(action_supervisor, true, [:procs, {:tracer, self()}])
+
+    try do
+      id =
+        request(
+          gateway,
+          {:execute,
+           %ExecuteAction{
+             key: "arithmetic.add",
+             arguments_json: ~s({"value":1.0,"amount":2.0}),
+             mode: :ASYNC
+           }},
+          protocol_version: 2
+        )
+
+      assert_receive {:gateway_rejection, ^gateway, %{code: :INCOMPATIBLE_PROTOCOL}}, 2_000
+      assert_receive {:DOWN, ^handler_monitor, :process, ^old_handler, _}, 2_000
+      barrier = :erlang.trace_delivered(action_supervisor)
+      assert_receive {:trace_delivered, ^action_supervisor, ^barrier}, 2_000
+      refute_receive {:trace, ^action_supervisor, :spawn, _, _}, 0
+      refute_receive {:gateway_action_reply, ^gateway, ^id, _}, 100
+    after
+      :erlang.trace(action_supervisor, false, [:all])
+    end
+  end
+
   test "duplicate active IDs reject the stream rather than settling the original invocation twice",
        %{gateway: gateway} do
     id = request(gateway, {:list, %ListActions{}})
@@ -172,6 +219,86 @@ defmodule Zaq.Engine.Extension.ActionStreamTest do
     receipt(gateway, next_id, 2)
   end
 
+  @tag limits: %{
+         max_reply_envelope_bytes: 512,
+         max_unreceipted_bytes: 1_024,
+         max_unreceipted_replies: 2
+       }
+  test "an encoded envelope exceeding its reservation restores credit for the next async action",
+       %{
+         gateway: gateway
+       } do
+    input = String.duplicate("x", 372)
+    arguments_json = Jason.encode!(%{"data" => input})
+    result_json = Jason.encode!(%{"encoded" => Base.encode64(input)})
+    assert byte_size(result_json) <= 512
+
+    oversized_id =
+      request(
+        gateway,
+        {:execute,
+         %ExecuteAction{
+           key: "general.encode_base64",
+           arguments_json: arguments_json,
+           mode: :SYNC
+         }}
+      )
+
+    assert_receive {:gateway_action_reply, ^gateway, ^oversized_id,
+                    %{sequence: 1, outcome: {:failure, failure}}},
+                   2_000
+
+    assert failure.code == :RESULT_TOO_LARGE
+    assert failure.effects_may_have_occurred
+
+    refute_receive {:gateway_action_reply, ^gateway, ^oversized_id, %{outcome: {:relayed, _}}},
+                   100
+
+    receipt(gateway, oversized_id, 1)
+
+    next_id =
+      request(
+        gateway,
+        {:execute,
+         %ExecuteAction{
+           key: "arithmetic.add",
+           arguments_json: ~s({"value":1.0,"amount":2.0}),
+           mode: :ASYNC
+         }}
+      )
+
+    assert_receive {:gateway_action_reply, ^gateway, ^next_id,
+                    %{sequence: 2, outcome: {:relayed, _}}},
+                   2_000
+
+    receipt(gateway, next_id, 2)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^next_id,
+                    %{sequence: 3, outcome: {:result_json, json}}},
+                   2_000
+
+    assert Jason.decode!(json) == %{"result" => 3.0}
+    receipt(gateway, next_id, 3)
+
+    final_id =
+      request(
+        gateway,
+        {:execute,
+         %ExecuteAction{
+           key: "arithmetic.add",
+           arguments_json: ~s({"value":4.0,"amount":5.0}),
+           mode: :SYNC
+         }}
+      )
+
+    assert_receive {:gateway_action_reply, ^gateway, ^final_id,
+                    %{sequence: 4, outcome: {:result_json, final_json}}},
+                   2_000
+
+    assert Jason.decode!(final_json) == %{"result" => 9.0}
+    receipt(gateway, final_id, 4)
+  end
+
   test "a mismatched receipt is a protocol violation rather than a credit release", %{
     gateway: gateway
   } do
@@ -200,13 +327,32 @@ defmodule Zaq.Engine.Extension.ActionStreamTest do
 
     ExtensionGateway.push(gateway, %GatewayEnvelope{
       request_id: id,
-      protocol_version: 1,
+      protocol_version: Keyword.get(opts, :protocol_version, 1),
       payload:
         {:action_request,
          %ActionRequest{timeout_ms: Keyword.get(opts, :timeout_ms, 1_000), operation: operation}}
     })
 
     id
+  end
+
+  defp assert_unsupported_operation_reconnect(gateway, request) do
+    assert_receive {:gateway_connected, ^gateway, old_handler}, 2_000
+    old_monitor = Process.monitor(old_handler)
+    id = Ecto.UUID.generate()
+
+    ExtensionGateway.push(gateway, %GatewayEnvelope{
+      request_id: id,
+      protocol_version: 1,
+      payload: {:action_request, request}
+    })
+
+    assert_receive {:gateway_rejection, ^gateway, %{code: :UNSUPPORTED_OPERATION}}, 2_000
+    assert_receive {:DOWN, ^old_monitor, :process, ^old_handler, _}, 2_000
+    assert_receive {:gateway_connected, ^gateway, replacement}, 2_000
+    refute replacement == old_handler
+    assert_receive {:gateway_request, ^gateway, ^replacement, _}, 2_000
+    refute_receive {:gateway_action_reply, ^gateway, ^id, _}, 100
   end
 
   defp receipt(gateway, id, sequence) do
