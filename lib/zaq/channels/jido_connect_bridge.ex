@@ -57,6 +57,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoConnectBridge.FieldNormalization
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
+  alias Zaq.Channels.JidoConnectBridge.StreamingDriveClient
   alias Zaq.Channels.JidoConnectBridge.WebhookWorker
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Channels.ProviderCatalog
@@ -302,13 +303,24 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def download_document(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
+    {sink, params} = Map.pop(params, :materialization_sink)
     params = maybe_apply_default_export_mime_type(config, params)
 
-    with {:ok, payload} <- invoke_intent(config, :download_items, params),
+    with {:ok, payload} <- download_items(config, params, sink),
          {:ok, record} <- map_downloaded_document_record(payload, params) do
       {:ok, %{record: record}}
     end
   end
+
+  # With a sink the Drive dependency is given the streaming client through its own
+  # `google_drive_client` credential seam, scoped to this call.
+  defp download_items(config, params, sink) when is_pid(sink) do
+    StreamingDriveClient.with_sink(sink, fn ->
+      invoke_intent(config, :download_items, params, streaming_drive_client: true)
+    end)
+  end
+
+  defp download_items(config, params, _sink), do: invoke_intent(config, :download_items, params)
 
   @impl true
   def export_options(config, params) when is_map(config) and is_map(params) do
@@ -1696,10 +1708,12 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp invoke_intent(config, intent, params) when is_map(config) and is_map(params) do
+  defp invoke_intent(config, intent, params, runtime_opts \\ [])
+       when is_map(config) and is_map(params) do
     with {:ok, runtime} <- runtime_ctx(config),
          {:ok, action} <- resolve_action(config.provider, intent, params) do
       runtime = normalize_runtime_profile(runtime, action)
+      runtime = stream_downloads(runtime, runtime_opts)
       normalized_params = FieldNormalization.normalize_all(config.provider, action.id, params)
 
       opts = [
@@ -1719,6 +1733,17 @@ defmodule Zaq.Channels.JidoConnectBridge do
       end
     end
   end
+
+  defp stream_downloads(%{lease: lease} = runtime, streaming_drive_client: true),
+    do: %{
+      runtime
+      | lease: %{
+          lease
+          | fields: Map.put(lease.fields, :google_drive_client, StreamingDriveClient)
+        }
+    }
+
+  defp stream_downloads(runtime, _runtime_opts), do: runtime
 
   defp resolve_action(provider, capability, params)
        when capability in [:download_items, :create_item] and is_map(params) do

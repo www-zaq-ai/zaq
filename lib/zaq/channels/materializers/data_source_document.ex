@@ -82,11 +82,15 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   end
 
   defp data_source_event_opts(context) do
-    case Map.get(context, :data_source_bridge_module) do
-      nil -> []
-      module -> [data_source_bridge_module: module]
-    end
+    [data_source_bridge_module: Map.get(context, :data_source_bridge_module)]
+    |> Keyword.merge(sink_opts(context))
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
+
+  defp sink_opts(%{materialization_sink: sink}) when is_pid(sink),
+    do: [materialization_sink: sink]
+
+  defp sink_opts(_context), do: []
 
   defp string(map, key), do: string_value(Map.get(map, key))
 
