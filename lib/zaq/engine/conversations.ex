@@ -34,6 +34,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{People, Person, PersonChannel, User}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryUpdates
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
@@ -54,6 +55,11 @@ defmodule Zaq.Engine.Conversations do
   @spec capture_canonical_message(Facts.t(), map(), map()) :: {:ok, map()} | {:error, term()}
   def capture_canonical_message(facts, message_attrs, source_context),
     do: TranscriptHistory.capture(facts, message_attrs, source_context)
+
+  @doc "Applies a provider edit, restore or deletion to one captured message."
+  @spec revise_canonical_message(map(), tuple()) ::
+          {:ok, :revised | :unchanged} | {:error, term()}
+  def revise_canonical_message(source, change), do: TranscriptHistory.revise(source, change)
 
   @doc "Reads a bounded, sanitized transcript projection for an authorized Person only."
   @spec list_canonical_messages(Person.t() | nil, term(), keyword()) ::
@@ -1134,7 +1140,8 @@ defmodule Zaq.Engine.Conversations do
         :error -> nil
       end
 
-    message.role == "user" and message.content == (msg.content || "") and
+    message.role == "user" and
+      (Message.revised?(message) or message.content == (msg.content || "")) and
       message.author_id == msg.author_id and
       Map.get(message.metadata || %{}, "history_source") == expected_source
   end
@@ -1197,6 +1204,9 @@ defmodule Zaq.Engine.Conversations do
 
   defp attach_canonical_admission(conv, msg, %Message{} = message) do
     cond do
+      Message.revised?(message) ->
+        attach_revised_admission(conv, msg, message)
+
       not matching_canonical_admission?(message, msg) ->
         {:error, :source_conflict}
 
@@ -1212,6 +1222,13 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp attach_canonical_admission(_conv, _msg, nil), do: {:error, :source_conflict}
+
+  defp attach_revised_admission(conv, msg, message) do
+    if message.role == "user" and message.conversation_id == conv.id and
+         message.author_id == msg.author_id,
+       do: {:ok, {message, false, nil}},
+       else: {:error, :source_conflict}
+  end
 
   defp matching_canonical_admission?(message, msg) do
     message.content == msg.content and message.author_id == msg.author_id and
@@ -2478,7 +2495,7 @@ defmodule Zaq.Engine.Conversations do
       end
 
     from(m in Message,
-      where: m.conversation_id == ^conversation.id,
+      where: m.conversation_id == ^conversation.id and is_nil(m.deleted_at),
       order_by: [asc: m.inserted_at, asc: m.id],
       preload: [ratings: ^ratings]
     )
@@ -2495,7 +2512,7 @@ defmodule Zaq.Engine.Conversations do
   def list_agent_history(%{conversation_id: id}) when is_binary(id) and id != "" do
     from(m in Message,
       where:
-        m.conversation_id == ^id and
+        m.conversation_id == ^id and is_nil(m.deleted_at) and
           fragment("COALESCE(?->>'execution_status', 'completed') = 'completed'", m.metadata),
       order_by: [desc: m.inserted_at],
       limit: 500,
@@ -2521,7 +2538,7 @@ defmodule Zaq.Engine.Conversations do
       from(c in Conversation, where: c.person_id == ^id and c.channel_type == ^type, select: c.id)
 
     from(m in Message,
-      where: m.conversation_id in subquery(conversations),
+      where: m.conversation_id in subquery(conversations) and is_nil(m.deleted_at),
       order_by: [desc: m.inserted_at],
       limit: 500,
       select:
@@ -2769,6 +2786,8 @@ defmodule Zaq.Engine.Conversations do
         %{channel_user_id: actor_id, rating: rating} = attrs
       )
       when is_binary(provider) and is_integer(config_id) and config_id > 0 and rating in 1..5 do
+    platform = ProviderCatalog.person_platform(provider)
+
     with {:scope, true} <-
            {:scope,
             valid_rating_identifiers?([channel_id, external_id, actor_id]) and
@@ -2777,7 +2796,7 @@ defmodule Zaq.Engine.Conversations do
           %ChannelConfig{provider: ^provider, enabled: true, archived_at: nil, kind: "retrieval"}} <-
            {:connector, Repo.get(ChannelConfig, config_id)},
          {:actor, {:ok, %Person{status: "active"} = person}} <-
-           {:actor, People.match_by_channel(provider, actor_id, config_id)} do
+           {:actor, People.match_by_channel(platform, actor_id, config_id)} do
       Repo.transaction(fn -> rate_source_locked(reference, person, attrs) end)
     else
       {:scope, _} -> {:error, :invalid_source_scope}
@@ -2805,7 +2824,8 @@ defmodule Zaq.Engine.Conversations do
         from m in Message,
           where:
             m.source_provider == ^provider and
-              m.source_account_key == ^key and m.external_message_id == ^external_id,
+              m.source_account_key == ^key and m.external_message_id == ^external_id and
+              is_nil(m.deleted_at),
           lock: "FOR UPDATE"
       )
 

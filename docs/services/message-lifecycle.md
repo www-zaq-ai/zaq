@@ -207,7 +207,9 @@ The audience arrives together for each email; later replies supply their own
 audience. Visible To/Cc evidence is distinct from reply routing and hidden
 recipients. Recipient identifiers drive discovery/placement; participant metadata
 provides names and roles. Invalid evidence, identity conflicts and conflicting
-source replays can stop capture. Transcript placement is not permission to assert
+source replays can stop capture. A replay of a message its author has since edited
+or deleted is a duplicate, not a conflict
+(see [provider edits and deletions](engine.md#provider-edits-and-deletions)). Transcript placement is not permission to assert
 an arbitrary recipient.
 
 Entry points:

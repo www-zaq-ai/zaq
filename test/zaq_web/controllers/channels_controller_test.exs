@@ -88,6 +88,18 @@ defmodule ZaqWeb.ChannelsControllerTest do
                      :webhook_delivered}
   end
 
+  test "webhook keeps a body type that shares its name with the route param", %{conn: conn} do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.WebhookRouter)
+
+    conn
+    |> put_req_header("content-type", "application/json")
+    |> post("/channels/webhook/conversation/teams/42", Jason.encode!(%{"type" => "message"}))
+
+    assert_received {:webhook_event,
+                     %{type: "conversation", payload: %{"payload" => %{"type" => "message"}}},
+                     :webhook_delivered}
+  end
+
   test "webhook conversation passes through adapter webhook response", %{conn: conn} do
     Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.WebhookRouter)
 

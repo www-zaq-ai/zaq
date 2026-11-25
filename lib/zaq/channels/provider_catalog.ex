@@ -62,6 +62,16 @@ defmodule Zaq.Channels.ProviderCatalog do
     Map.get(@labels, provider, provider |> String.replace("_", " ") |> String.capitalize())
   end
 
+  @doc "Returns the `PersonChannel` platform of a connector provider."
+  @spec person_platform(String.t()) :: String.t()
+  def person_platform("teams"), do: "microsoft_teams"
+  def person_platform(provider) when is_binary(provider), do: provider
+
+  @doc "Returns the connector provider of a `PersonChannel` platform."
+  @spec connector_provider(String.t()) :: String.t()
+  def connector_provider("microsoft_teams"), do: "teams"
+  def connector_provider(platform) when is_binary(platform), do: platform
+
   @spec root_folder_default(String.t()) :: String.t()
   def root_folder_default(provider) when is_binary(provider) do
     Map.get(@root_folder_defaults, provider, "root")

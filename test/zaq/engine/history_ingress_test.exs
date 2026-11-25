@@ -659,6 +659,53 @@ defmodule Zaq.Engine.HistoryIngressTest do
              Conversations.list_canonical_messages(person, captured.transcript_id)
   end
 
+  test "a revision applies only through an active connector of the captured provider" do
+    config = connector("mattermost")
+    author("Alex", "mattermost", "alex-1", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "Deploy notes",
+        channel_id: "room-1",
+        author_id: "alex-1",
+        message_id: "post-1",
+        provider: :mattermost,
+        routing_context: %{channel_config_id: config.id, conversation_type: :room}
+      })
+
+    assert {:ok, captured} = HistoryIngress.capture(incoming)
+
+    revision = %{
+      provider: "mattermost",
+      channel_config_id: config.id,
+      source_scope: nil,
+      external_message_id: "post-1",
+      author_id: "alex-1",
+      change: :edit,
+      content: "Deploy notes v2"
+    }
+
+    assert {:error, :invalid_request} = HistoryIngress.revise(%{revision | change: :rename})
+    assert {:error, :invalid_request} = HistoryIngress.revise(%{revision | channel_config_id: 0})
+
+    assert {:error, :invalid_delivery_scope} =
+             HistoryIngress.revise(%{revision | provider: "telegram"})
+
+    event = Event.new(revision, :engine, opts: [action: :revise_incoming_message])
+
+    assert %Event{response: {:ok, :revised}} =
+             Api.handle_event(event, :revise_incoming_message, %{})
+
+    assert Repo.get!(Message, captured.message_id).content == "Deploy notes v2"
+
+    config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+
+    assert {:error, :invalid_delivery_scope} =
+             HistoryIngress.revise(%{revision | change: :delete})
+
+    assert Repo.get!(Message, captured.message_id).deleted_at == nil
+  end
+
   test "unsupported room type does not mint a transcript" do
     config = connector("mattermost")
 

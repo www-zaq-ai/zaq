@@ -146,7 +146,10 @@ defmodule ZaqWeb.ChannelsController do
     do: json(conn, %{status: "accepted", result: result})
 
   defp request_payload(conn, params) do
-    body_payload = Map.drop(params, ["type", "provider", "config_id"])
+    body_payload =
+      params
+      |> Map.drop(["type", "provider", "config_id"])
+      |> Map.merge(Map.take(conn.body_params, ["type"]))
 
     %{
       "method" => conn.method,

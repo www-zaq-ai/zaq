@@ -15,6 +15,7 @@ defmodule Zaq.Engine.ChannelConfig do
 
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.ConnectorConfig.{LiveUpdates, Settings, WidgetSettings}
   alias Zaq.Engine.IncomingMessageRouting
@@ -26,6 +27,8 @@ defmodule Zaq.Engine.ChannelConfig do
 
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
+  @teams_provider "teams"
+  @teams_setting_length 3..253
   @valid_kinds ~w(data_source retrieval)
   @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord disk web_widget)
 
@@ -57,6 +60,7 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_imap_settings()
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
+    |> maybe_validate_teams_settings()
     |> maybe_validate_live_updates()
     |> preserve_live_update_policy()
     |> maybe_require_widget_base_url_on_persist()
@@ -190,6 +194,11 @@ defmodule Zaq.Engine.ChannelConfig do
       {_kind, @imap_provider} ->
         validate_required(changeset, [:settings, :token])
 
+      {_kind, @teams_provider} ->
+        changeset
+        |> maybe_put_placeholder(:url)
+        |> validate_required([:token])
+
       {_kind, _provider} ->
         validate_required(changeset, [:url, :token])
     end
@@ -212,6 +221,49 @@ defmodule Zaq.Engine.ChannelConfig do
 
       _ ->
         changeset
+    end
+  end
+
+  defp maybe_validate_teams_settings(changeset) do
+    case get_field(changeset, :provider) do
+      @teams_provider ->
+        changeset = update_change(changeset, :settings, &trim_teams_settings/1)
+        settings = Settings.jido_chat_settings(%{settings: get_field(changeset, :settings)})
+
+        changeset
+        |> validate_teams_setting(Map.get(settings, "app_id"), "App ID")
+        |> validate_teams_setting(Map.get(settings, "tenant_id"), "Tenant ID")
+
+      _ ->
+        changeset
+    end
+  end
+
+  # Values are pasted from Azure, and a stray space passes validation but fails at Microsoft.
+  defp trim_teams_settings(%{"jido_chat" => %{} = jido_chat} = settings) do
+    trimmed_credentials =
+      Map.new(jido_chat, fn
+        {key, value} when key in ["app_id", "tenant_id"] and is_binary(value) ->
+          {key, String.trim(value)}
+
+        entry ->
+          entry
+      end)
+
+    Map.put(settings, "jido_chat", trimmed_credentials)
+  end
+
+  defp trim_teams_settings(settings), do: settings
+
+  # A missing tenant would send the adapter to the multi-tenant token endpoint.
+  defp validate_teams_setting(changeset, value, label) do
+    with true <- (is_binary(value) and String.trim(value) != "") || {:error, "is required"},
+         true <-
+           byte_size(value) in @teams_setting_length ||
+             {:error, "must be 3 to 253 characters long"} do
+      changeset
+    else
+      {:error, message} -> add_error(changeset, :settings, "#{label} #{message}")
     end
   end
 
@@ -403,7 +455,7 @@ defmodule Zaq.Engine.ChannelConfig do
       routing = Bridge.incoming_routing(config)
 
       %{
-        platform: to_string(Bridge.provider_to_bridge_key(config.provider) || config.provider),
+        platform: person_channel_platform(config),
         incoming?: routing.incoming?,
         config: %__MODULE__{
           id: config.id,
@@ -477,7 +529,13 @@ defmodule Zaq.Engine.ChannelConfig do
   def incoming_routing_config?(_, _), do: false
 
   defp person_channel_config_for_platform?(config, platform) do
-    (Bridge.provider_to_bridge_key(config.provider) || config.provider) |> to_string() == platform
+    person_channel_platform(config) == platform
+  end
+
+  defp person_channel_platform(config) do
+    (Bridge.provider_to_bridge_key(config.provider) || config.provider)
+    |> to_string()
+    |> ProviderCatalog.person_platform()
   end
 
   defp normalize_filter_providers(providers) when is_list(providers) do

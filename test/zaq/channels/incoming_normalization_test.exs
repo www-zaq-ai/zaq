@@ -3,7 +3,7 @@ defmodule Zaq.Channels.IncomingNormalizationTest do
   use ExUnitProperties
 
   alias Zaq.Channels.JidoChatBridge.Incoming
-  alias Zaq.Channels.JidoChatBridge.Incoming.{Discord, Mattermost, Telegram}
+  alias Zaq.Channels.JidoChatBridge.Incoming.{Discord, Mattermost, Teams, Telegram}
   alias Zaq.TestSupport.OpenAIStub
 
   defmodule DiscordMetadataAdapter do
@@ -204,6 +204,105 @@ defmodule Zaq.Channels.IncomingNormalizationTest do
                %{channel_id: "dm-1", guild_id: nil, type: 1},
                nil
              )
+  end
+
+  describe "Teams" do
+    test "verifies personal, group and channel conversations" do
+      assert {:ok, facts} =
+               Teams.normalize(teams_meta(:private, true), teams_raw("personal"), nil)
+
+      assert facts == %{
+               conversation_type: :one_to_one,
+               source_scope: "a:room",
+               sender_id: "aad-1",
+               provider_sent_at: ~U[2026-08-19 12:00:00Z]
+             }
+
+      assert {:ok, %{conversation_type: :room}} =
+               Teams.normalize(teams_meta(:group, false), teams_raw("groupChat"), nil)
+
+      assert {:ok, %{conversation_type: :room}} =
+               Teams.normalize(teams_meta(:channel, false), teams_raw("channel"), nil)
+    end
+
+    test "compares a channel message with the channel, not the thread conversation" do
+      raw = put_in(teams_raw("channel"), ["conversation", "id"], "a:room;messageid=1")
+
+      assert {:ok, %{conversation_type: :room}} =
+               Teams.normalize(teams_meta(:channel, false), raw, nil)
+
+      assert {:error, :unverified_communication_facts} =
+               Teams.normalize(
+                 teams_meta(:channel, false),
+                 put_in(raw, ["channelData", "channel", "id"], "other"),
+                 nil
+               )
+
+      assert {:error, :unverified_communication_facts} =
+               Teams.normalize(teams_meta(:channel, false), Map.delete(raw, "channelData"), nil)
+    end
+
+    test "falls back to the Bot Framework ID of a sender without an Entra object ID" do
+      raw = put_in(teams_raw("personal"), ["from"], %{"id" => "29:user"})
+
+      assert {:ok, %{sender_id: "29:user"}} =
+               Teams.normalize(teams_meta(:private, true), raw, nil)
+    end
+
+    test "fails closed on a room mismatch, a missing conversation or malformed input" do
+      assert {:error, :unverified_communication_facts} =
+               Teams.normalize(
+                 teams_meta(:private, true),
+                 put_in(teams_raw("personal"), ["conversation", "id"], "other"),
+                 nil
+               )
+
+      assert {:error, :unverified_communication_facts} =
+               Teams.normalize(
+                 teams_meta(:private, true),
+                 Map.delete(teams_raw("personal"), "conversation"),
+                 nil
+               )
+
+      assert {:error, :unverified_communication_facts} = Teams.normalize(nil, %{}, nil)
+
+      assert {:error, :unverified_communication_facts} =
+               Teams.normalize(teams_meta(:private, true), nil, nil)
+    end
+
+    property "only the three verified evidence combinations yield a conversation type" do
+      verified = %{
+        {"personal", :private, true} => :one_to_one,
+        {"groupChat", :group, false} => :room,
+        {"channel", :channel, false} => :room
+      }
+
+      check all(
+              conversation_type <-
+                member_of(["personal", "groupChat", "channel", "other", "", nil]),
+              chat_type <- member_of([:private, :group, :channel, :dm, nil]),
+              is_dm <- boolean()
+            ) do
+        result = Teams.normalize(teams_meta(chat_type, is_dm), teams_raw(conversation_type), nil)
+
+        case Map.fetch(verified, {conversation_type, chat_type, is_dm}) do
+          {:ok, kind} -> assert {:ok, %{conversation_type: ^kind}} = result
+          :error -> assert {:error, :unverified_communication_facts} = result
+        end
+      end
+    end
+  end
+
+  defp teams_meta(chat_type, is_dm),
+    do: %{chat_type: chat_type, is_dm: is_dm, external_room_id: "a:room"}
+
+  defp teams_raw(conversation_type) do
+    %{
+      "conversation" => %{"id" => "a:room", "conversationType" => conversation_type},
+      "channelData" => %{"channel" => %{"id" => "a:room"}},
+      "from" => %{"id" => "29:user", "aadObjectId" => "aad-1"},
+      "timestamp" => "2026-08-19T12:00:00Z"
+    }
   end
 
   property "contradictory transport rooms never normalize to a known conversation" do

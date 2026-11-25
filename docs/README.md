@@ -21,6 +21,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Agent workflow setup: Context Mode, Serena and Beadwork](agent-setup.md)
 - [User and integration guides](guides/)
 - [Web widget adapter integration handoff](guides/web-widget-integration.md)
+- [Connect Microsoft Teams](guides/teams-channel-setup.md)
 - [Shared BO/widget WebBridge protocol](services/web-bridge.md)
 - [Operational guides](operations/)
 

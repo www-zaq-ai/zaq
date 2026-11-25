@@ -370,7 +370,7 @@ defmodule Zaq.Channels.Bridge do
   def fetch_connection_details(provider) do
     case ChannelConfig.get_by_provider(to_string(provider)) do
       nil -> %{}
-      config -> %{url: config.url, token: config.token}
+      config -> %{url: config.url, token: config.token, settings: config.settings}
     end
   end
 
@@ -383,7 +383,8 @@ defmodule Zaq.Channels.Bridge do
 
     %{
       url: Map.get(runtime_config, :url) || Map.get(runtime_config, "url"),
-      token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token")
+      token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token"),
+      settings: Map.get(runtime_config, :settings) || Map.get(runtime_config, "settings")
     }
   end
 
