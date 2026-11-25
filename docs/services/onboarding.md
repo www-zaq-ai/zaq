@@ -80,10 +80,12 @@ and `:accepted`-with-failed-provisioning onboarding redirect to `/bo/dashboard`.
 
 ## Connect an existing Portal account
 
-On an unregistered instance, `/bo/connect?portal_token=…` opens a password-only
-setup form. ZAQ removes the token from the URL before showing the form and
-validates the password and its confirmation locally before calling the Portal.
-An existing administrator cannot be replaced using this route.
+On an unregistered instance, `/bo/connect?portal_token=…` opens the administrator
+password setup form. ZAQ removes the token from the URL before showing the form.
+The form shows the username to use for later sign-ins and updates the password
+checklist as the administrator types. ZAQ validates the password and its
+confirmation before calling the Portal. An existing administrator cannot be
+replaced using this route.
 
 The first `POST /connect` sends `Authorization: Bearer <portal_token>`. Its JSON
 body contains only `machine_signals` and `network`.

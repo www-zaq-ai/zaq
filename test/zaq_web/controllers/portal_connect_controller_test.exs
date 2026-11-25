@@ -45,6 +45,57 @@ defmodule ZaqWeb.PortalConnectControllerTest do
     refute html =~ "one-use-test-token"
   end
 
+  test "shows the login username and updates password requirements as the password changes", %{
+    conn: conn,
+    user: user
+  } do
+    forbid_portal_calls()
+
+    conn = open_form(conn)
+    html = html_response(conn, 200)
+    assert_username(html, user.username)
+    assert html =~ ~s(id="portal-password-requirements")
+
+    {:ok, view, _html} =
+      live_isolated(recycle(conn), ZaqWeb.Live.BO.System.PortalConnectPasswordLive)
+
+    assert_requirement(view, "min_length", "unmet")
+    assert_requirement(view, "symbol", "unmet")
+
+    password = element(view, "#password")
+    render_change(password, %{"password" => "StrongPass1"})
+    assert_requirement(view, "min_length", "met")
+    assert_requirement(view, "symbol", "unmet")
+
+    html = render_change(password, %{"password" => "StrongPass1!"})
+    assert_requirement(view, "symbol", "met")
+    refute html =~ "StrongPass1!"
+
+    render_change(password, %{"password" => ""})
+    assert_requirement(view, "min_length", "unmet")
+    assert_requirement(view, "symbol", "unmet")
+  end
+
+  test "password errors redisplay the username and checklist with blank password fields", %{
+    conn: conn,
+    user: user
+  } do
+    forbid_portal_calls()
+    password = "TooWeakForZAQ"
+
+    result =
+      conn
+      |> open_form()
+      |> recycle()
+      |> post(~p"/bo/connect", %{password: password, password_confirmation: password})
+
+    html = html_response(result, 422)
+    assert_username(html, user.username)
+    assert html =~ "Password requirements not met:"
+    assert html =~ ~s(id="password-requirement-symbol")
+    refute html =~ password
+  end
+
   test "validation and rejected tokens leave the administrator pending", %{conn: conn, user: user} do
     conn = open_form(conn)
 
@@ -233,6 +284,18 @@ defmodule ZaqWeb.PortalConnectControllerTest do
     job |> Ecto.Changeset.change(state: "completed") |> Repo.update!()
     send(view.pid, :refresh_installation)
     assert_redirect(view, ~p"/bo/ingestion")
+  end
+
+  defp assert_requirement(view, id, status) do
+    assert has_element?(
+             view,
+             "#password-requirement-#{id}.zaq-password-requirements__row--#{status}"
+           )
+  end
+
+  defp assert_username(html, username) do
+    assert html =~ "Your login username:"
+    assert html =~ "<strong>#{username}</strong>"
   end
 
   defp open_form(conn) do
