@@ -31,7 +31,7 @@ defmodule Zaq.Agent.Tools.Ingestion.GenerateEmbeddingsTest do
                 }
               ]
             } =
-              output} = execute(%{"text" => text})
+              output} = execute(%{"texts" => [text]})
 
     assert {:ok, _} = GenerateEmbeddings.validate_output(output)
     refute Repo.exists?(Document)
@@ -137,18 +137,21 @@ defmodule Zaq.Agent.Tools.Ingestion.GenerateEmbeddingsTest do
     Req.Test.expect(Client, &Req.Test.transport_error(&1, :econnrefused))
 
     assert {:ok, %{results: [%{index: 1, status: "error", error: "transport_error"}]}} =
-             execute(%{text: "private"})
+             execute(%{texts: ["private"]})
   end
 
   test "rejects invalid arguments before provider I/O" do
     for params <- [
           %{},
+          %{text: "one"},
           %{text: "one", texts: ["two"]},
-          %{text: "  "},
+          %{"text" => "one", "texts" => ["two"]},
+          %{texts: "one"},
+          %{texts: ["  "]},
           %{texts: []},
           %{texts: ["valid", ""]},
           %{texts: List.duplicate("text", 17)},
-          %{text: String.duplicate("é", 32_769)}
+          %{texts: [String.duplicate("é", 32_769)]}
         ] do
       assert {:error, _} = execute(params)
     end

@@ -86,8 +86,9 @@ readers.
 
 ## Generate embeddings without indexing
 
-`GenerateEmbeddings` accepts either `text` or `texts` (1–16 non-blank UTF-8
-strings, each at most 64 KiB). To embed the output of `ChunkContent`, send the
+`GenerateEmbeddings` requires `texts`: an ordered list of 1–16 non-blank UTF-8
+strings, each at most 64 KiB. For one text, pass `{"texts": ["Hello"]}`.
+To embed the output of `ChunkContent`, send the
 ordered `embedding_input` values as `texts`. Keep the same ordered chunk list
 to map each result's one-based `index` back to its `chunk_index`, especially
 when sending a subset. Duplicate text is not deduplicated.
