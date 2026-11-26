@@ -60,9 +60,9 @@ defmodule Zaq.Ingestion.DocumentChunker do
 
         The prefix is omitted entirely when `section_path` is empty or the
         prefix alone would consume the whole chunk token budget (see
-        `context_prefix/1`). It is transient: sent to the embedding model,
-        never persisted, FTS-indexed, or shown to users — the stored
-        embedding vector is therefore a pure function of `content` and
+        `context_prefix/1`). Ingestion sends it to the embedding model but
+        does not store it in the chunk index or show it as searchable content.
+        The stored embedding vector is therefore a pure function of `content` and
         `section_path`, and changing this derivation invalidates all
         previously stored vectors (requires a re-embed migration).
     """
@@ -73,7 +73,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
       :section_path,
       :tokens,
       :metadata,
-      # transient — embed only, never persisted (see moduledoc)
+      # Embedding input is not searchable content (see moduledoc).
       :embedding_input,
       # source locators (see moduledoc: locator, not a slice)
       :start_page,
