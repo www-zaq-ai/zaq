@@ -45,25 +45,8 @@ defmodule Zaq.Embedding.Client do
   def embed(text, opts \\ []) when is_binary(text) do
     cfg = Zaq.System.get_embedding_config()
     model = Keyword.get(opts, :model, cfg.model)
-    url = cfg.endpoint <> "/embeddings"
 
-    headers =
-      if cfg.api_key != nil and cfg.api_key != "" do
-        [{"authorization", "Bearer #{cfg.api_key}"}]
-      else
-        []
-      end
-
-    body = %{
-      model: model,
-      input: text
-    }
-
-    req_opts =
-      [url: url, json: body, headers: headers, receive_timeout: 60_000]
-      |> Keyword.merge(req_options())
-
-    case Req.post(req_opts) do
+    case request(text, cfg, model, []) do
       {:ok, %Req.Response{status: 200, body: %{"data" => [%{"embedding" => embedding} | _]}}} ->
         {:ok, embedding}
 
@@ -90,6 +73,26 @@ defmodule Zaq.Embedding.Client do
   end
 
   @doc """
+  Embeds an ordered list of validated texts with one snapshot of the configured
+  provider. Each result has a one-based input index. On a rate limit, later
+  items are returned as not attempted with the same retry delay.
+
+  Responses are checked against the configured dimension and contain no raw
+  provider errors. `embed/2` retains its existing single-vector contract.
+  """
+  @spec embed_batch([String.t()]) :: [map()]
+  def embed_batch(texts) when is_list(texts) do
+    cfg = Zaq.System.get_embedding_config()
+
+    {results, _retry_delay} =
+      texts
+      |> Enum.with_index(1)
+      |> Enum.map_reduce(nil, &embed_batch_item(&1, &2, cfg))
+
+    results
+  end
+
+  @doc """
   Returns the configured embedding dimension.
   Used by Ecto migrations and vector operations.
   """
@@ -106,6 +109,81 @@ defmodule Zaq.Embedding.Client do
   def model, do: Zaq.System.get_embedding_config().model
 
   # -- Private --
+
+  defp request(text, cfg, model, overrides) do
+    headers =
+      if cfg.api_key != nil and cfg.api_key != "" do
+        [{"authorization", "Bearer #{cfg.api_key}"}]
+      else
+        []
+      end
+
+    opts =
+      [
+        url: cfg.endpoint <> "/embeddings",
+        json: %{model: model, input: text},
+        headers: headers,
+        receive_timeout: 60_000
+      ]
+      |> Keyword.merge(req_options())
+      |> Keyword.merge(overrides)
+
+    Req.post(opts)
+  end
+
+  defp embed_batch_item({_text, index}, delay, _cfg) when is_integer(delay) do
+    {%{index: index, status: "not_attempted", error: "rate_limited", retry_after_seconds: delay},
+     delay}
+  end
+
+  defp embed_batch_item({text, index}, nil, cfg) do
+    response = request(text, cfg, cfg.model, retry: false)
+
+    case batch_response(response, cfg) do
+      {:ok, attributes} ->
+        {Map.merge(attributes, %{index: index, status: "ok"}), nil}
+
+      {:error, %{retry_after_seconds: delay} = error} ->
+        {Map.merge(error, %{index: index, status: "error"}), delay}
+
+      {:error, error} ->
+        {Map.merge(error, %{index: index, status: "error"}), nil}
+    end
+  end
+
+  defp batch_response({:ok, %Req.Response{status: 200, body: body}}, cfg) do
+    with %{"data" => [%{"embedding" => vector} = row]} <- body,
+         true <- Map.get(row, "index", 0) === 0,
+         model when is_binary(model) <- Map.get(body, "model", cfg.model),
+         true <- String.trim(model) != "",
+         true <- is_list(vector) and Enum.all?(vector, &is_number/1) do
+      validate_vector(vector, model, cfg.dimension)
+    else
+      _ -> {:error, %{error: "invalid_response"}}
+    end
+  end
+
+  defp batch_response({:ok, %Req.Response{status: 429, headers: headers}}, _cfg) do
+    {:error,
+     %{
+       error: "rate_limited",
+       http_status: 429,
+       retry_after_seconds: rate_limit_delay_seconds(headers)
+     }}
+  end
+
+  defp batch_response({:ok, %Req.Response{status: status}}, _cfg),
+    do: {:error, %{error: "provider_error", http_status: status}}
+
+  defp batch_response({:error, _reason}, _cfg), do: {:error, %{error: "transport_error"}}
+
+  defp validate_vector(vector, model, dimension) do
+    if dimension > 0 and length(vector) == dimension do
+      {:ok, %{vector: vector, model: model, dimension: dimension}}
+    else
+      {:error, %{error: "invalid_dimension"}}
+    end
+  end
 
   defp rate_limit_delay_seconds(headers) do
     with nil <- header_value(headers, "retry-after"),

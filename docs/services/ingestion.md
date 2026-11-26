@@ -68,6 +68,43 @@ rejects whitespace.
 
 ---
 
+## Chunk supplied content without indexing
+
+`ChunkContent` accepts UTF-8 `content` up to 5 MiB and a `format` of `markdown`
+(default) or `text`. It uses the configured ingestion chunk sizes. Pass the
+conversion Action's `content` directly as Markdown.
+
+The `chunks` list is in source order with one-based `chunk_index` values.
+Each chunk includes its searchable `content`, token count, section path and
+metadata, and separate `embedding_input` enriched with section context.
+Source locators in `metadata.start` and `metadata.end` use `P<page>|L<line>`.
+Use `chunk_index`, not the generated section ID, to correlate results across
+steps. A successful empty list means there is no searchable text, not an
+ingestion failure. This Action does not read files or create documents or jobs.
+Workflow history may retain both text fields; limit run access to authorized
+readers.
+
+## Generate embeddings without indexing
+
+`GenerateEmbeddings` requires `texts`: an ordered list of 1–16 non-blank UTF-8
+strings, each at most 64 KiB. For one text, pass `{"texts": ["Hello"]}`.
+To embed the output of `ChunkContent`, send the
+ordered `embedding_input` values as `texts`. Keep the same ordered chunk list
+to map each result's one-based `index` back to its `chunk_index`, especially
+when sending a subset. Duplicate text is not deduplicated.
+
+The Action uses the configured provider and does not write documents or
+vectors. It makes one request per input; size workflow timeouts for sequential
+requests. A result with `status: "ok"` contains the `vector`, validated
+`dimension`, and the provider-reported `model` (or the requested model if
+the provider omits it). Other results contain an error code and, for provider
+HTTP errors, the status code without the response body.
+
+Provider errors do not discard successful vectors. On a rate limit, the
+failing result and all `not_attempted` results carry `retry_after_seconds`.
+Filter those positions and retry them after the delay. Workflow history may
+retain input text and vectors; limit run access to authorized readers.
+
 ## Modules
 
 ### Public API (`Zaq.Ingestion`)
@@ -182,7 +219,8 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - Store-raw / embed-enriched split: `chunk.content` preserves source lines but may join
   packed sections with blank lines, strip page markers, or repeat a row-split table
   header; the transient `chunk.embedding_input` (section-path context prefix + content)
-  is used for embedding only — never persisted, FTS-indexed, or shown to users
+  is used for embedding only — ingestion never stores it in the chunk index
+  or shows it as searchable content
 - Source locators are added during parsing: chunk metadata stores `start`/`end` as
   `P<page>|L<line>` strings so callers can trace chunks back to converter Markdown
 - Token counts via `Zaq.Agent.TokenEstimator`
