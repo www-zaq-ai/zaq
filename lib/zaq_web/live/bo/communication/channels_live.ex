@@ -189,7 +189,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:modal, :new)
      |> assign(:settings_tab, :main)
      |> assign(:live_update_errors, %{})
-     |> assign(:capabilities_snapshot, configuration_capabilities(socket.assigns.provider, nil))
+     |> load_capabilities(nil)
      |> assign(:changeset, changeset)
      |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
@@ -203,10 +203,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      socket
      |> assign(:modal, :edit)
      |> assign(:settings_tab, :main)
-     |> assign(
-       :capabilities_snapshot,
-       configuration_capabilities(socket.assigns.provider, config.id)
-     )
+     |> load_capabilities(config.id)
      |> load_live_updates(config)
      |> assign(:changeset, changeset)
      |> assign(:form, to_form(changeset, as: :form))
@@ -390,7 +387,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("open_capabilities", _params, socket) do
-    socket = if socket.assigns[:capabilities_error], do: load_capabilities(socket), else: socket
+    config_id =
+      if socket.assigns[:modal] == :edit, do: socket.assigns.changeset.data.id, else: nil
+
+    socket =
+      if socket.assigns[:capabilities_error],
+        do: load_capabilities(socket, config_id),
+        else: socket
+
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
@@ -1413,7 +1417,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp persist_modal_configuration(socket, params) do
     validate = fn changeset, provider ->
       changeset
-      |> validate_file_settings(Map.get(socket.assigns, :capabilities_snapshot, %{}))
       |> maybe_validate_connect_credential_provider(provider)
       |> maybe_validate_global_base_url_requirement(socket.assigns.kind, provider)
     end
@@ -1652,11 +1655,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp ensure_global_base_url_for_oauth2(_), do: :ok
 
-  defp load_capabilities(socket) do
+  defp load_capabilities(socket, config_id \\ :provider) do
+    request =
+      case config_id do
+        :provider -> %{provider: socket.assigns.provider}
+        nil -> %{provider: socket.assigns.provider, scope: :provider}
+        id -> %{provider: socket.assigns.provider, scope: :configuration, config_id: id}
+      end
+
     event =
-      Event.new(%{provider: socket.assigns.provider}, :channels,
-        opts: [action: :channel_capability_snapshot]
-      )
+      Event.new(request, :channels, opts: [action: :channel_capability_snapshot])
 
     case NodeRouter.dispatch(event).response do
       {:ok, snapshot} when is_map(snapshot) ->
@@ -1669,20 +1677,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     _error -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
   catch
     _kind, _reason -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
-  end
-
-  defp configuration_capabilities(provider, id) do
-    request =
-      if id,
-        do: %{provider: provider, scope: :configuration, config_id: id},
-        else: %{provider: provider, scope: :provider}
-
-    case NodeRouter.dispatch(
-           Event.new(request, :channels, opts: [action: :channel_capability_snapshot])
-         ) do
-      %Event{response: {:ok, snapshot}} -> snapshot
-      _ -> %{}
-    end
   end
 
   defp validate_file_settings(changeset, snapshot) do

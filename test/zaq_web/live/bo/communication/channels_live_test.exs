@@ -344,6 +344,56 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     )
   end
 
+  test "stale restrictive file feedback cannot veto a server-valid save", %{conn: conn} do
+    file_tab_capabilities()
+    config = insert_channel_config(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok,
+       %{
+         resolved: %{file: :native},
+         file_delivery: %{
+           limits: %{max_attachment_bytes: %{value: 1_000_000, configurable: true}}
+         }
+       }}
+    )
+
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+
+    payload =
+      put_in(
+        tabbed_channel_params(),
+        ["form", "settings", "file_delivery", "max_attachment_mb"],
+        "4"
+      )
+
+    render_change(view, "validate", payload)
+    assert render(view) =~ "Must not exceed the transport limit"
+    file_tab_capabilities()
+    render_submit(view, "save", payload)
+    refute has_element?(view, "#config-form")
+    assert Repo.reload!(config).settings["file_delivery"]["max_attachment_bytes"] == 4_000_000
+  end
+
+  test "failed selected capability lookup is recoverable and preserves all drafts", %{conn: conn} do
+    file_tab_capabilities()
+    config = insert_channel_config(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    BridgeFake.put(:capability_snapshot, {:error, :unavailable})
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+    assert has_element?(view, "#channel-file-delivery-unavailable", "Capabilities unavailable")
+    render_change(view, "validate", tabbed_channel_params())
+    file_tab_capabilities()
+    view |> element("#channel-file-delivery button", "Retry capabilities") |> render_click()
+    assert has_element?(view, "input[name='form[name]'][value='Tabbed draft']")
+    assert has_element?(view, "input[name='form[token]'][value='draft-token']")
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[value='1.000001']")
+    refute has_element?(view, "#channel-file-delivery-unavailable")
+    assert Repo.reload!(config).settings == config.settings
+  end
+
   test "untouched file controls accept LiveView usage markers while unknown file fields still fail",
        %{conn: conn} do
     file_tab_capabilities()

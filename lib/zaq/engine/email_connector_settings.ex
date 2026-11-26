@@ -312,14 +312,24 @@ defmodule Zaq.Engine.EmailConnectorSettings do
   defp blank_to_nil(value), do: if(blank?(value), do: nil, else: value)
   defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
 
-  defp smtp_persistence_result({:error, %Ecto.Changeset{} = persisted} = result, form) do
-    case FileSettings.errors(persisted) do
-      errors when map_size(errors) > 0 ->
-        {:error, FileSettings.add_errors(form, :file_delivery, errors)}
+  defp smtp_persistence_result({:error, %Ecto.Changeset{} = persisted}, form) do
+    form = FileSettings.add_errors(form, :file_delivery, FileSettings.errors(persisted))
 
-      _ ->
-        result
-    end
+    form =
+      persisted.errors
+      |> Enum.reject(fn {_field, {_message, options}} -> options[:file_field] end)
+      |> Enum.reduce(form, fn {field, {message, options}}, form ->
+        field =
+          case field do
+            :name -> :connector_name
+            field when is_map_key(form.types, field) -> field
+            _ -> :base
+          end
+
+        Ecto.Changeset.add_error(form, field, message, options)
+      end)
+
+    {:error, form}
   end
 
   defp smtp_persistence_result(result, _form), do: result

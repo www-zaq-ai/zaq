@@ -1383,7 +1383,11 @@
           />
         </:advanced>
         <:advanced
-          :if={Zaq.ConnectorConfig.FileSettings.visible?(@capabilities_snapshot)}
+          :if={
+            @kind == :retrieval &&
+              (@capabilities_error ||
+                 Zaq.ConnectorConfig.FileSettings.visible?(@capabilities_snapshot))
+          }
           id="channel-advanced-settings"
           label="File delivery"
         >
@@ -1392,6 +1396,7 @@
             name="form[settings][file_delivery]"
             heading={false}
             snapshot={@capabilities_snapshot}
+            unavailable={@capabilities_error}
             settings={
               Map.get(
                 Ecto.Changeset.get_field(@changeset, :settings) || %{},

@@ -333,17 +333,26 @@ defmodule Zaq.Channels.EmailBridgeTest do
                    max_attachment_bytes: %{
                      value: :unresolved,
                      configurable: true,
-                     required: false
+                     required: false,
+                     type: :integer,
+                     unit: :bytes,
+                     validation: %{greater_than: 0}
                    },
                    max_encoded_message_bytes: %{
                      value: :unresolved,
                      configurable: true,
-                     required: true
+                     required: true,
+                     type: :integer,
+                     unit: :bytes,
+                     validation: %{greater_than: 0}
                    },
                    max_attachments_per_message: %{
                      value: :unresolved,
                      configurable: true,
-                     required: true
+                     required: true,
+                     type: :integer,
+                     unit: :count,
+                     validation: %{greater_than: 0}
                    }
                  }
                }

@@ -247,100 +247,147 @@
         <.form
           for={@form}
           id="widget-config-form"
+          novalidate
           phx-submit="save"
           phx-change="validate"
           class="space-y-5"
         >
-          <ZaqWeb.Components.DesignSystem.FeedbackBanner.feedback_banner
-            :if={unscoped_error_messages(@errors) != []}
-            id="widget-settings-error"
-            kind={:error}
-            message={Enum.join(unscoped_error_messages(@errors), " ")}
-            auto_dismiss={false}
-            dismissible={false}
-          />
-          <ZaqWeb.Components.DesignSystem.Input.input
-            id="widget_name"
-            name="widget[name]"
-            value={@form[:name].value}
-            errors={field_errors(@errors, "name")}
-            label="Configuration name"
-            required
-          />
-          <div id="widget-allowed-domains-field">
-            <ZaqWeb.Components.DesignSystem.Input.input
-              id="widget_allowed_domains"
-              name="widget[allowed_domains]"
-              value={@form[:allowed_domains].value}
-              errors={field_errors(@errors, "allowed_domains")}
-              type="textarea"
-              label="Allowed embedding origins"
-              rows="4"
-              placeholder="https://www.example.com"
-              hint="One exact HTTP(S) origin per line, without a trailing slash. Empty permits no embedding."
-            />
-          </div>
-          <AgentRoutingOptions.rule_select
-            id="widget-agent"
-            form="widget"
-            scope={routing_scope(@selected)}
-            label="Default agent"
-            default_label="Use inherited routing"
-            value={routing_value(@form, @selected)}
-            options={@agent_options}
-            errors={field_errors(@errors, "agent_id")}
-            hint="Uses connector-scoped routing. Inherited routing and NONE retain their existing behavior."
-            hint_id="widget-agent-hint"
-          />
-          <ZaqWeb.Components.DesignSystem.Input.input
-            id="widget-identity-issuer"
-            name="widget[identity_issuer]"
-            value={@form[:identity_issuer].value}
-            errors={field_errors(@errors, "identity_issuer")}
-            label="JWT token issuer"
-            placeholder="Preserve existing adapter value"
-            hint={policy_hint(@selected, @ingress_statuses, :identity_issuer)}
-          />
-          <ZaqWeb.Components.DesignSystem.Input.input
-            id="widget-identity-audience"
-            name="widget[identity_audience]"
-            value={@form[:identity_audience].value}
-            errors={field_errors(@errors, "identity_audience")}
-            label="JWT token audience"
-            placeholder="Preserve existing adapter value"
-            hint={policy_hint(@selected, @ingress_statuses, :identity_audience)}
-          />
-          <ZaqWeb.Select.select
-            id="widget-same-site"
-            name="widget[same_site]"
-            label="Cookie SameSite policy"
-            value={@form[:same_site].value}
-            errors={field_errors(@errors, "same_site")}
-            hint={
+          <ConnectionSettings.editor
+            id="widget-settings"
+            active_tab={@settings_tab}
+            errors={
+              %{main: @errors != %{}, advanced: @file_errors != %{} || @live_update_errors != %{}}
+            }
+          >
+            <:main>
+              <ZaqWeb.Components.DesignSystem.FeedbackBanner.feedback_banner
+                :if={unscoped_error_messages(@errors) != []}
+                id="widget-settings-error"
+                kind={:error}
+                message={Enum.join(unscoped_error_messages(@errors), " ")}
+                auto_dismiss={false}
+                dismissible={false}
+              />
+              <ZaqWeb.Components.DesignSystem.Input.input
+                id="widget_name"
+                name="widget[name]"
+                value={@form[:name].value}
+                errors={field_errors(@errors, "name")}
+                label="Configuration name"
+                required
+              />
+              <div id="widget-allowed-domains-field">
+                <ZaqWeb.Components.DesignSystem.Input.input
+                  id="widget_allowed_domains"
+                  name="widget[allowed_domains]"
+                  value={@form[:allowed_domains].value}
+                  errors={field_errors(@errors, "allowed_domains")}
+                  type="textarea"
+                  label="Allowed embedding origins"
+                  rows="4"
+                  placeholder="https://www.example.com"
+                  hint="One exact HTTP(S) origin per line, without a trailing slash. Empty permits no embedding."
+                />
+              </div>
+              <AgentRoutingOptions.rule_select
+                id="widget-agent"
+                form="widget"
+                scope={routing_scope(@selected)}
+                label="Default agent"
+                default_label="Use inherited routing"
+                value={routing_value(@form, @selected)}
+                options={@agent_options}
+                errors={field_errors(@errors, "agent_id")}
+                hint="Uses connector-scoped routing. Inherited routing and NONE retain their existing behavior."
+                hint_id="widget-agent-hint"
+              />
+              <ZaqWeb.Components.DesignSystem.Input.input
+                id="widget-identity-issuer"
+                name="widget[identity_issuer]"
+                value={@form[:identity_issuer].value}
+                errors={field_errors(@errors, "identity_issuer")}
+                label="JWT token issuer"
+                placeholder="Preserve existing adapter value"
+                hint={policy_hint(@selected, @ingress_statuses, :identity_issuer)}
+              />
+              <ZaqWeb.Components.DesignSystem.Input.input
+                id="widget-identity-audience"
+                name="widget[identity_audience]"
+                value={@form[:identity_audience].value}
+                errors={field_errors(@errors, "identity_audience")}
+                label="JWT token audience"
+                placeholder="Preserve existing adapter value"
+                hint={policy_hint(@selected, @ingress_statuses, :identity_audience)}
+              />
+              <ZaqWeb.Select.select
+                id="widget-same-site"
+                name="widget[same_site]"
+                label="Cookie SameSite policy"
+                value={@form[:same_site].value}
+                errors={field_errors(@errors, "same_site")}
+                hint={
               "None requires Secure cookies over HTTPS. Browser third-party-cookie restrictions still apply. " <>
                 policy_hint(@selected, @ingress_statuses, :same_site)
             }
-            hint_id="widget-same-site-hint"
-            options={
-              if @selected && is_nil(@selected.same_site),
-                do: [
-                  {"Preserve existing policy", ""},
-                  {"None", "None"},
-                  {"Lax", "Lax"},
-                  {"Strict", "Strict"}
-                ],
-                else: [{"None", "None"}, {"Lax", "Lax"}, {"Strict", "Strict"}]
-            }
-          />
-          <ZaqWeb.Components.LiveUpdateSettings.fields
-            :if={@selected}
-            id={"stream-updates-#{@selected.id}"}
-            policy={@live_update_policy}
-            errors={@live_update_errors}
-            load_error={
-              if is_nil(@live_update_policy), do: "Unable to load streamed-update settings"
-            }
-          />
+                hint_id="widget-same-site-hint"
+                options={
+                  if @selected && is_nil(@selected.same_site),
+                    do: [
+                      {"Preserve existing policy", ""},
+                      {"None", "None"},
+                      {"Lax", "Lax"},
+                      {"Strict", "Strict"}
+                    ],
+                    else: [{"None", "None"}, {"Lax", "Lax"}, {"Strict", "Strict"}]
+                }
+              />
+              <ZaqWeb.Components.LiveUpdateSettings.fields
+                :if={
+                  @selected && !FileSettings.visible?(@capabilities_snapshot) &&
+                    !@capabilities_error
+                }
+                id={"stream-updates-#{@selected.id}"}
+                policy={@live_update_policy}
+                errors={@live_update_errors}
+                load_error={
+                  if is_nil(@live_update_policy), do: "Unable to load streamed-update settings"
+                }
+              />
+            </:main>
+            <:advanced
+              :if={
+                @selected &&
+                  (FileSettings.visible?(@capabilities_snapshot) || @capabilities_error)
+              }
+              id="widget-streamed-updates"
+              label="Streamed message updates"
+            >
+              <LiveUpdateSettings.fields
+                id={"stream-updates-#{@selected.id}"}
+                embedded={true}
+                policy={@live_update_policy}
+                errors={@live_update_errors}
+                load_error={
+                  if is_nil(@live_update_policy), do: "Unable to load streamed-update settings"
+                }
+              />
+            </:advanced>
+            <:advanced
+              :if={FileSettings.visible?(@capabilities_snapshot) || @capabilities_error}
+              id="widget-files-section"
+              label="File delivery"
+            >
+              <FileDeliverySettings.section
+                id="widget-file-delivery"
+                name="widget[file_delivery]"
+                heading={false}
+                snapshot={@capabilities_snapshot}
+                unavailable={@capabilities_error}
+                settings={Map.get(@form.params, "file_delivery", %{})}
+                errors={@file_errors}
+              />
+            </:advanced>
+          </ConnectionSettings.editor>
         </.form>
       </section>
       <section class="space-y-4">

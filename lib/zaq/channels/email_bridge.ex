@@ -49,16 +49,29 @@ defmodule Zaq.Channels.EmailBridge do
              transfer_mode: :unresolved,
              supports_attachment_edits: false,
              limits: %{
-               max_attachment_bytes: %{value: :unresolved, configurable: true, required: false},
+               max_attachment_bytes: %{
+                 value: :unresolved,
+                 configurable: true,
+                 required: false,
+                 type: :integer,
+                 unit: :bytes,
+                 validation: %{greater_than: 0}
+               },
                max_encoded_message_bytes: %{
                  value: :unresolved,
                  configurable: true,
-                 required: true
+                 required: true,
+                 type: :integer,
+                 unit: :bytes,
+                 validation: %{greater_than: 0}
                },
                max_attachments_per_message: %{
                  value: :unresolved,
                  configurable: true,
-                 required: true
+                 required: true,
+                 type: :integer,
+                 unit: :count,
+                 validation: %{greater_than: 0}
                }
              }
            }

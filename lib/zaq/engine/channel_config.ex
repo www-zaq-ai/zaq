@@ -47,7 +47,16 @@ defmodule Zaq.Engine.ChannelConfig do
     timestamps(type: :utc_datetime)
   end
 
-  def changeset(config, attrs) do
+  @doc """
+  Builds connector changes with capability validation after settings preparation.
+
+  Ordinary saves preserve the locked current live-update policy. The dedicated
+  policy operation, which already holds that lock, uses
+  `preserve_live_update_policy: false` to validate its owned policy write.
+  Grouped transaction owners can use `defer_file_validation: true` for an
+  intermediate write only when their final policy write performs that validation.
+  """
+  def changeset(config, attrs, opts \\ []) do
     config
     |> cast(attrs, [:name, :provider, :kind, :url, :token, :enabled, :settings])
     |> validate_required([:name, :provider, :kind])
@@ -58,12 +67,12 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
     |> maybe_validate_live_updates()
-    |> maybe_validate_file_settings()
-    |> preserve_live_update_policy()
+    |> preserve_live_update_policy(opts)
     |> maybe_require_widget_base_url_on_persist()
     |> maybe_validate_imap_smtp_dependency_on_persist()
     |> maybe_encrypt_token()
     |> reject_archived_reactivation()
+    |> maybe_validate_file_settings(opts)
   end
 
   defp maybe_validate_live_updates(changeset) do
@@ -79,7 +88,7 @@ defmodule Zaq.Engine.ChannelConfig do
     end
   end
 
-  defp maybe_validate_file_settings(changeset) do
+  defp maybe_validate_file_settings(changeset, opts) do
     case fetch_change(changeset, :settings) do
       {:ok, %{"file_delivery" => form} = settings} ->
         existing = FileSettings.from_connection(changeset.data)
@@ -90,7 +99,7 @@ defmodule Zaq.Engine.ChannelConfig do
 
             changeset
             |> put_change(:settings, Map.put(settings, "file_delivery", file_settings))
-            |> prepare_changes(&validate_file_settings_on_persist/1)
+            |> prepare_file_validation(opts)
 
           {:error, errors} ->
             FileSettings.add_errors(changeset, :settings, errors)
@@ -101,36 +110,36 @@ defmodule Zaq.Engine.ChannelConfig do
 
         changeset
         |> put_change(:settings, Map.merge(settings, preserved))
-        |> maybe_validate_new_file_settings()
+        |> prepare_file_validation(opts)
 
       _ ->
-        maybe_validate_new_file_settings(changeset)
+        prepare_file_validation(changeset, opts)
     end
   end
 
-  defp maybe_validate_new_file_settings(%{data: %{id: nil}} = changeset) do
-    if get_field(changeset, :kind) == "retrieval",
-      do: prepare_changes(changeset, &validate_file_settings_on_persist/1),
-      else: changeset
-  end
+  defp prepare_file_validation(changeset, opts) do
+    submitted? = match?(%{"settings" => %{"file_delivery" => _}}, changeset.params)
 
-  defp maybe_validate_new_file_settings(changeset), do: changeset
+    if (get_field(changeset, :kind) == "retrieval" or submitted?) and
+         not Keyword.get(opts, :defer_file_validation, false),
+       do: prepare_changes(changeset, &validate_file_settings_on_persist/1),
+       else: changeset
+  end
 
   defp validate_file_settings_on_persist(changeset) do
     file_settings = Map.get(get_field(changeset, :settings) || %{}, "file_delivery", %{})
 
-    if changeset.action == :update and
-         file_settings == FileSettings.from_connection(changeset.data) do
-      changeset
-    else
-      request = %{provider: get_field(changeset, :provider), scope: :provider}
+    if get_field(changeset, :kind) == "retrieval" do
+      request = %{
+        provider: get_field(changeset, :provider),
+        scope: :proposal,
+        proposed_config: apply_changes(changeset)
+      }
 
-      request =
-        if changeset.data.id,
-          do: %{request | scope: :configuration} |> Map.put(:config_id, changeset.data.id),
-          else: request
-
-      event = Event.new(request, :channels, opts: [action: :channel_capability_snapshot])
+      event =
+        Event.new(request, :channels,
+          opts: [action: :channel_capability_snapshot, confidential: true]
+        )
 
       case NodeRouter.dispatch(event) do
         %Event{response: {:ok, snapshot}} ->
@@ -147,6 +156,8 @@ defmodule Zaq.Engine.ChannelConfig do
             "file_delivery" => "File capabilities are unavailable"
           })
       end
+    else
+      validate_current_file_settings(changeset, file_settings, %{kind: :data_source})
     end
   end
 
@@ -160,14 +171,18 @@ defmodule Zaq.Engine.ChannelConfig do
   # Policy edits have a dedicated locked Engine operation. Ordinary connector
   # forms may carry an older settings snapshot and must not overwrite that policy.
   # Inserts can already carry an ID, but have no persisted policy to preserve.
-  defp preserve_live_update_policy(%{data: %{id: id}} = changeset) when not is_nil(id) do
-    prepare_changes(changeset, fn
-      %{action: :update} = changeset -> preserve_current_policy(changeset, id)
-      changeset -> changeset
-    end)
+  defp preserve_live_update_policy(%{data: %{id: id}} = changeset, opts) when not is_nil(id) do
+    if Keyword.get(opts, :preserve_live_update_policy, true) do
+      prepare_changes(changeset, fn
+        %{action: :update} = changeset -> preserve_current_policy(changeset, id)
+        changeset -> changeset
+      end)
+    else
+      changeset
+    end
   end
 
-  defp preserve_live_update_policy(changeset), do: changeset
+  defp preserve_live_update_policy(changeset, _opts), do: changeset
 
   defp preserve_current_policy(changeset, id) do
     case fetch_change(changeset, :settings) do

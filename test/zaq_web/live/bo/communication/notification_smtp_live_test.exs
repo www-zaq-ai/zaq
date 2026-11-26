@@ -62,6 +62,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
 
+  defmodule DeclaredSmtpBridge do
+    alias Zaq.Channels.EmailBridge
+
+    def capability_snapshot(config) do
+      {:ok, snapshot} = EmailBridge.capability_snapshot(config)
+
+      {:ok,
+       put_in(snapshot, [:file_delivery, :limits, :max_attachment_bytes, :validation], %{
+         greater_than: 1_000_000,
+         less_than_or_equal_to: 2_000_000
+       })}
+    end
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -200,6 +214,32 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     end
   end
 
+  test "blank configuration name preserves SMTP drafts and selects Main after persistence rejection",
+       %{conn: conn} do
+    config = insert_smtp_channel(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    view |> element("#smtp-settings-selector button[phx-value-tab='advanced']") |> render_click()
+    params = Map.put(tabbed_smtp_params(), "connector_name", "")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#smtp-settings-panel-main:not([hidden])")
+    assert has_element?(view, "#smtp-connector-name[value='']")
+    assert has_element?(view, "input[name='email_config[relay]'][value='draft.example.com']")
+    assert has_element?(view, "#smtp-password[value='draft-password']")
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[value='1.000001']")
+    assert render(view) =~ "can&#39;t be blank"
+    assert Repo.reload!(config).settings == config.settings
+    assert Repo.reload!(config).name == config.name
+
+    render_submit(view, "save", %{
+      "email_config" => Map.put(params, "connector_name", "Recovered SMTP")
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    assert Repo.reload!(config).name == "Recovered SMTP"
+    assert Repo.reload!(config).settings["relay"] == "draft.example.com"
+    assert Repo.reload!(config).settings["file_delivery"]["send_on_file_failure"] == false
+  end
+
   defp tabbed_smtp_params do
     %{
       "relay" => "draft.example.com",
@@ -211,6 +251,59 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
       "ca_cert_path" => "/tmp/draft-ca.pem",
       "file_delivery" => %{"max_attachment_mb" => "1.000001", "send_on_file_failure" => "false"}
     }
+  end
+
+  test "SMTP capability recovery retains drafts and validate does not perform lookups", %{
+    conn: conn
+  } do
+    config = insert_smtp_channel(%{})
+    channels = remove_capability_bridge(:email)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert has_element?(view, "#smtp-file-delivery-unavailable", "Capabilities unavailable")
+    observe_capability_lookups()
+    render_change(view, "validate", %{"email_config" => tabbed_smtp_params()})
+    assert capability_lookup_count() == 0
+    Application.put_env(:zaq, :channels, channels)
+    view |> element("#smtp-file-delivery button", "Retry capabilities") |> render_click()
+    refute has_element?(view, "#smtp-file-delivery-unavailable")
+    assert has_element?(view, "#smtp-password[value='draft-password']")
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[value='1.000001']")
+    assert Repo.reload!(config).settings == config.settings
+    render_submit(view, "save", %{"email_config" => tabbed_smtp_params()})
+    assert has_element?(view, "#save-status-ok")
+  end
+
+  test "SMTP rendering and persistence adapt to normalized declarations without granting support",
+       %{conn: conn} do
+    config = insert_smtp_channel(%{})
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.update!(channels, :email, &Map.put(&1, :bridge, DeclaredSmtpBridge))
+    )
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[min='1.000001'][max='2']")
+    assert render(view) =~ "Attachment sending is unavailable"
+    params = put_in(tabbed_smtp_params(), ["file_delivery", "max_attachment_mb"], "3")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#smtp-settings-panel-advanced:not([hidden])")
+    assert render(view) =~ "Must satisfy the declared numeric limit"
+    assert Repo.reload!(config).settings == config.settings
+    params = put_in(params, ["file_delivery", "max_attachment_mb"], "1.5")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#save-status-ok")
+
+    assert Repo.reload!(config).settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_500_000,
+             "send_on_file_failure" => false
+           }
+
+    {:ok, reloaded, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert has_element?(reloaded, "#smtp-file-delivery-max_attachment_mb[value='1.5'][max='2']")
   end
 
   test "SMTP untouched file controls ignore usage markers and still reject unknown settings", %{
@@ -253,7 +346,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     } do
       {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
       assert has_element?(view, "#smtp-file-delivery")
-      assert render(view) =~ "Required for file delivery"
+      assert render(view) =~ "Optional override"
+      assert render(view) =~ "Attachment sending is unavailable"
 
       render_submit(view, "save", %{
         "email_config" => %{

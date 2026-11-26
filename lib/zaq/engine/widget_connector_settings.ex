@@ -11,7 +11,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   """
 
   alias Zaq.Channels.AgentRouting
-  alias Zaq.ConnectorConfig.{LiveUpdates, WidgetSettings}
+  alias Zaq.ConnectorConfig.{FileSettings, LiveUpdates, WidgetSettings}
   alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle, IncomingMessageRouting, LiveUpdateSettings}
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -20,7 +20,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   alias Zaq.Utils.ParseUtils
 
   @provider "web_widget"
-  @fields ~w(name enabled display_name allowed_domains agent_id identity_issuer identity_audience same_site live_updates)
+  @fields ~w(name enabled display_name allowed_domains agent_id identity_issuer identity_audience same_site live_updates file_delivery)
 
   @doc "Executes an authenticated management request through the owning BO Action."
   def execute(request, opts \\ [])
@@ -74,7 +74,14 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
 
     with {:ok, config} <- selected(id) do
       capabilities =
-        dispatch(:channel_capability_snapshot, %{provider: @provider, scope: :provider}, opts)
+        dispatch(
+          :channel_capability_snapshot,
+          if(config.id,
+            do: %{provider: @provider, scope: :configuration, config_id: config.id},
+            else: %{provider: @provider, scope: :provider}
+          ),
+          opts
+        )
 
       {:ok,
        %{
@@ -135,6 +142,15 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   end
 
   defp persist(config, params, opts) do
+    policy_changed? =
+      case Map.fetch(params, "live_updates") do
+        {:ok, policy} ->
+          normalize_live_updates(policy) != LiveUpdates.from_settings(config.settings)
+
+        :error ->
+          false
+      end
+
     settings =
       initial_settings(config)
       |> Map.drop(["stylesheet_url", :stylesheet_url])
@@ -143,6 +159,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
       |> put_setting(params, "identity_issuer")
       |> put_setting(params, "identity_audience")
       |> put_setting(params, "same_site")
+      |> put_setting(params, "file_delivery")
 
     attrs = params |> Map.take(["name", "enabled"]) |> Map.put("settings", settings)
 
@@ -152,7 +169,10 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
              Map.put(params, "enabled", Map.get(params, "enabled", config.enabled)),
              opts
            ),
-         {:ok, saved} <- persist_changeset(ChannelConfig.changeset(config, attrs)),
+         {:ok, saved} <-
+           persist_changeset(
+             ChannelConfig.changeset(config, attrs, defer_file_validation: policy_changed?)
+           ),
          :ok <- persist_routing(saved.id, params) do
       persist_live_updates(saved, params)
     end
@@ -170,9 +190,10 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
     if LiveUpdates.from_settings(config.settings) == {:ok, normalized} do
       {:ok, config}
     else
-      with {:ok, _result} <-
-             LiveUpdateSettings.execute(%{op: :save, id: config.id, policy: normalized}) do
-        {:ok, Repo.get!(ChannelConfig, config.id)}
+      case LiveUpdateSettings.execute(%{op: :save, id: config.id, policy: normalized}) do
+        {:ok, _result} -> {:ok, Repo.get!(ChannelConfig, config.id)}
+        {:error, %Ecto.Changeset{}} = error -> persistence_result(error)
+        error -> error
       end
     end
   end
@@ -218,15 +239,29 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   end
 
   defp persist_changeset(changeset) do
-    case Repo.insert_or_update(changeset) do
-      {:ok, config} ->
-        {:ok, config}
-
-      {:error, invalid} ->
-        errors = Ecto.Changeset.traverse_errors(invalid, fn {message, _metadata} -> message end)
-        {:error, {:validation, errors}}
-    end
+    changeset |> Repo.insert_or_update() |> persistence_result()
   end
+
+  defp persistence_result({:error, invalid}) do
+    file_errors = FileSettings.errors(invalid)
+
+    remaining = %{
+      invalid
+      | errors:
+          Enum.reject(invalid.errors, fn {_field, {_message, options}} ->
+            options[:file_field]
+          end)
+    }
+
+    errors = Ecto.Changeset.traverse_errors(remaining, fn {message, _metadata} -> message end)
+
+    errors =
+      if file_errors == %{}, do: errors, else: Map.put(errors, :file_delivery, file_errors)
+
+    {:error, {:validation, errors}}
+  end
+
+  defp persistence_result(result), do: result
 
   defp persist_routing(id, %{"agent_id" => choice}) do
     with {:ok, normalized} <- AgentRouting.validate_choice(choice),
@@ -305,6 +340,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
       identity_audience: Map.get(config.settings || %{}, "identity_audience"),
       same_site: Map.get(config.settings || %{}, "same_site"),
       live_updates: projected_live_updates(config.settings),
+      file_delivery: FileSettings.from_connection(config),
       key_present?: key_present?(config),
       key_rotated_at: Map.get(config.settings || %{}, "key_rotated_at"),
       revision: descriptor.revision,

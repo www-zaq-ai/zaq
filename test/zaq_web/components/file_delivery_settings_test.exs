@@ -5,6 +5,73 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
 
   alias ZaqWeb.Components.FileDeliverySettings
 
+  test "declared bounds and effective requirements drive all file controls" do
+    definition = %{
+      value: :unresolved,
+      configurable: true,
+      required: true,
+      type: :integer,
+      unit: :bytes,
+      validation: %{greater_than: 10, less_than_or_equal_to: 1000}
+    }
+
+    snapshot = %{
+      resolved: %{file: :native},
+      file_delivery: %{limits: %{max_attachment_bytes: definition}}
+    }
+
+    html =
+      render_component(&FileDeliverySettings.section/1,
+        id: "typed",
+        name: "files",
+        snapshot: snapshot
+      )
+
+    assert html =~ ~s(min="0.000011")
+    assert html =~ ~s(max="0.001")
+    assert html =~ ~s(aria-required="true")
+    assert html =~ "Required for file delivery"
+    refute html =~ "Leave blank to use the transport limit"
+    refute html =~ ~s( required=)
+
+    for optional <- [
+          put_in(snapshot, [:resolved, :file], :unsupported),
+          put_in(snapshot, [:file_delivery, :limits, :max_attachment_bytes, :value], 500)
+        ] do
+      html =
+        render_component(&FileDeliverySettings.section/1,
+          id: "optional",
+          name: "files",
+          snapshot: optional
+        )
+
+      refute html =~ "Required for file delivery"
+      assert html =~ "Optional override"
+    end
+  end
+
+  test "failed lookup offers recovery while a successful unsupported snapshot stays empty" do
+    html =
+      render_component(&FileDeliverySettings.section/1,
+        id: "failed",
+        name: "files",
+        snapshot: nil,
+        unavailable: true
+      )
+
+    assert html =~ "Capabilities unavailable"
+    assert html =~ ~s(phx-click="open_capabilities")
+    assert html =~ "Retry capabilities"
+    refute html =~ ~s(type="number")
+    refute html =~ "send_on_file_failure"
+
+    assert render_component(&FileDeliverySettings.section/1,
+             id: "empty",
+             name: "files",
+             snapshot: %{}
+           ) == ""
+  end
+
   test "form params strip only known LiveView usage markers without creating omitted file settings" do
     files = %{
       "_unused_max_attachment_mb" => "",

@@ -409,6 +409,41 @@ defmodule Zaq.Engine.EmailConnectorSettingsTest do
     assert ChannelConfig.get(channel.id).settings == settings
   end
 
+  test "SMTP persistence name errors retain the form schema and every submitted draft" do
+    for selection <- [:new, insert_config("email:smtp", "Original name").id] do
+      params =
+        smtp_params("")
+        |> Map.put("relay", "draft.example.com")
+        |> Map.put("file_delivery", %{
+          "max_attachment_mb" => "1.000001",
+          "send_on_file_failure" => "false"
+        })
+
+      assert {:error, changeset} =
+               EmailConnectorSettings.save(
+                 %{provider: "email:smtp", selected_config_id: selection, params: params},
+                 node_router: RuntimeStub
+               )
+
+      assert %EmailConfig{} = changeset.data
+      assert changeset.params["connector_name"] == ""
+      assert changeset.params["password"] == "secret"
+      assert Ecto.Changeset.get_field(changeset, :relay) == "draft.example.com"
+
+      assert Ecto.Changeset.get_field(changeset, :file_delivery) == %{
+               "max_attachment_bytes" => 1_000_001,
+               "send_on_file_failure" => false
+             }
+
+      assert {"can't be blank", _} = Keyword.fetch!(changeset.errors, :connector_name)
+
+      if selection != :new,
+        do: assert(Repo.get!(ChannelConfig, selection).name == "Original name")
+
+      refute_received {:runtime_sync, _}
+    end
+  end
+
   defp smtp_params(name) do
     %{
       "connector_name" => name,

@@ -7,6 +7,121 @@ defmodule Zaq.ConnectorConfig.SettingsTest do
   alias Zaq.ConnectorConfig.FileSettings
 
   describe "file settings" do
+    test "declared numeric rules validate effective values for every shared consumer" do
+      snapshot = %{
+        resolved: %{file: :native},
+        file_delivery: %{
+          limits: %{
+            max_attachment_bytes: %{
+              value: :unresolved,
+              configurable: true,
+              required: true,
+              type: :integer,
+              unit: :bytes,
+              validation: %{greater_than: 10, less_than_or_equal_to: 100}
+            }
+          }
+        }
+      }
+
+      assert :ok = FileSettings.validate(%{"max_attachment_bytes" => 11}, snapshot)
+      assert :ok = FileSettings.validate(%{"max_attachment_bytes" => 100}, snapshot)
+
+      for value <- [10, 101, "11", 11.0, false, nil, " "] do
+        assert {:error, %{"max_attachment_bytes" => _}} =
+                 FileSettings.validate(%{"max_attachment_bytes" => value}, snapshot)
+      end
+
+      assert {:error, %{"max_attachment_bytes" => "Required for file delivery"}} =
+               FileSettings.validate(%{}, snapshot)
+
+      fixed = put_in(snapshot, [:file_delivery, :limits, :max_attachment_bytes, :value], 50)
+      assert :ok = FileSettings.validate(%{}, fixed)
+      unsupported = put_in(snapshot, [:resolved, :file], :unsupported)
+      assert :ok = FileSettings.validate(%{}, unsupported)
+      assert :ok = FileSettings.validate(%{"send_on_file_failure" => false}, unsupported)
+    end
+
+    property "declared numeric bounds cannot be exceeded even with an unresolved transport ceiling" do
+      check all(ceiling <- integer(1..1_000_000), excess <- integer(1..1000)) do
+        snapshot = %{
+          resolved: %{file: :native},
+          file_delivery: %{
+            limits: %{
+              max_attachment_bytes: %{
+                value: :unresolved,
+                configurable: true,
+                required: false,
+                validation: %{less_than_or_equal_to: ceiling}
+              }
+            }
+          }
+        }
+
+        assert :ok = FileSettings.validate(%{"max_attachment_bytes" => ceiling}, snapshot)
+
+        assert {:error, %{"max_attachment_bytes" => _}} =
+                 FileSettings.validate(%{"max_attachment_bytes" => ceiling + excess}, snapshot)
+      end
+    end
+
+    test "typed declarations survive normalization without granting file support" do
+      definition = %{
+        value: :unresolved,
+        configurable: true,
+        required: true,
+        type: :integer,
+        unit: :bytes,
+        validation: %{greater_than: 0, less_than_or_equal_to: 5_000_000}
+      }
+
+      snapshot = %{file_delivery: %{limits: %{max_attachment_bytes: definition}}}
+      assert FileSettings.metadata(snapshot).limits.max_attachment_bytes == definition
+      assert FileSettings.limit(snapshot, :max_attachment_bytes) == definition
+      refute FileSettings.supported?(snapshot, :file)
+
+      for invalid <- [
+            %{type: :string},
+            %{unit: :count},
+            %{validation: %{unknown_rule: 1}},
+            %{validation: %{greater_than: "0"}},
+            %{validation: [:greater_than]},
+            %{validation: %{greater_than: fn -> 0 end}}
+          ] do
+        malformed =
+          put_in(
+            snapshot,
+            [:file_delivery, :limits, :max_attachment_bytes],
+            Map.merge(definition, invalid)
+          )
+
+        assert FileSettings.metadata(malformed) == nil
+      end
+    end
+
+    property "normalizing declared numeric bounds is idempotent" do
+      check all(ceiling <- integer(1..100_000_000)) do
+        snapshot = %{
+          file_delivery: %{
+            limits: %{
+              max_attachment_bytes: %{
+                value: ceiling,
+                configurable: true,
+                required: false,
+                type: :integer,
+                unit: :bytes,
+                validation: %{greater_than: 0, less_than_or_equal_to: ceiling}
+              }
+            }
+          }
+        }
+
+        normalized = FileSettings.metadata(snapshot)
+        assert normalized == FileSettings.metadata(%{file_delivery: normalized})
+        assert normalized.limits.max_attachment_bytes.value == ceiling
+      end
+    end
+
     test "data-source capabilities cannot enable message file delivery" do
       for kind <- [:data_source, "data_source"] do
         snapshot = %{

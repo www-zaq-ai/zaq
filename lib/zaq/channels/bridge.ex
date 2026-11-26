@@ -479,6 +479,28 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
+  defp fetch_capability_config(provider, %{
+         scope: :proposal,
+         proposed_config: %ChannelConfig{archived_at: nil, kind: "retrieval"} = config
+       }) do
+    with true <- to_string(config.provider) == to_string(provider),
+         true <- capability_kind(config) == capability_kind(synthetic_capability_config(provider)),
+         selected <- if(is_nil(config.id), do: nil, else: ChannelConfig.get(config.id)),
+         true <-
+           (is_nil(selected) and config.__meta__.state == :built) or
+             match?(
+               %ChannelConfig{provider: provider_value, kind: "retrieval", archived_at: nil}
+               when provider_value == config.provider,
+               selected
+             ) do
+      {:ok, normalize_channel_config(config)}
+    else
+      _ -> {:error, {:channel_not_configured, provider}}
+    end
+  end
+
+  defp fetch_capability_config(_provider, %{scope: :proposal}), do: {:error, :invalid_request}
+
   defp fetch_capability_config(provider, %{scope: :provider} = params) do
     if Map.has_key?(params, :config_id) or Map.has_key?(params, "config_id"),
       do: {:error, :invalid_request},

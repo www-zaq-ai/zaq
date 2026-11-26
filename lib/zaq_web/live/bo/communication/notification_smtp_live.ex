@@ -12,6 +12,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Components.ConnectionSettings
+  alias ZaqWeb.Components.DesignSystem.Input
   alias ZaqWeb.Components.FileDeliverySettings
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.EmailConnectorSelection, as: ConnectorSelection
@@ -49,7 +50,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_event("open_capabilities", _params, socket) do
-    socket = if socket.assigns[:capabilities_error], do: load_capabilities(socket), else: socket
+    socket =
+      if socket.assigns[:capabilities_error] == true or
+           is_nil(Map.get(socket.assigns, :file_capabilities_snapshot, %{})),
+         do: load_capabilities(socket),
+         else: socket
+
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
@@ -88,7 +94,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
     {:noreply,
      socket
-     |> assign(:file_capabilities_snapshot, socket.assigns.capabilities_snapshot)
+     |> assign(
+       :file_capabilities_snapshot,
+       if(socket.assigns.capabilities_error, do: nil, else: socket.assigns.capabilities_snapshot)
+     )
      |> assign(:settings_tab, :main)
      |> assign(:form, to_form(changeset))
      |> assign(:email_enabled, false)
@@ -140,10 +149,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     changeset =
       config
       |> EmailConfig.changeset(params_with_enabled)
-      |> FileSettings.validate_changeset(
-        :file_delivery,
-        socket.assigns.file_capabilities_snapshot
-      )
 
     case save_email_settings(socket, changeset) do
       {:ok, result} ->
@@ -466,23 +471,30 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
       end
 
     file_snapshot =
-      if not socket.assigns.capabilities_error and is_integer(socket.assigns.selected_config_id),
-        do: capability_snapshot(socket.assigns.selected_config_id),
-        else: socket.assigns.capabilities_snapshot
+      cond do
+        socket.assigns.capabilities_error ->
+          nil
+
+        is_integer(socket.assigns.selected_config_id) ->
+          capability_snapshot(socket.assigns.selected_config_id)
+
+        true ->
+          socket.assigns.capabilities_snapshot
+      end
 
     assign(socket, :file_capabilities_snapshot, file_snapshot)
   rescue
     _error ->
       assign(socket,
         capabilities_snapshot: %{},
-        file_capabilities_snapshot: %{},
+        file_capabilities_snapshot: nil,
         capabilities_error: true
       )
   catch
     _kind, _reason ->
       assign(socket,
         capabilities_snapshot: %{},
-        file_capabilities_snapshot: %{},
+        file_capabilities_snapshot: nil,
         capabilities_error: true
       )
   end
@@ -497,12 +509,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
     case NodeRouter.dispatch(event).response do
       {:ok, snapshot} when is_map(snapshot) -> snapshot
-      _ -> %{}
+      _ -> nil
     end
   rescue
-    _error -> %{}
+    _error -> nil
   catch
-    _kind, _reason -> %{}
+    _kind, _reason -> nil
   end
 
   defp email_settings(socket, op, request) do

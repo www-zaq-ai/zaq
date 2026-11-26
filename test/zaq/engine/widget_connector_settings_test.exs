@@ -35,6 +35,28 @@ defmodule Zaq.Engine.WidgetConnectorSettingsTest do
 
   @opts [node_router: Router]
 
+  test "widget file settings use the existing persistence guard and nested error projection" do
+    assert {:ok, created} =
+             save(:new, nil, %{
+               "name" => "File settings",
+               "enabled" => false,
+               "file_delivery" => %{}
+             })
+
+    selected = created.snapshot.selected
+    assert selected.file_delivery == %{}
+    assert {:ok, renamed} = save(selected.id, selected.revision, %{"name" => "Retained files"})
+    assert renamed.snapshot.selected.file_delivery == %{}
+
+    assert {:error, {:validation, errors}} =
+             save(selected.id, renamed.snapshot.selected.revision, %{
+               "file_delivery" => %{"max_attachment_mb" => "invalid"}
+             })
+
+    assert errors.file_delivery["max_attachment_mb"] =~ "decimal"
+    assert Repo.get!(ChannelConfig, selected.id).settings["file_delivery"] == %{}
+  end
+
   test "settings retain the capability result and derive availability from one lookup" do
     snapshot = %{
       kind: :communication,

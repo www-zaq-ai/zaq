@@ -153,6 +153,21 @@ defmodule Zaq.Channels.TransportRequirementsTest do
     assert {:ok, ^result} = TransportRequirements.resolve(snapshot(), config)
   end
 
+  test "resolver enforces the same declared numeric rules as file configuration" do
+    caps =
+      put_in(snapshot(), [:file_delivery, :limits, :max_attachment_bytes, :validation], %{
+        less_than_or_equal_to: 100
+      })
+
+    assert {:ok, result} =
+             TransportRequirements.resolve(caps, connection(%{"max_attachment_bytes" => 100}))
+
+    assert result.max_attachment_bytes == 100
+
+    assert {:error, {:invalid_configuration, %{"max_attachment_bytes" => _}}} =
+             TransportRequirements.resolve(caps, connection(%{"max_attachment_bytes" => 101}))
+  end
+
   test "rejects unsupported or unavailable capabilities without assuming unlimited limits" do
     for support <- [:unsupported, false, nil] do
       assert {:error, :unsupported} =

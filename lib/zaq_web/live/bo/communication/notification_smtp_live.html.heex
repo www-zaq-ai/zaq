@@ -136,11 +136,14 @@
             <:main>
               <!-- SMTP Relay -->
               <div>
-                <label for="smtp-connector-name" class="zaq-field-label">Configuration name</label>
-                <input
+                <Input.input
                   id="smtp-connector-name"
                   name="email_config[connector_name]"
-                  class="zaq-control"
+                  label="Configuration name"
+                  errors={
+                    for {message, _} <- Keyword.get_values(@form.errors, :connector_name),
+                        do: message
+                  }
                   required
                   value={
                     Map.get(
@@ -282,7 +285,10 @@
               </div>
             </:main>
             <:advanced
-              :if={Zaq.ConnectorConfig.FileSettings.visible?(@file_capabilities_snapshot)}
+              :if={
+                is_nil(@file_capabilities_snapshot) ||
+                  Zaq.ConnectorConfig.FileSettings.visible?(@file_capabilities_snapshot)
+              }
               id="smtp-files-section"
               label="File delivery"
             >
@@ -291,6 +297,7 @@
                 name="email_config[file_delivery]"
                 heading={false}
                 snapshot={@file_capabilities_snapshot}
+                unavailable={is_nil(@file_capabilities_snapshot)}
                 settings={@form[:file_delivery].value || %{}}
                 errors={ZaqWeb.Components.FileDeliverySettings.errors(@form.source)}
               />

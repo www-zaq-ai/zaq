@@ -23,6 +23,12 @@ defmodule Zaq.ConnectorConfig.FileSettings do
     "max_encoded_message_mb" => "max_encoded_message_bytes"
   }
   @stored_fields Enum.map(@limit_fields, &to_string/1)
+  @validation_rules [:greater_than, :greater_than_or_equal_to, :less_than, :less_than_or_equal_to]
+  @metadata_fields [:type, :unit, :validation]
+  @types Map.new(@limit_fields, &{&1, :integer}) |> Map.put(:send_on_file_failure, :boolean)
+  @setting_keys Map.new(Map.keys(@types), &{to_string(&1), &1})
+
+  alias Ecto.Changeset
 
   @doc "Reads only the selected connection's stored file configuration."
   @spec from_connection(map() | nil) :: map()
@@ -153,25 +159,31 @@ defmodule Zaq.ConnectorConfig.FileSettings do
       configurable: Map.get(definition, :configurable, false),
       required: Map.get(definition, :required, false)
     }
+    |> Map.merge(Map.take(definition, @metadata_fields))
   end
 
   @doc "Validates stored configuration using the same declarations as forms and the resolver."
   @spec validate(term(), term()) :: :ok | {:error, map()}
   def validate(settings, snapshot) when is_map(settings) do
+    changeset = validation_changeset(settings, snapshot)
+
+    changeset =
+      if settings != %{} and not visible?(snapshot),
+        do:
+          Changeset.add_error(
+            changeset,
+            :file_delivery,
+            "File configuration capabilities are unavailable"
+          ),
+        else: changeset
+
+    changeset = Enum.reduce(@limit_fields, changeset, &validate_limit(&1, settings, snapshot, &2))
+
     errors =
-      Enum.reduce(settings, %{}, fn {key, value}, errors ->
-        case normalize_value(key, value) do
-          {:ok, ^key, ^value} -> errors
-          _ -> Map.put(errors, key, "Must be a positive integer or a boolean policy")
-        end
+      Map.new(changeset.errors, fn {field, {message, options}} ->
+        {options[:file_field] || to_string(field), message}
       end)
 
-    errors =
-      if settings != %{} and not visible?(snapshot),
-        do: Map.put(errors, "file_delivery", "File configuration capabilities are unavailable"),
-        else: errors
-
-    errors = Enum.reduce(@limit_fields, errors, &validate_limit(&1, settings, snapshot, &2))
     if errors == %{}, do: :ok, else: {:error, errors}
   end
 
@@ -189,16 +201,58 @@ defmodule Zaq.ConnectorConfig.FileSettings do
     end
   end
 
-  defp validate_limit(field, settings, snapshot, errors) do
+  defp validation_changeset(settings, snapshot) do
+    effective =
+      Map.new(@limit_fields, fn field ->
+        value = effective_limit(settings, snapshot, field)
+        {field, if(value in [:unresolved, :not_applicable], do: nil, else: value)}
+      end)
+
+    effective =
+      Map.put(effective, :send_on_file_failure, Map.get(settings, "send_on_file_failure"))
+
+    changeset = Changeset.cast({%{}, @types}, effective, Map.keys(@types), empty_values: [])
+
+    Enum.reduce(settings, changeset, fn {key, value}, changeset ->
+      with {:ok, field} <- Map.fetch(@setting_keys, key),
+           {:ok, _} <- Ecto.Type.dump(Map.fetch!(@types, field), value),
+           false <- is_nil(value) do
+        changeset
+      else
+        _ ->
+          Changeset.add_error(
+            changeset,
+            :file_delivery,
+            "Must be a positive integer or a boolean policy",
+            file_field: key
+          )
+      end
+    end)
+  end
+
+  defp validate_limit(field, settings, snapshot, changeset) do
     key = to_string(field)
     definition = limit(snapshot, field)
     override = Map.get(settings, key)
-    effective = effective_limit(settings, snapshot, field)
+    message = override_error(override, definition)
+    changeset = if message, do: Changeset.add_error(changeset, field, message), else: changeset
 
-    message =
-      override_error(override, definition) || required_error(definition, effective, snapshot)
+    changeset =
+      if supported?(snapshot, :file) and definition.required,
+        do:
+          Changeset.validate_required(changeset, [field], message: "Required for file delivery"),
+        else: changeset
 
-    if message, do: Map.put(errors, key, message), else: errors
+    changeset
+    |> Changeset.validate_number(field,
+      greater_than: 0,
+      message: "Must be a positive integer or a boolean policy"
+    )
+    |> Changeset.validate_number(
+      field,
+      Map.to_list(Map.get(definition, :validation, %{})) ++
+        [message: "Must satisfy the declared numeric limit"]
+    )
   end
 
   defp override_error(nil, _), do: nil
@@ -213,11 +267,6 @@ defmodule Zaq.ConnectorConfig.FileSettings do
        do: "Must not exceed the transport limit"
 
   defp override_error(_, _), do: nil
-
-  defp required_error(definition, effective, snapshot) do
-    if supported?(snapshot, :file) and definition.required and not positive?(effective),
-      do: "Required for file delivery"
-  end
 
   defp effective_limit(settings, snapshot, field),
     do: Map.get(settings, to_string(field), limit(snapshot, field).value)
@@ -235,10 +284,23 @@ defmodule Zaq.ConnectorConfig.FileSettings do
 
           (positive?(value) or value in [:unresolved, :not_applicable]) and
             is_boolean(Map.get(definition, :configurable, false)) and
-            is_boolean(Map.get(definition, :required, false))
+            is_boolean(Map.get(definition, :required, false)) and
+            valid_limit_metadata?(key, definition)
 
         _ ->
           false
+      end)
+  end
+
+  defp valid_limit_metadata?(key, definition) do
+    unit = if key == :max_attachments_per_message, do: :count, else: :bytes
+    rules = Map.get(definition, :validation, %{})
+
+    Map.get(definition, :type, :integer) == :integer and
+      Map.get(definition, :unit, unit) == unit and
+      is_map(rules) and
+      Enum.all?(rules, fn {rule, bound} ->
+        rule in @validation_rules and is_integer(bound) and bound >= 0
       end)
   end
 
@@ -250,7 +312,8 @@ defmodule Zaq.ConnectorConfig.FileSettings do
            value: Map.get(definition, :value, :unresolved),
            configurable: Map.get(definition, :configurable, false),
            required: Map.get(definition, :required, false)
-         }}
+         }
+         |> Map.merge(Map.take(definition, @metadata_fields))}
       end)
 
     %{

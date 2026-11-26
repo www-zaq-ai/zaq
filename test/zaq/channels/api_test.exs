@@ -2387,6 +2387,42 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   describe "email capability snapshots" do
+    test "proposed snapshots require confidentiality and preserve selected identity" do
+      proposal = %ChannelConfig{
+        provider: "email:smtp",
+        kind: "retrieval",
+        enabled: false,
+        settings: %{}
+      }
+
+      request = %{provider: "email:smtp", scope: :proposal, proposed_config: proposal}
+      event = Event.new(request, :channels, actor: %{id: 123}, opts: [bridge_module: Bridge])
+
+      assert Api.handle_event(event, :channel_capability_snapshot, nil).response ==
+               {:error, :confidential_event_required}
+
+      confidential = %{event | opts: [bridge_module: Bridge, confidential: true]}
+      result = Api.handle_event(confidential, :channel_capability_snapshot, nil)
+      assert result.actor == event.actor
+      assert {:ok, snapshot} = result.response
+      assert snapshot.file_delivery.limits.max_encoded_message_bytes.type == :integer
+      assert :file in snapshot.unsupported
+
+      config = insert_config("email:smtp", %{enabled: false})
+
+      assert {:ok, _} =
+               Bridge.capability_snapshot("email:smtp", %{request | proposed_config: config})
+
+      for invalid <- [
+            %{config | provider: "email:imap"},
+            %{config | kind: "data_source"},
+            %{config | archived_at: DateTime.utc_now(:second)}
+          ] do
+        assert {:error, _} =
+                 Bridge.capability_snapshot("email:smtp", %{request | proposed_config: invalid})
+      end
+    end
+
     test "SMTP file configuration metadata does not advertise completed file sending" do
       assert {:ok, snapshot} = email_capability_snapshot("email:smtp")
       assert :file in snapshot.unsupported
@@ -2395,7 +2431,10 @@ defmodule Zaq.Channels.ApiTest do
       assert snapshot.file_delivery.limits.max_encoded_message_bytes == %{
                value: :unresolved,
                configurable: true,
-               required: true
+               required: true,
+               type: :integer,
+               unit: :bytes,
+               validation: %{greater_than: 0}
              }
 
       assert snapshot.file_delivery.limits.max_attachments_per_message.required

@@ -2,9 +2,9 @@ defmodule Zaq.Engine.ChannelConfigTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Channels.{AgentRouting, Bridge, DiskBridge, RetrievalChannel}
-  alias Zaq.ConnectorConfig.FileSettings
+  alias Zaq.ConnectorConfig.{FileSettings, WidgetSettings}
   alias Zaq.Engine.ChannelConfig
-  alias Zaq.Engine.{ConnectorLifecycle, LiveUpdateSettings}
+  alias Zaq.Engine.{ConnectorLifecycle, LiveUpdateSettings, WidgetConnectorSettings}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
@@ -38,6 +38,46 @@ defmodule Zaq.Engine.ChannelConfigTest do
     def capability_snapshot(_config), do: {:error, :unsupported}
   end
 
+  defmodule ProposedFileBridge do
+    def capability_snapshot(config) do
+      ceiling = Map.get(config.settings, "declared_ceiling", 5_000_000)
+
+      {:ok,
+       %{
+         resolved: %{text: :native, file: :native},
+         file_delivery: %{
+           transfer_mode: :upload_then_publish,
+           limits: %{
+             max_attachment_bytes: %{
+               value: ceiling,
+               configurable: true,
+               required: true,
+               type: :integer,
+               unit: :bytes,
+               validation: %{greater_than: 0}
+             },
+             max_attachments_per_message: %{value: 10, configurable: false, required: true}
+           }
+         }
+       }}
+    end
+  end
+
+  defmodule PolicyFileBridge do
+    def capability_snapshot(config) do
+      streaming? = get_in(config.settings, ["live_updates", "enabled"]) == true
+
+      settings =
+        Map.put(
+          config.settings,
+          "declared_ceiling",
+          if(streaming?, do: 1_000_000, else: 5_000_000)
+        )
+
+      ProposedFileBridge.capability_snapshot(%{config | settings: settings})
+    end
+  end
+
   describe "file settings persistence" do
     setup context do
       original = Application.fetch_env!(:zaq, :channels)
@@ -45,6 +85,353 @@ defmodule Zaq.Engine.ChannelConfigTest do
       Application.put_env(:zaq, :channels, Map.put(original, :mattermost, %{bridge: bridge}))
       on_exit(fn -> Application.put_env(:zaq, :channels, original) end)
       :ok
+    end
+
+    @tag bridge: PolicyFileBridge
+    test "capability validation uses the policy restored during preparation" do
+      config =
+        insert_channel_config(%{
+          settings: %{
+            "live_updates" => %{"enabled" => true},
+            "file_delivery" => %{"max_attachment_bytes" => 1_000_000}
+          }
+        })
+        |> Repo.reload!()
+
+      rejected = %{
+        "name" => "Must roll back",
+        "settings" => %{
+          "live_updates" => %{"enabled" => false},
+          "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+        }
+      }
+
+      assert {:error, changeset} = config |> ChannelConfig.changeset(rejected) |> Repo.update()
+
+      assert FileSettings.errors(changeset)["max_attachment_bytes"] ==
+               "Must not exceed the transport limit"
+
+      assert Repo.reload!(config) == config
+
+      valid = put_in(rejected, ["settings", "file_delivery", "max_attachment_bytes"], 500_000)
+      assert {:ok, saved} = config |> ChannelConfig.changeset(valid) |> Repo.update()
+      assert saved.settings["live_updates"] == config.settings["live_updates"]
+      assert Repo.reload!(config).settings == saved.settings
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot(config.provider, %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      assert :ok =
+               FileSettings.validate(FileSettings.from_connection(Repo.reload!(config)), snapshot)
+    end
+
+    @tag bridge: PolicyFileBridge
+    test "removing an unowned submitted policy validates the final absent-policy configuration" do
+      config =
+        insert_channel_config(%{
+          settings: %{"file_delivery" => %{"max_attachment_bytes" => 4_000_000}}
+        })
+        |> Repo.reload!()
+
+      assert {:ok, saved} =
+               config
+               |> ChannelConfig.changeset(%{
+                 name: "Preserved absence",
+                 settings: %{
+                   "live_updates" => %{"enabled" => true},
+                   "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+                 }
+               })
+               |> Repo.update()
+
+      refute Map.has_key?(saved.settings, "live_updates")
+      assert Repo.reload!(config).settings == saved.settings
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot(config.provider, %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      assert :ok =
+               FileSettings.validate(FileSettings.from_connection(Repo.reload!(config)), snapshot)
+    end
+
+    @tag bridge: PolicyFileBridge
+    test "grouped policy changes validate final limits and roll back all configuration fields" do
+      config =
+        insert_channel_config(%{
+          settings: %{
+            "live_updates" => %{"enabled" => false},
+            "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+          }
+        })
+        |> Repo.reload!()
+
+      assert {:error, {:configuration, errors}} =
+               save_file_configuration(config, %{"name" => "Rejected policy"}, %{
+                 "enabled" => true
+               })
+
+      assert errors.file_delivery["max_attachment_bytes"] == "Must not exceed the transport limit"
+      assert Repo.reload!(config) == config
+
+      assert {:ok, %{id: id}} =
+               save_file_configuration(
+                 config,
+                 %{
+                   "name" => "Valid policy",
+                   "settings" => %{"file_delivery" => %{"max_attachment_bytes" => 500_000}}
+                 },
+                 %{"enabled" => true}
+               )
+
+      assert id == config.id
+      saved = Repo.reload!(config)
+      assert saved.name == "Valid policy"
+      assert saved.settings["live_updates"]["enabled"]
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot(config.provider, %{scope: :configuration, config_id: id})
+
+      assert :ok = FileSettings.validate(FileSettings.from_connection(saved), snapshot)
+
+      assert {:ok, %{id: ^id}} =
+               save_file_configuration(
+                 saved,
+                 %{
+                   "settings" => %{
+                     "live_updates" => %{"enabled" => false},
+                     "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+                   }
+                 },
+                 %{"enabled" => false}
+               )
+
+      saved = Repo.reload!(config)
+      assert saved.settings["file_delivery"]["max_attachment_bytes"] == 4_000_000
+      refute saved.settings["live_updates"]["enabled"]
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot(config.provider, %{scope: :configuration, config_id: id})
+
+      assert :ok = FileSettings.validate(FileSettings.from_connection(saved), snapshot)
+    end
+
+    @tag bridge: PolicyFileBridge
+    test "a policy-only save cannot invalidate retained file overrides" do
+      config =
+        insert_channel_config(%{
+          settings: %{
+            "live_updates" => %{"enabled" => false},
+            "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+          }
+        })
+        |> Repo.reload!()
+
+      assert {:error, changeset} =
+               LiveUpdateSettings.execute(%{
+                 op: :save,
+                 id: config.id,
+                 policy: %{"enabled" => true}
+               })
+
+      assert FileSettings.errors(changeset)["max_attachment_bytes"] ==
+               "Must not exceed the transport limit"
+
+      assert Repo.reload!(config) == config
+    end
+
+    @tag bridge: PolicyFileBridge
+    test "widget grouped policy changes share final validation and field error projection" do
+      channels = Application.fetch_env!(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :web_widget, %{bridge: PolicyFileBridge})
+      )
+
+      settings =
+        WidgetSettings.defaults()
+        |> Map.put("live_updates", %{"enabled" => false})
+        |> Map.put("file_delivery", %{"max_attachment_bytes" => 4_000_000})
+
+      config =
+        insert_channel_config(%{provider: "web_widget", enabled: false, settings: settings})
+        |> Repo.reload!()
+
+      {:ok, descriptor} = ConnectorLifecycle.context(config.id, config.provider, config.kind)
+
+      request = %{
+        op: :save,
+        id: config.id,
+        revision: descriptor.revision,
+        params: %{
+          "name" => "Rejected widget",
+          "agent_id" => "__none__",
+          "live_updates" => %{"enabled" => true}
+        }
+      }
+
+      assert {:error, {:validation, errors}} = WidgetConnectorSettings.execute(request)
+      assert errors.file_delivery["max_attachment_bytes"] == "Must not exceed the transport limit"
+      assert Repo.reload!(config) == config
+      assert IncomingMessageRouting.get_rule(%{channel_config_id: config.id}) == nil
+
+      params =
+        Map.put(request.params, "file_delivery", %{
+          "max_attachment_mb" => "0.5",
+          "send_on_file_failure" => "false"
+        })
+
+      assert {:ok, result} = WidgetConnectorSettings.execute(%{request | params: params})
+
+      assert result.snapshot.selected.file_delivery == %{
+               "max_attachment_bytes" => 500_000,
+               "send_on_file_failure" => false
+             }
+
+      saved = Repo.reload!(config)
+      assert saved.settings["live_updates"]["enabled"]
+
+      assert IncomingMessageRouting.get_rule(%{channel_config_id: config.id}).routing_mode ==
+               :none
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot(config.provider, %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      assert :ok = FileSettings.validate(FileSettings.from_connection(saved), snapshot)
+
+      expanded = %{
+        request
+        | revision: result.snapshot.selected.revision,
+          params:
+            Map.merge(params, %{
+              "live_updates" => %{"enabled" => false},
+              "file_delivery" => %{"max_attachment_mb" => "4", "send_on_file_failure" => "false"}
+            })
+      }
+
+      assert {:ok, _result} = WidgetConnectorSettings.execute(expanded)
+      saved = Repo.reload!(config)
+      refute saved.settings["live_updates"]["enabled"]
+      assert saved.settings["file_delivery"]["max_attachment_bytes"] == 4_000_000
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot(config.provider, %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      assert :ok = FileSettings.validate(FileSettings.from_connection(saved), snapshot)
+    end
+
+    @tag bridge: ProposedFileBridge
+    test "validates unchanged overrides against proposed transport facts and rolls back" do
+      config =
+        insert_channel_config(%{
+          settings: %{
+            "declared_ceiling" => 5_000_000,
+            "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+          }
+        })
+
+      assert {:error, changeset} =
+               config
+               |> ChannelConfig.changeset(%{settings: %{"declared_ceiling" => 1_000_000}})
+               |> Repo.update()
+
+      assert FileSettings.errors(changeset)["max_attachment_bytes"] ==
+               "Must not exceed the transport limit"
+
+      assert Repo.reload!(config).settings == config.settings
+
+      assert {:ok, saved} =
+               config
+               |> ChannelConfig.changeset(%{
+                 settings: %{
+                   "declared_ceiling" => 1_000_000,
+                   "file_delivery" => %{
+                     "max_attachment_bytes" => 1_000_000,
+                     "send_on_file_failure" => false
+                   }
+                 }
+               })
+               |> Repo.update()
+
+      assert saved.settings["declared_ceiling"] == 1_000_000
+      assert saved.settings["file_delivery"]["send_on_file_failure"] == false
+      assert Repo.reload!(config).settings == saved.settings
+    end
+
+    @tag bridge: ProposedFileBridge
+    test "creation uses proposed facts and rejects an override over its own ceiling" do
+      attrs =
+        file_connection_attrs(%{
+          "declared_ceiling" => 1_000_000,
+          "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+        })
+
+      assert {:error, changeset} =
+               %ChannelConfig{} |> ChannelConfig.changeset(attrs) |> Repo.insert()
+
+      assert FileSettings.errors(changeset)["max_attachment_bytes"] ==
+               "Must not exceed the transport limit"
+
+      refute Repo.get_by(ChannelConfig, name: attrs.name)
+    end
+
+    @tag bridge: ProposedFileBridge
+    test "enablement validates retained settings even without a submitted settings map" do
+      config =
+        Repo.insert!(%ChannelConfig{
+          name: "Legacy disabled files",
+          provider: "mattermost",
+          kind: "retrieval",
+          enabled: false,
+          url: "https://files.example.com",
+          token: "token",
+          settings: %{
+            "declared_ceiling" => 1_000_000,
+            "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+          }
+        })
+
+      assert {:error, changeset} =
+               config |> ChannelConfig.changeset(%{enabled: true}) |> Repo.update()
+
+      assert FileSettings.errors(changeset)["max_attachment_bytes"] ==
+               "Must not exceed the transport limit"
+
+      refute Repo.reload!(config).enabled
+    end
+
+    @tag bridge: ProposedFileBridge
+    test "proposed fact failures roll back grouped details and live update policy" do
+      config =
+        insert_channel_config(%{
+          settings: %{
+            "declared_ceiling" => 5_000_000,
+            "file_delivery" => %{"max_attachment_bytes" => 4_000_000}
+          }
+        })
+
+      assert {:error, {:configuration, errors}} =
+               save_file_configuration(config, %{
+                 "name" => "Rejected proposal",
+                 "settings" => %{"declared_ceiling" => 1_000_000}
+               })
+
+      assert errors.file_delivery["max_attachment_bytes"] == "Must not exceed the transport limit"
+      assert Repo.reload!(config).settings == config.settings
+      assert Repo.reload!(config).name == config.name
     end
 
     for {label, settings} <- [{"omitted", %{}}, {"empty", %{"file_delivery" => %{}}}] do

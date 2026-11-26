@@ -902,10 +902,18 @@ defmodule Zaq.Channels.Api do
     bridge_module = bridge_module(event)
 
     response =
-      if function_exported?(bridge_module, :capability_snapshot, 2) do
-        bridge_module.capability_snapshot(provider, request)
-      else
-        bridge_module.capability_snapshot(provider)
+      cond do
+        Map.has_key?(request, :proposed_config) and event.opts[:confidential] != true ->
+          {:error, :confidential_event_required}
+
+        function_exported?(bridge_module, :capability_snapshot, 2) ->
+          bridge_module.capability_snapshot(provider, request)
+
+        Map.has_key?(request, :proposed_config) ->
+          {:error, :unsupported}
+
+        true ->
+          bridge_module.capability_snapshot(provider)
       end
 
     %{event | response: response}

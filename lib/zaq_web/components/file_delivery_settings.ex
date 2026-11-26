@@ -3,7 +3,7 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
   use ZaqWeb, :html
 
   alias Zaq.ConnectorConfig.FileSettings
-  alias ZaqWeb.Components.DesignSystem.{Input, Switch}
+  alias ZaqWeb.Components.DesignSystem.{Button, FeedbackBanner, Input, Switch}
 
   @fields [
     %{
@@ -65,6 +65,7 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
   attr :settings, :any, default: %{}
   attr :errors, :map, default: %{}
   attr :heading, :boolean, default: true
+  attr :unavailable, :boolean, default: false
 
   def section(assigns) do
     assigns =
@@ -72,68 +73,89 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
       |> assign(:visible?, FileSettings.visible?(assigns.snapshot))
       |> assign(:fields, fields(assigns.snapshot))
       |> assign(:values, FileSettings.form_values(assigns.settings))
+      |> assign(
+        :required_errors,
+        case FileSettings.validate(%{}, assigns.snapshot) do
+          :ok -> %{}
+          {:error, errors} -> errors
+        end
+      )
 
     ~H"""
-    <section :if={@visible?} id={@id} class="zaq-layout-stack">
+    <section :if={@visible? || @unavailable} id={@id} class="zaq-layout-stack">
       <h3 :if={@heading} class="zaq-text-h3">File delivery</h3>
-      <p :if={not FileSettings.supported?(@snapshot, :file)} class="zaq-text-body-sm">
-        Attachment sending is unavailable for this connection.
-      </p>
-      <div :for={field <- @fields} class="zaq-layout-stack-tight">
-        <% definition = FileSettings.limit(@snapshot, field.key) %>
-        <% error = Map.get(@errors, field.input) || Map.get(@errors, to_string(field.key)) %>
-        <%= if definition.configurable && definition.value != :not_applicable do %>
-          <Input.input
-            id={@id <> "-" <> field.input}
-            name={@name <> "[" <> field.input <> "]"}
-            type="number"
-            label={field.label}
-            value={Map.get(@values, field.input)}
-            min={if field.bytes?, do: "0.000001", else: "1"}
-            step={if field.bytes?, do: "0.000001", else: "1"}
-            max={ceiling(definition.value, field)}
-            hint={hint(field, definition)}
-            aria-invalid={not is_nil(error)}
-            aria-describedby={if error, do: @id <> "-" <> field.input <> "-error"}
-          />
-        <% else %>
-          <p class="zaq-text-body-sm">
-            {field.label}: <strong>{limit_text(definition.value, field)}</strong>
-          </p>
-          <p :if={is_integer(definition.value)} class="zaq-text-caption">Fixed transport limit</p>
-        <% end %>
-        <p
-          :if={error}
-          id={@id <> "-" <> field.input <> "-error"}
-          class="zaq-text-body-sm"
-          style="color: var(--zaq-text-color-danger)"
-        >
-          {error}
+      <%= if @unavailable do %>
+        <FeedbackBanner.feedback_banner
+          id={@id <> "-unavailable"}
+          kind={:error}
+          message="Capabilities unavailable. Retry to inspect this connection's file settings."
+          auto_dismiss={false}
+          dismissible={false}
+        />
+        <Button.button variant={:secondary} phx-click="open_capabilities">Retry capabilities</Button.button>
+      <% else %>
+        <p :if={not FileSettings.supported?(@snapshot, :file)} class="zaq-text-body-sm">
+          Attachment sending is unavailable for this connection.
         </p>
-      </div>
-      <Switch.switch
-        id={@id <> "-send_on_file_failure"}
-        name={@name <> "[send_on_file_failure]"}
-        label="Send message if files fail"
-        description="Continue with the message when its files cannot be delivered."
-        layout={:setting_row}
-        checked={@values["send_on_file_failure"] in [true, "true"]}
-      />
-      <p
-        :if={@errors["send_on_file_failure"]}
-        class="zaq-text-body-sm"
-        style="color: var(--zaq-text-color-danger)"
-      >
-        {@errors["send_on_file_failure"]}
-      </p>
-      <p
-        :if={@errors["file_delivery"]}
-        id={@id <> "-error"}
-        class="zaq-text-body-sm"
-        style="color: var(--zaq-text-color-danger)"
-      >
-        {@errors["file_delivery"]}
-      </p>
+        <div :for={field <- @fields} class="zaq-layout-stack-tight">
+          <% definition = FileSettings.limit(@snapshot, field.key) %>
+          <% error = Map.get(@errors, field.input) || Map.get(@errors, to_string(field.key)) %>
+          <% required? = @required_errors[to_string(field.key)] == "Required for file delivery" %>
+          <% bounds = bounds(definition, field) %>
+          <%= if definition.configurable && definition.value != :not_applicable do %>
+            <Input.input
+              id={@id <> "-" <> field.input}
+              name={@name <> "[" <> field.input <> "]"}
+              type="number"
+              label={field.label}
+              value={Map.get(@values, field.input)}
+              min={bounds.min}
+              step={if field.bytes?, do: "0.000001", else: "1"}
+              max={bounds.max}
+              hint={hint(field, required?)}
+              aria-required={to_string(required?)}
+              aria-invalid={not is_nil(error)}
+              aria-describedby={if error, do: @id <> "-" <> field.input <> "-error"}
+            />
+          <% else %>
+            <p class="zaq-text-body-sm">
+              {field.label}: <strong>{limit_text(definition.value, field)}</strong>
+            </p>
+            <p :if={is_integer(definition.value)} class="zaq-text-caption">Fixed transport limit</p>
+          <% end %>
+          <p
+            :if={error}
+            id={@id <> "-" <> field.input <> "-error"}
+            class="zaq-text-body-sm"
+            style="color: var(--zaq-text-color-body-danger)"
+          >
+            {error}
+          </p>
+        </div>
+        <Switch.switch
+          id={@id <> "-send_on_file_failure"}
+          name={@name <> "[send_on_file_failure]"}
+          label="Send message if files fail"
+          description="Continue with the message when its files cannot be delivered."
+          layout={:setting_row}
+          checked={@values["send_on_file_failure"] in [true, "true"]}
+        />
+        <p
+          :if={@errors["send_on_file_failure"]}
+          class="zaq-text-body-sm"
+          style="color: var(--zaq-text-color-body-danger)"
+        >
+          {@errors["send_on_file_failure"]}
+        </p>
+        <p
+          :if={@errors["file_delivery"]}
+          id={@id <> "-error"}
+          class="zaq-text-body-sm"
+          style="color: var(--zaq-text-color-body-danger)"
+        >
+          {@errors["file_delivery"]}
+        </p>
+      <% end %>
     </section>
     """
   end
@@ -146,9 +168,9 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
     @fields ++ Enum.filter(@additional_fields, &Map.has_key?(limits, &1.key))
   end
 
-  defp hint(field, definition) do
+  defp hint(field, required?) do
     requirement =
-      if definition.required, do: "Required for file delivery. ", else: "Optional override. "
+      if required?, do: "Required for file delivery. ", else: "Optional override. "
 
     units =
       if field.bytes?, do: "1 MB = 1,000,000 bytes. ", else: "Enter a positive whole number. "
@@ -158,9 +180,32 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
         do: "Includes the body, headers and encoded attachments. ",
         else: ""
 
-    requirement <>
-      scope <>
-      units <> "Leave blank to use the transport limit; an unknown limit remains unresolved."
+    fallback =
+      if required?,
+        do: "Enter a value because the transport has no fixed limit for this setting.",
+        else: "Leave blank to use the transport limit; an unknown limit remains unresolved."
+
+    requirement <> scope <> units <> fallback
+  end
+
+  defp bounds(definition, field) do
+    rules = Map.get(definition, :validation, %{})
+
+    minimum =
+      Enum.max([
+        1,
+        Map.get(rules, :greater_than, 0) + 1,
+        Map.get(rules, :greater_than_or_equal_to, 1)
+      ])
+
+    upper = [
+      definition.value,
+      Map.get(rules, :less_than_or_equal_to),
+      if(is_integer(rules[:less_than]), do: rules.less_than - 1)
+    ]
+
+    maximum = upper |> Enum.filter(&is_integer/1) |> Enum.min(fn -> nil end)
+    %{min: ceiling(minimum, field), max: if(maximum == 0, do: "0", else: ceiling(maximum, field))}
   end
 
   defp ceiling(value, field) when is_integer(value) and value > 0 do
