@@ -2627,4 +2627,104 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       assert updated.assigns.root_folder_meta_by_config[config.id].next_page_token == ""
     end
   end
+
+  describe "engine outage handling" do
+    test "mount assigns empty state and error flash when engine service is unavailable" do
+      socket =
+        socket_with(%{
+          service_available: true
+        })
+
+      pid = Process.whereis(Zaq.Engine.Supervisor)
+
+      on_exit(fn ->
+        if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+          Process.register(pid, Zaq.Engine.Supervisor)
+        end
+      end)
+
+      if pid, do: Process.unregister(Zaq.Engine.Supervisor)
+
+      try do
+        assert {:ok, mounted} =
+                 ProviderLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+
+        assert mounted.assigns.configs == []
+
+        assert Phoenix.Flash.get(mounted.assigns.flash, :error) ==
+                 "Engine service is unavailable."
+      after
+        if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+          Process.register(pid, Zaq.Engine.Supervisor)
+        end
+      end
+    end
+
+    test "save preserves user form input and surfaces error when engine service is unavailable" do
+      cred_id = Integer.to_string(credential_id("google_drive"))
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :new,
+          changeset: ChannelConfig.changeset(%ChannelConfig{}, %{}),
+          form: nil,
+          modal_errors: [],
+          configs: [],
+          connect_credentials: [],
+          grants_by_config: %{},
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      pid = Process.whereis(Zaq.Engine.Supervisor)
+
+      on_exit(fn ->
+        if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+          Process.register(pid, Zaq.Engine.Supervisor)
+        end
+      end)
+
+      if pid, do: Process.unregister(Zaq.Engine.Supervisor)
+
+      try do
+        assert {:noreply, result} =
+                 ProviderLive.handle_event(
+                   "save",
+                   %{
+                     "form" => %{
+                       "name" => "Unsaved Drive",
+                       "provider" => "google_drive",
+                       "kind" => "data_source",
+                       "enabled" => true,
+                       "token" => "keep-drive-token",
+                       "settings" => %{"connect" => %{"credential_id" => cred_id}}
+                     }
+                   },
+                   socket
+                 )
+
+        assert result.assigns.modal == :new
+
+        assert Ecto.Changeset.get_field(result.assigns.changeset, :name) == "Unsaved Drive"
+
+        assert get_in(Ecto.Changeset.get_field(result.assigns.changeset, :settings), [
+                 "connect",
+                 "credential_id"
+               ]) == cred_id
+
+        assert result.assigns.modal_errors == [
+                 "Failed to save data source config: Engine service is unavailable."
+               ]
+
+        assert Phoenix.Flash.get(result.assigns.flash, :error) ==
+                 "Failed to save data source config: Engine service is unavailable."
+      after
+        if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+          Process.register(pid, Zaq.Engine.Supervisor)
+        end
+      end
+    end
+  end
 end

@@ -7,5 +7,7 @@ defmodule Zaq do
   if it comes from the database, an external API or others.
   """
 
-  use Boundary, check: [in: false, out: false]
+  use Boundary,
+    check: [in: true, out: false],
+    exports: {:all, except: [Repo]}
 end

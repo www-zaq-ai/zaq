@@ -9,11 +9,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
-  import Ecto.Query
-
-  alias Zaq.Engine.Notifications.NotificationLog
-  alias Zaq.Repo
   alias ZaqWeb.Helpers.Timezone
+  alias ZaqWeb.Live.BO.EngineDispatch
 
   @per_page 20
 
@@ -74,8 +71,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
   end
 
   def handle_event("view_log", %{"id" => id}, socket) do
-    log = Repo.get(NotificationLog, id)
-    {:noreply, assign(socket, :selected_log, log)}
+    case EngineDispatch.dispatch_confidential(:notification_logs, %{action: :get, id: id}) do
+      %{id: _} = found ->
+        {:noreply, assign(socket, :selected_log, found)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:selected_log, nil)
+         |> put_flash(:error, format_engine_error(reason))}
+
+      _ ->
+        {:noreply, assign(socket, :selected_log, nil)}
+    end
   end
 
   def handle_event("close_modal", _params, socket) do
@@ -87,31 +95,43 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
   # ---------------------------------------------------------------------------
 
   defp load_logs(socket) do
-    page = socket.assigns.page
-    per_page = socket.assigns.per_page
-    offset = (page - 1) * per_page
-    filter = String.trim(socket.assigns.recipient_filter)
+    {logs, total, error} =
+      case EngineDispatch.dispatch_confidential(
+             :notification_logs,
+             %{
+               action: :list,
+               opts: [
+                 page: socket.assigns.page,
+                 per_page: socket.assigns.per_page,
+                 recipient_filter: socket.assigns.recipient_filter
+               ]
+             }
+           ) do
+        %{logs: logs, total: total} when is_list(logs) and is_integer(total) ->
+          {logs, total, nil}
 
-    base_query =
-      if filter == "" do
-        from(l in NotificationLog)
-      else
-        pattern = "%#{filter}%"
-        from(l in NotificationLog, where: ilike(l.recipient_name, ^pattern))
+        {:error, reason} ->
+          {[], 0, reason}
+
+        _ ->
+          {[], 0, nil}
       end
-
-    total = Repo.aggregate(base_query, :count)
-
-    logs =
-      from(l in base_query,
-        order_by: [desc: l.inserted_at],
-        limit: ^per_page,
-        offset: ^offset
-      )
-      |> Repo.all()
 
     socket
     |> assign(:logs, logs)
     |> assign(:total, total)
+    |> maybe_put_engine_error_flash(error)
   end
+
+  defp maybe_put_engine_error_flash(socket, nil), do: socket
+
+  defp maybe_put_engine_error_flash(socket, reason) do
+    put_flash(socket, :error, format_engine_error(reason))
+  end
+
+  defp format_engine_error({:service_unavailable, :engine}),
+    do: "Engine service is unavailable."
+
+  defp format_engine_error(reason) when is_binary(reason), do: reason
+  defp format_engine_error(reason), do: "Failed to load notification logs: #{inspect(reason)}"
 end
