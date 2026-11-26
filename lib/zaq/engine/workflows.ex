@@ -80,7 +80,7 @@ defmodule Zaq.Engine.Workflows do
   """
   @spec start_run(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def start_run(%WorkflowRun{status: "pending"} = run, opts) do
-    with {:ok, run} <- ensure_prepared_dag(run) do
+    with {:ok, run} <- ensure_prepared_dag(run, Keyword.get(opts, :config)) do
       dispatch_async("workflow:#{run.workflow_id}", {:run_started, run})
       WorkflowRunAgent.execute(run, opts)
     end
@@ -137,18 +137,20 @@ defmodule Zaq.Engine.Workflows do
   to *run* it (it never builds a DAG).
 
   Reuses an already-prepared DAG when present (e.g. the in-memory DAG
-  `create_run/4` attaches); otherwise builds it from `steps_snapshot`. A reload
-  from the DB drops the virtual `prepared_dag`, so the resume/start paths rebuild
-  here. On a build failure — only reachable via **code drift**, since save-time
-  validation rejects unrunnable workflows — the run is marked `failed`, a
-  `run.failed` lifecycle event is dispatched, and `{:error, reason}` is returned.
+  `create_run/4` attaches); otherwise builds it from `steps_snapshot`. Start and
+  resume also rebuild from that snapshot when given a scoped provider in
+  `opts[:config]` or when reloading a run from the database. Save-time validation
+  rejects unrunnable workflows, so build failures indicate code drift. A build
+  failure marks the run `failed`, dispatches `run.failed`, and returns `{:error, reason}`.
   """
   @spec ensure_prepared_dag(WorkflowRun.t()) :: {:ok, WorkflowRun.t()} | {:error, term()}
-  def ensure_prepared_dag(%WorkflowRun{prepared_dag: dag} = run) when not is_nil(dag),
+  def ensure_prepared_dag(%WorkflowRun{} = run), do: ensure_prepared_dag(run, nil)
+
+  defp ensure_prepared_dag(%WorkflowRun{prepared_dag: dag} = run, nil) when not is_nil(dag),
     do: {:ok, run}
 
-  def ensure_prepared_dag(%WorkflowRun{} = run) do
-    case DagBuilder.build(run.steps_snapshot, run_id: run.id) do
+  defp ensure_prepared_dag(%WorkflowRun{} = run, config) do
+    case DagBuilder.build(run.steps_snapshot, run_id: run.id, config: config) do
       {:ok, dag} ->
         {:ok, %{run | prepared_dag: dag}}
 
@@ -281,7 +283,7 @@ defmodule Zaq.Engine.Workflows do
   def resume_run(%WorkflowRun{} = run, opts \\ []) do
     case run.status do
       "paused" ->
-        with {:ok, run} <- ensure_prepared_dag(run) do
+        with {:ok, run} <- ensure_prepared_dag(run, Keyword.get(opts, :config)) do
           WorkflowRunAgent.execute(run, opts)
         end
 

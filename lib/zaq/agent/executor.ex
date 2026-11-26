@@ -247,6 +247,7 @@ defmodule Zaq.Agent.Executor do
                  source_filter: Keyword.get(execution_opts, :source_filter),
                  skip_permissions: Keyword.get(execution_opts, :skip_permissions, false),
                  actor: actor,
+                 config: Keyword.get(execution_opts, :config),
                  execution_history: Keyword.get(execution_opts, :execution_history),
                  node_router: Keyword.get(execution_opts, :node_router, Zaq.NodeRouter)
                }

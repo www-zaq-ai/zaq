@@ -258,6 +258,29 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.request.provider == nil
     end
 
+    test "nested agent dispatch carries scoped config and inherits the parent workflow run" do
+      agent = create_agent()
+      config = Zaq.TestSupport.AgentConfig
+
+      parent = %Zaq.Engine.Messages.Incoming{
+        content: "delegate",
+        channel_id: "workflow:parent-run",
+        provider: nil,
+        metadata: %{run_id: "parent-run", step_index: 3}
+      }
+
+      assert {:ok, _} =
+               RunAgent.run(
+                 %{agent_id: agent.id, input: "hello"},
+                 %{node_router: OkRouter, incoming: parent, config: config}
+               )
+
+      assert_received {:dispatched, event}
+      assert event.opts[:config] == config
+      assert event.request.metadata == %{run_id: "parent-run"}
+      refute event.opts[:pipeline_opts][:skip_permissions]
+    end
+
     test "carries no run marker when neither run_id nor incoming is present" do
       agent = create_agent()
 

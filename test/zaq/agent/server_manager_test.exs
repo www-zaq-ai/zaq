@@ -2481,18 +2481,10 @@ defmodule Zaq.Agent.ServerManagerTest do
   end
 
   test "drain timeout kills in-flight server and next message uses replacement pid" do
-    previous_timeout = Application.get_env(:zaq, :agent_server_drain_timeout_ms)
     previous_force_drain = Application.get_env(:zaq, :agent_server_force_drain)
-    Application.put_env(:zaq, :agent_server_drain_timeout_ms, 200)
     Application.put_env(:zaq, :agent_server_force_drain, true)
 
     on_exit(fn ->
-      if is_nil(previous_timeout) do
-        Application.delete_env(:zaq, :agent_server_drain_timeout_ms)
-      else
-        Application.put_env(:zaq, :agent_server_drain_timeout_ms, previous_timeout)
-      end
-
       if is_nil(previous_force_drain) do
         Application.delete_env(:zaq, :agent_server_force_drain)
       else
@@ -2550,7 +2542,9 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:ok, server_ref} =
              ServerManager.ensure_server(configured_agent, server_id, nil,
-               actor: @execution_actor
+               actor: @execution_actor,
+               config: Zaq.TestSupport.AgentConfig,
+               test_drain_timeout_ms: 200
              )
 
     assert {:via, Registry, {registry, ^server_id}} = server_ref

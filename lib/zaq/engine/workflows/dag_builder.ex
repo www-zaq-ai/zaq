@@ -102,15 +102,22 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   def build(steps, opts) when is_map(steps) do
     run_id = Keyword.get(opts, :run_id)
+
+    context =
+      case Keyword.fetch(opts, :config) do
+        {:ok, config} when not is_nil(config) -> %{config: config}
+        _ -> %{}
+      end
+
     nodes_list = Map.get(steps, "nodes", [])
     edges_list = Map.get(steps, "edges", [])
 
     with :ok <- validate_keys(steps),
          :ok <- validate_non_empty(nodes_list),
          {:ok, enriched_nodes} <- enrich_nodes(nodes_list),
-         {:ok, node_map} <- build_node_map(enriched_nodes, run_id),
+         {:ok, node_map} <- build_node_map(enriched_nodes, run_id, context),
          :ok <- validate_edges(edges_list, node_map) do
-      assemble(node_map, edges_list, run_id)
+      assemble(node_map, edges_list, run_id, context)
     end
   end
 
@@ -129,7 +136,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp validate_non_empty([]), do: {:error, :empty_dag}
   defp validate_non_empty(_), do: :ok
 
-  defp build_node_map(nodes_list, run_id) do
+  defp build_node_map(nodes_list, run_id, context) do
     Enum.reduce_while(nodes_list, {:ok, %{}}, fn node, {:ok, acc} ->
       name = Map.get(node, "name")
       type = Map.get(node, "type")
@@ -137,7 +144,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       params = Map.get(node, "params") || %{}
       index = Map.get(node, "index", 0)
 
-      case build_node(type, module, params, name, index, run_id) do
+      case build_node(type, module, params, name, index, run_id, context) do
         {:ok, entry} ->
           {:cont, {:ok, Map.put(acc, name, Map.put(entry, :index, index))}}
 
@@ -147,21 +154,21 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end)
   end
 
-  defp build_node(type, module, params, name, index, run_id)
+  defp build_node(type, module, params, name, index, run_id, context)
        when type in ["action", "agent"] do
     with {:ok, mod} <- resolve_module(module),
          :ok <- Action.validate(mod) do
-      {:ok, %{node: build_action_node(mod, atomize_keys(params), name, index, run_id)}}
+      {:ok, %{node: build_action_node(mod, atomize_keys(params), name, index, run_id, context)}}
     end
   end
 
-  defp build_node("map", _module, params, name, index, run_id) do
-    with {:ok, spec} <- MapNodeBuilder.build_spec(name, params, index, run_id) do
+  defp build_node("map", _module, params, name, index, run_id, context) do
+    with {:ok, spec} <- MapNodeBuilder.build_spec(name, params, index, run_id, context) do
       {:ok, %{map: spec}}
     end
   end
 
-  defp build_node(type, _module, _params, _name, _index, _run_id),
+  defp build_node(type, _module, _params, _name, _index, _run_id, _context),
     do: {:error, {:unknown_node_type, type}}
 
   # Module resolution is shared with save-time validation (`Step.Node.changeset`)
@@ -178,7 +185,9 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   module is used. Public so `MapNodeBuilder` builds the map's aggregate `MapCollect`
   node the same way as a regular node.
   """
-  def build_action_node(mod, params, name, step_index, run_id) when is_binary(run_id) do
+  def build_action_node(mod, params, name, step_index, run_id, context \\ %{})
+
+  def build_action_node(mod, params, name, step_index, run_id, context) when is_binary(run_id) do
     wrapper_params =
       Map.merge(params, %{
         wrapped_module: mod,
@@ -187,11 +196,15 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         step_index: step_index
       })
 
-    ActionNode.new(StepRunner, wrapper_params, name: node_atom(name), max_retries: 0)
+    ActionNode.new(StepRunner, wrapper_params,
+      name: node_atom(name),
+      max_retries: 0,
+      context: context
+    )
   end
 
-  def build_action_node(mod, params, name, _step_index, _run_id) do
-    ActionNode.new(mod, params, name: node_atom(name))
+  def build_action_node(mod, params, name, _step_index, _run_id, context) do
+    ActionNode.new(mod, params, name: node_atom(name), context: context)
   end
 
   defp validate_edges(edges, node_map) do
@@ -297,7 +310,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   def require_non_empty([], tag), do: {:error, tag}
   def require_non_empty(_, _), do: :ok
 
-  defp assemble(node_map, edges, run_id) do
+  defp assemble(node_map, edges, run_id, context) do
     workflow =
       node_map
       |> Enum.sort_by(fn {_name, %{index: i}} -> i end)
@@ -305,8 +318,11 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         incoming = Enum.filter(edges, &(Map.get(&1, "to") == name))
 
         case entry do
-          %{node: runic_node} -> add_node(wf, runic_node, name, incoming, node_map, run_id)
-          %{map: spec} -> add_map_chain(wf, spec, name, incoming, node_map, run_id)
+          %{node: runic_node} ->
+            add_node(wf, runic_node, name, incoming, node_map, run_id, context)
+
+          %{map: spec} ->
+            add_map_chain(wf, spec, name, incoming, node_map, run_id, context)
         end
       end)
 
@@ -318,15 +334,23 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   # Map/Reduce/Collect chain is appended internally. The Collect node carries the map
   # node's own name, so downstream `from`-edges resolve to it via `node_atom(name)`
   # with no special casing.
-  defp add_map_chain(wf, %{ordered: ordered, collect: collect}, name, incoming, node_map, run_id) do
+  defp add_map_chain(
+         wf,
+         %{ordered: ordered, collect: collect},
+         name,
+         incoming,
+         node_map,
+         run_id,
+         context
+       ) do
     wf
-    |> add_node(ordered, name, incoming, node_map, run_id)
+    |> add_node(ordered, name, incoming, node_map, run_id, context)
     |> Runic.Workflow.add(collect, to: ordered)
   end
 
-  defp add_map_chain(wf, spec, name, incoming, node_map, run_id) do
+  defp add_map_chain(wf, spec, name, incoming, node_map, run_id, context) do
     wf
-    |> add_node(spec.extract, name, incoming, node_map, run_id)
+    |> add_node(spec.extract, name, incoming, node_map, run_id, context)
     |> Runic.Workflow.add(spec.map, to: spec.extract_atom)
     # `last_body` is the fork-executor pipeline step; register it as the Map's `:leaf`
     # explicitly so `Reduce.connect` can fan it in.
@@ -339,17 +363,17 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     |> Runic.Workflow.add(spec.collect, to: spec.reduce.fan_in)
   end
 
-  defp add_node(workflow, runic_node, _to_name, [], _node_map, _run_id) do
+  defp add_node(workflow, runic_node, _to_name, [], _node_map, _run_id, _context) do
     Runic.Workflow.add(workflow, runic_node)
   end
 
-  defp add_node(workflow, runic_node, to_name, incoming, node_map, run_id) do
+  defp add_node(workflow, runic_node, to_name, incoming, node_map, run_id, context) do
     Enum.reduce(incoming, workflow, fn edge, wf ->
-      add_edge(wf, runic_node, to_name, edge, node_map, run_id)
+      add_edge(wf, runic_node, to_name, edge, node_map, run_id, context)
     end)
   end
 
-  defp add_edge(wf, runic_node, to_name, edge, node_map, run_id) do
+  defp add_edge(wf, runic_node, to_name, edge, node_map, run_id, context) do
     from_name = Map.get(edge, "from")
     condition = Map.get(edge, "condition")
     mapping = Map.get(edge, "mapping") || %{}
@@ -364,7 +388,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         # node is wired downstream of the guard, so it no longer reacts to the
         # raw planted fact (avoids double-firing on the untransformed payload).
         guard_name = "#{from_name}__to__#{to_name}__edge"
-        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, 0)
+        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, 0, context)
 
         wf
         |> Runic.Workflow.add(guard_node, validate: :off)
@@ -373,7 +397,9 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       true ->
         guard_name = "#{from_name}__to__#{to_name}__edge"
         from_index = get_in(node_map, [from_name, :index]) || 0
-        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, from_index)
+
+        guard_node =
+          build_edge_step_node(condition, mapping, guard_name, run_id, from_index, context)
 
         wf
         |> Runic.Workflow.add(guard_node, to: node_atom(from_name), validate: :off)
@@ -389,7 +415,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  defp build_edge_step_node(condition, mapping, name, run_id, source_index) do
+  defp build_edge_step_node(condition, mapping, name, run_id, source_index, context) do
     params =
       %{
         __edge_condition__: condition,
@@ -406,7 +432,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     # which is also built non-retriable.
     ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params,
       name: node_atom(name),
-      max_retries: 0
+      max_retries: 0,
+      context: context
     )
   end
 

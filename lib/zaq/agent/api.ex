@@ -516,6 +516,7 @@ defmodule Zaq.Agent.Api do
             skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
             history: Keyword.get(pipeline_opts, :history, %{}),
             context: Keyword.get(pipeline_opts, :context),
+            config: Keyword.get(event.opts, :config),
             telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
             event: event,
             live_followup: not Keyword.get(event.opts, :followup_attempted, false),

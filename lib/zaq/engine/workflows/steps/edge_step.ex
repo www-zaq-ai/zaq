@@ -62,7 +62,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   ]
 
   @impl true
-  def run(params, _context) do
+  def run(params, context) do
     condition = Map.get(params, :__edge_condition__)
     mapping = Map.get(params, :__edge_mapping__) || %{}
     edge_name = Map.get(params, :__edge_name__, "edge")
@@ -72,7 +72,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     fact = Map.drop(params, @edge_keys)
 
     try do
-      maybe_check_condition(condition, fact, edge_name, run_id, source_index)
+      maybe_check_condition(condition, fact, edge_name, run_id, source_index, context[:config])
       # Compute the mapped output BEFORE writing the "completed" row — a crash
       # here must never leave a `completed` StepRun row for an edge that
       # produced no fact (see the `rescue` clause below).
@@ -83,7 +83,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     rescue
       e in ConditionNotMet ->
         # Existing skip semantics: write_skip_trace/5 already ran inside
-        # maybe_check_condition/5 — reraise unchanged.
+        # maybe_check_condition/6 — reraise unchanged.
         reraise e, __STACKTRACE__
 
       e ->
@@ -98,16 +98,16 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     end
   end
 
-  defp maybe_check_condition(nil, _fact, _name, _run_id, _source_index), do: :ok
+  defp maybe_check_condition(nil, _fact, _name, _run_id, _source_index, _config), do: :ok
 
-  defp maybe_check_condition(condition, fact, edge_name, run_id, source_index) do
+  defp maybe_check_condition(condition, fact, edge_name, run_id, source_index, config) do
     field = condition["field"] || condition[:field]
     op = to_op(condition["op"] || condition[:op])
     expected = Map.get(condition, "value", Map.get(condition, :value))
     type = condition["type"] || condition[:type]
     actual = lookup(fact, field)
 
-    unless EdgeCondition.evaluate(op, actual, expected, type: type) do
+    unless EdgeCondition.evaluate(op, actual, expected, type: type, config: config) do
       write_skip_trace(run_id, edge_name, source_index, field, op, actual, expected)
 
       raise ConditionNotMet,
