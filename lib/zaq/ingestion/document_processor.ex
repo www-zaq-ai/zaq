@@ -2,7 +2,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @moduledoc """
   Processes documents using layout-aware chunking.
 
-  Handles file reading, structured chunking with `DocumentChunker`,
+  Takes Markdown from `DocumentConversion` for structured chunking with `DocumentChunker`,
   embedding generation via `Zaq.Embedding.Client`, and storage using
   the `Zaq.Ingestion.Chunk` Ecto schema.
 
@@ -26,14 +26,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Document,
     DocumentAccess,
     DocumentChunker,
+    DocumentConversion,
     DocumentIngestionSummary,
     FTSBackend,
     KnowledgeChunks
   }
 
   alias Zaq.Ingestion.LanguageDetector
-  alias Zaq.Ingestion.Python.Pipeline
-  alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, PptxToMd, XlsxToMd}
   alias Zaq.Repo
 
   require Logger
@@ -43,9 +42,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Referenced in tests and the answering prompt migration.
   """
   defdelegate access_denied_message(), to: KnowledgeChunks
-
-  NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
-  alias Zaq.Ingestion.CSVParser
 
   @supported_extensions ~w(.md .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
 
@@ -166,7 +162,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def prepare_file_chunks(file_path, opts \\ []) do
     Logger.info("Preparing file chunks: #{file_path}")
 
-    with {:ok, content} <- read_as_markdown(file_path, opts),
+    with {:ok, content} <- DocumentConversion.read_file(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
          {:ok, document} <-
            store_document(
@@ -199,7 +195,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")
 
-    with {:ok, content} <- read_as_markdown(file_path, opts),
+    with {:ok, content} <- DocumentConversion.read_file(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
          {:ok, document} <-
            store_document(
@@ -221,304 +217,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc false
   def sanitize_fts_query(text) do
     FTSBackend.impl().sanitize_query(text)
-  end
-
-  # Reads a file and returns its content as a markdown string,
-  # converting non-markdown formats as needed.
-  #
-  # `opts` (e.g. `:on_progress`) is forwarded only to the PDF branch: the PDF
-  # pipeline is the sole converter that offloads to a long-running Python step
-  # (image-to-text) and therefore the only one that emits progress. The other
-  # converters are synchronous, single-shot calls with no progress to report, so
-  # they intentionally ignore `opts`.
-  defp read_as_markdown(file_path, opts) do
-    case Path.extname(file_path) |> String.downcase() do
-      ".pdf" ->
-        md_path = Path.rootname(file_path) <> ".md"
-
-        convert_to_temporary_markdown(md_path, "PDF", opts, fn ->
-          convert_pdf(file_path, md_path, opts)
-        end)
-
-      ".docx" ->
-        md_path = Path.rootname(file_path) <> ".md"
-
-        convert_to_temporary_markdown(md_path, "DOCX", opts, fn ->
-          convert_docx(file_path, md_path)
-        end)
-
-      ".pptx" ->
-        md_path = Path.rootname(file_path) <> ".md"
-
-        convert_to_temporary_markdown(md_path, "PPTX", opts, fn ->
-          convert_pptx(file_path, md_path)
-        end)
-
-      ".xlsx" ->
-        md_path = Path.rootname(file_path) <> ".md"
-
-        convert_to_temporary_markdown(md_path, "XLSX", opts, fn ->
-          convert_xlsx(file_path, md_path)
-        end)
-
-      ext when ext in [".png", ".jpg", ".jpeg"] ->
-        md_path = Path.rootname(file_path) <> ".md"
-
-        convert_to_temporary_markdown(md_path, "image", opts, fn ->
-          convert_image(file_path, md_path)
-        end)
-
-      ".csv" ->
-        convert_csv(file_path)
-
-      _ ->
-        with {:ok, raw} <- File.read(file_path) do
-          {:ok, FTSBackend.sanitize_utf8_text(raw)}
-        end
-    end
-  end
-
-  defp convert_csv(file_path) do
-    with {:ok, raw} <- File.read(file_path) do
-      rows = CSVParser.parse_string(FTSBackend.sanitize_utf8_text(raw), skip_headers: false)
-      {:ok, rows_to_markdown_table(rows)}
-    end
-  end
-
-  defp convert_pdf(file_path, md_path, opts) do
-    with {:ok, _} <- pdf_pipeline_module().run(file_path, Keyword.take(opts, [:on_progress])),
-         {:ok, raw} <- File.read(md_path) do
-      Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
-      {:ok, FTSBackend.sanitize_utf8_text(raw)}
-    end
-  end
-
-  defp convert_docx(file_path, md_path) do
-    with {:ok, _} <- docx_to_md_module().run(file_path, md_path),
-         {:ok, raw} <- File.read(md_path) do
-      Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
-      {:ok, FTSBackend.sanitize_utf8_text(raw)}
-    end
-  end
-
-  defp convert_pptx(file_path, md_path) do
-    with {:ok, _} <- pptx_to_md_module().run(file_path, md_path),
-         {:ok, raw} <- File.read(md_path) do
-      Logger.info("[DocumentProcessor] PPTX converted to markdown: #{md_path}")
-      {:ok, FTSBackend.sanitize_utf8_text(raw)}
-    end
-  end
-
-  defp pptx_to_md_module do
-    Application.get_env(:zaq, :pptx_to_md_module, PptxToMd)
-  end
-
-  defp convert_xlsx(file_path, md_path) do
-    with {:ok, _} <- xlsx_to_md_module().run(file_path, md_path),
-         {:ok, raw} <- File.read(md_path) do
-      Logger.info("[DocumentProcessor] XLSX converted to markdown: #{md_path}")
-      {:ok, FTSBackend.sanitize_utf8_text(raw)}
-    end
-  end
-
-  defp pdf_pipeline_module do
-    Application.get_env(:zaq, :pdf_pipeline_module, Pipeline)
-  end
-
-  defp docx_to_md_module do
-    Application.get_env(:zaq, :docx_to_md_module, DocxToMd)
-  end
-
-  defp xlsx_to_md_module do
-    Application.get_env(:zaq, :xlsx_to_md_module, XlsxToMd)
-  end
-
-  defp convert_image(file_path, md_path) do
-    with {:ok, markdown} <- read_image_as_markdown(file_path),
-         :ok <- File.write(md_path, markdown) do
-      Logger.info("[DocumentProcessor] Image converted to markdown: #{md_path}")
-      {:ok, markdown}
-    end
-  end
-
-  defp convert_to_temporary_markdown(md_path, label, opts, convert_fn) do
-    _ = {md_path, label, opts}
-    convert_fn.()
-  end
-
-  defp read_image_as_markdown(file_path) do
-    {safe_path, cleanup_alias} = prepare_image_input(file_path)
-    output_json = image_description_output_path(file_path)
-
-    try do
-      with {:ok, opts} <- image_to_text_opts(),
-           {:ok, _} <- image_to_text_step().run_single(safe_path, output_json, opts),
-           {:ok, raw_json} <- File.read(output_json),
-           {:ok, description} <- extract_image_description(raw_json, file_path) do
-        image_name = Path.basename(file_path)
-        markdown = build_image_markdown(image_name, description)
-
-        {:ok, FTSBackend.sanitize_utf8_text(markdown)}
-      end
-    after
-      cleanup_alias.()
-      _ = File.rm(output_json)
-    end
-  end
-
-  # Creates a symlink (or copy) with an ASCII-safe filename when the image path
-  # contains spaces, accents, or other non-ASCII characters that confuse Python.
-  defp prepare_image_input(image_path) do
-    basename = Path.basename(image_path)
-
-    if String.match?(basename, ~r/[^a-zA-Z0-9._\-]/) do
-      alias_path = build_image_alias_path(image_path)
-      create_image_alias(image_path, alias_path)
-    else
-      {image_path, fn -> :ok end}
-    end
-  end
-
-  defp create_image_alias(image_path, alias_path) do
-    case File.ln_s(image_path, alias_path) do
-      :ok -> {alias_path, fn -> File.rm(alias_path) end}
-      {:error, _} -> create_image_alias_copy(image_path, alias_path)
-    end
-  end
-
-  defp create_image_alias_copy(image_path, alias_path) do
-    case File.cp(image_path, alias_path) do
-      :ok ->
-        {alias_path, fn -> File.rm(alias_path) end}
-
-      {:error, reason} ->
-        Logger.warning("Failed to create image alias copy at #{alias_path}: #{inspect(reason)}")
-        {image_path, fn -> :ok end}
-    end
-  end
-
-  defp build_image_alias_path(image_path) do
-    dir = Path.dirname(image_path)
-    ext = Path.extname(image_path)
-    unique = System.unique_integer([:positive])
-
-    normalized_stem =
-      image_path
-      |> Path.basename(ext)
-      |> String.replace(~r/[^a-zA-Z0-9._\-]/, "_")
-
-    Path.join(dir, "#{normalized_stem}__zaq_tmp_#{unique}#{ext}")
-  end
-
-  defp image_description_output_path(file_path) do
-    stem =
-      file_path
-      |> Path.basename(Path.extname(file_path))
-      |> String.replace(~r/[^a-zA-Z0-9._\-]/, "_")
-
-    Path.join(
-      System.tmp_dir!(),
-      "zaq_image_to_text_#{stem}_#{System.unique_integer([:positive])}.json"
-    )
-  end
-
-  defp image_to_text_opts do
-    cfg = Zaq.System.get_image_to_text_config()
-
-    if is_binary(cfg.api_key) and cfg.api_key != "" do
-      opts =
-        [api_key: cfg.api_key]
-        |> maybe_put(:endpoint, cfg.endpoint)
-        |> maybe_put(:model, cfg.model)
-
-      {:ok, opts}
-    else
-      {:error,
-       "Image to text is not configured; set it in System settings to enable PNG/JPG ingestion"}
-    end
-  end
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, _key, ""), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
-
-  defp image_to_text_step do
-    Application.get_env(:zaq, :image_to_text_step_module, ImageToText)
-  end
-
-  defp extract_image_description(raw_json, file_path) do
-    image_name = Path.basename(file_path)
-
-    with {:ok, decoded} <- Jason.decode(raw_json),
-         {:ok, description} <- pick_image_description(decoded, image_name),
-         :ok <- validate_image_description(description, image_name) do
-      {:ok, description}
-    end
-  end
-
-  defp pick_image_description(%{} = payload, image_name) do
-    description =
-      Map.get(payload, image_name) ||
-        Map.get(payload, String.downcase(image_name)) ||
-        single_payload_value(payload)
-
-    {:ok, description}
-  end
-
-  defp pick_image_description(_payload, image_name) do
-    {:error, "Image-to-text output missing description for #{image_name}"}
-  end
-
-  defp single_payload_value(payload) do
-    case Map.values(payload) do
-      [single] -> single
-      _ -> nil
-    end
-  end
-
-  defp validate_image_description(description, image_name)
-       when not is_binary(description) or description == "" do
-    {:error, "Image-to-text output missing description for #{image_name}"}
-  end
-
-  defp validate_image_description(description, image_name) do
-    trimmed_description = String.trim(description)
-
-    cond do
-      trimmed_description == "" ->
-        {:error, "Image-to-text output missing description for #{image_name}"}
-
-      String.starts_with?(trimmed_description, "ERROR:") ->
-        {:error, trimmed_description}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp build_image_markdown(image_name, description) do
-    quoted_description =
-      description
-      |> String.trim()
-      |> String.split("\n")
-      |> Enum.map_join("\n", fn
-        "" -> ">"
-        line -> "> #{line}"
-      end)
-
-    "> **[Image: #{image_name}]**\n#{quoted_description}\n"
-  end
-
-  defp rows_to_markdown_table([]), do: ""
-
-  defp rows_to_markdown_table([header | rest]) do
-    header_row = "| " <> Enum.map_join(header, " | ", &to_string/1) <> " |"
-    separator = "|" <> Enum.map_join(header, "|", fn _ -> " --- " end) <> "|"
-
-    data_rows =
-      Enum.map(rest, fn row -> "| " <> Enum.map_join(row, " | ", &to_string/1) <> " |" end)
-
-    Enum.join([header_row, separator | data_rows], "\n")
   end
 
   @doc """

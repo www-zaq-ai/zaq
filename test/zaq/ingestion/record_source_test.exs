@@ -567,6 +567,24 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert :error = RecordSource.materialize(external_record(), router_context())
   end
 
+  test "materialize/1 retains strict Base64 input while standalone conversion can normalize it" do
+    for content <- ["YWJjZA", "YWJj\nZA==", "_____w=="] do
+      downloaded = %Record{
+        id: "strict",
+        kind: :file,
+        name: "strict.md",
+        content: content,
+        attributes: %{"encoding" => "base64"}
+      }
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        %{event | response: {:ok, %{record: downloaded}}}
+      end)
+
+      assert :error = RecordSource.materialize(external_record(), router_context())
+    end
+  end
+
   test "serializes and deserializes storage maps with datetime fallbacks" do
     datetime = ~U[2026-06-23 06:00:00Z]
 

@@ -28,12 +28,22 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   @doc """
   Run the full pipeline for a single PDF.
   Returns `{:ok, md_path}` on success.
+
+  Set `:require_image_descriptions` to fail before conversion if vision credentials
+  are unavailable. Without this option, the pipeline can return text-only Markdown.
   """
   @spec run(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def run(pdf_path, opts \\ []) do
-    original_pdf_path = pdf_path
     api_key = resolve_api_key(opts)
 
+    if is_nil(api_key) and opts[:require_image_descriptions] == true do
+      {:error, :image_description_unavailable}
+    else
+      convert(pdf_path, opts, api_key)
+    end
+  end
+
+  defp convert(original_pdf_path, opts, api_key) do
     image_to_text_opts =
       opts
       |> resolve_image_to_text_opts()

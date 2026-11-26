@@ -39,7 +39,7 @@ defmodule Zaq.Ingestion.Python.Runner do
     python = python_executable()
     on_progress = normalize_on_progress(opts[:on_progress])
 
-    Logger.info("[Python.Runner] Starting: #{script_name} #{Enum.join(args, " ")}")
+    Logger.info("[Python.Runner] Starting: #{script_name}")
 
     case System.find_executable(python) do
       nil ->

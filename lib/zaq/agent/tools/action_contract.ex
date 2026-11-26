@@ -84,13 +84,27 @@ defmodule Zaq.Agent.Tools.ActionContract do
   Normalizes params and runs the action through `Jido.Exec.run/4`.
 
   Returns Jido's result envelope unchanged.
+
+  Set `trace_payload: false` for an internal Action whose arguments and result
+  must not leave the caller. Lifecycle, identity and outcome are still traced.
   """
   @spec execute(module(), map(), map(), keyword()) :: term()
   def execute(module, params, context \\ %{}, opts \\ [])
       when is_atom(module) and is_map(params) do
+    {trace_payload?, opts} = Keyword.pop(opts, :trace_payload, true)
+
     case invocation(context) do
-      nil -> execute_action(module, params, context, opts)
-      invocation -> execute_traced(module, params, context, opts, invocation)
+      nil ->
+        execute_action(module, params, context, opts)
+
+      invocation ->
+        execute_traced(
+          module,
+          params,
+          context,
+          opts,
+          Map.put(invocation, :trace_payload?, trace_payload?)
+        )
     end
   end
 
@@ -172,6 +186,7 @@ defmodule Zaq.Agent.Tools.ActionContract do
   defp emit(invocation, module, kind, data) do
     data =
       data
+      |> trace_payload(invocation.trace_payload?)
       |> Map.new(fn {key, value} ->
         # Arguments never carry artifact bytes, even on the agent route.
         evidence =
@@ -208,6 +223,9 @@ defmodule Zaq.Agent.Tools.ActionContract do
   catch
     _, _ -> trace_failure()
   end
+
+  defp trace_payload(data, false), do: Map.drop(data, [:arguments, :result])
+  defp trace_payload(data, _enabled), do: data
 
   defp action_name(module) do
     if Code.ensure_loaded?(module) and function_exported?(module, :name, 0),
