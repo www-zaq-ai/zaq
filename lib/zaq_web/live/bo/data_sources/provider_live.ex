@@ -34,7 +34,6 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     root_folders = seed_root_folders_by_config(configs)
     root_folder_meta = seed_root_folder_meta_by_config(configs)
     stats_errors = seed_stats_errors_by_config(configs)
-    capabilities = capability_snapshot(provider)
 
     {:ok,
      socket
@@ -48,7 +47,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:root_folders_by_config, root_folders)
      |> assign(:root_folder_meta_by_config, root_folder_meta)
      |> assign(:stats_errors_by_config, stats_errors)
-     |> assign(:capabilities_snapshot, capabilities)
+     |> load_capabilities()
      |> assign(:native_export_options, export_options_for_provider(provider))
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
@@ -459,6 +458,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   def handle_event("open_capabilities", _params, socket) do
+    socket = if socket.assigns[:capabilities_error], do: load_capabilities(socket), else: socket
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
@@ -926,11 +926,18 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp format_stats_error(reason),
     do: %{message: inspect(reason), code: nil, provider: nil, status: nil}
 
-  defp capability_snapshot(provider) do
-    case dispatch_channel_capability_snapshot(provider) do
-      {:ok, map} when is_map(map) -> map
-      _ -> %{}
+  defp load_capabilities(socket) do
+    case dispatch_channel_capability_snapshot(socket.assigns.provider) do
+      {:ok, snapshot} when is_map(snapshot) ->
+        assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
+
+      _ ->
+        assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
     end
+  rescue
+    _error -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
+  catch
+    _kind, _reason -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
   end
 
   defp dispatch_list_files(provider, params, current_user) do
@@ -1298,7 +1305,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     |> assign(:root_folders_by_config, root_folders)
     |> assign(:root_folder_meta_by_config, root_meta)
     |> assign(:stats_errors_by_config, stats_errors)
-    |> assign(:capabilities_snapshot, capability_snapshot(socket.assigns.provider))
+    |> load_capabilities()
     |> put_flash(:info, message)
   end
 
@@ -1321,7 +1328,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     socket
     |> assign_provider_refresh_base(configs)
     |> assign(:grants_by_config, grants_by_config(configs))
-    |> assign(:capabilities_snapshot, capability_snapshot(socket.assigns.provider))
+    |> load_capabilities()
     |> put_flash(:info, message)
   end
 

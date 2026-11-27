@@ -6,6 +6,7 @@ defmodule ZaqWeb.Components.ChannelCapabilities do
 
   attr :modal_open?, :boolean, default: false
   attr :snapshot, :map, default: %{}
+  attr :error?, :boolean, default: false
   attr :title, :string, required: true
   attr :open_event, :string, default: "open_capabilities"
   attr :close_event, :string, default: "close_capabilities"
@@ -35,7 +36,10 @@ defmodule ZaqWeb.Components.ChannelCapabilities do
     >
       <div class="space-y-3">
         <p class="font-mono text-[0.75rem] text-black/65">{@title}</p>
-        <ul class="space-y-1 max-h-[55vh] overflow-auto pr-1">
+        <p :if={@error?} class="zaq-text-body text-[var(--zaq-text-color-body-secondary)]">
+          Capabilities unavailable
+        </p>
+        <ul :if={!@error?} class="space-y-1 max-h-[55vh] overflow-auto pr-1">
           <li
             :for={capability <- capability_items(@snapshot)}
             class={[

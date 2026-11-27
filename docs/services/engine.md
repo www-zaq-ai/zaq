@@ -142,6 +142,9 @@ checks. Invalid fields or policy roll back the whole edit; changed revisions rej
 with `:stale_connector`. An unchanged absent policy is not materialized merely by
 saving other fields. The BO holds all drafts until the modal's overall Save/Update;
 Cancel writes nothing.
+Widget settings snapshots include the normalized capability result beside adapter
+availability, both derived from one provider lookup. Capability lookup failures
+remain distinct from successful results and do not prevent settings from loading.
 Ordinary `ChannelConfig.changeset/2` updates preserve the current policy under a
 row lock in write preparation, even if a form submits an old settings snapshot.
 Only the dedicated policy operation replaces that subtree on existing connectors;

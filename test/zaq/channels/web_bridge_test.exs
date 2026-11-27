@@ -19,6 +19,23 @@ defmodule Zaq.Channels.WebBridgeTest do
     %{delivery: delivery, routing_context: routing_context}
   end
 
+  test "web consumers advertise implemented delivery features and widget-only typing" do
+    for provider <- [:web, "web", :web_widget, "web_widget"] do
+      assert {:ok, %{resolved: resolved}} = WebBridge.capability_snapshot(%{provider: provider})
+      assert resolved.text == :native
+      assert resolved.streaming == :native
+      assert resolved.edit_messages == :native
+      assert resolved.mode == "websocket"
+
+      assert resolved.typing ==
+               if(provider in [:web_widget, "web_widget"], do: :native, else: false)
+
+      for capability <- [:image, :audio, :video, :file, :reactions, :threads] do
+        refute Map.has_key?(resolved, capability)
+      end
+    end
+  end
+
   test "translates normalized message correlation and original content", %{delivery: delivery} do
     {:ok, message} =
       Message.new(%{

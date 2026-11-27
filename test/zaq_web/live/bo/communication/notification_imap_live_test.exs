@@ -3,7 +3,33 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
   import Mox
   import Phoenix.LiveViewTest
+  import Zaq.ChannelCapabilityFixtures
   import Zaq.AccountsFixtures
+
+  test "capability failures retry on open and recovered snapshots stay cached", %{conn: conn} do
+    channels = remove_capability_bridge(:email)
+    observe_capability_lookups()
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/imap")
+    assert capability_lookup_count() == 2
+
+    view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+    assert has_element?(view, "#capabilities-modal", "Capabilities unavailable")
+    assert capability_lookup_count() == 3
+    view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+    refute has_element?(view, "#capabilities-modal")
+
+    Application.put_env(:zaq, :channels, channels)
+    view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+    assert has_element?(view, "#capabilities-modal li", "Mode: imap_idle")
+    refute has_element?(view, "#capabilities-modal", "Capabilities unavailable")
+    assert capability_lookup_count() == 4
+
+    view |> element("[data-testid='channel-capabilities-close']") |> render_click()
+    view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
+    assert has_element?(view, "#capabilities-modal li", "Mode: imap_idle")
+    assert capability_lookup_count() == 4
+  end
+
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts

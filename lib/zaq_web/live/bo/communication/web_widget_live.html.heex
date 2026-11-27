@@ -7,6 +7,14 @@
   current_path={@current_path}
   features_version={@features_version}
 >
+  <:page_tag>
+    <ZaqWeb.Components.ChannelCapabilities.icon_with_modal
+      modal_open?={@capability_modal_open}
+      snapshot={@capabilities_snapshot}
+      error?={@capabilities_error}
+      title="Web Widget capabilities"
+    />
+  </:page_tag>
   <div class="space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <ZaqWeb.Components.DesignSystem.Breadcrumb.page_breadcrumb

@@ -73,12 +73,16 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
     id = if is_nil(id), do: first_id(configs), else: id
 
     with {:ok, config} <- selected(id) do
+      capabilities =
+        dispatch(:channel_capability_snapshot, %{provider: @provider, scope: :provider}, opts)
+
       {:ok,
        %{
          configs: Enum.map(configs, &projection/1),
          selected: if(config.id, do: projection(config)),
          base_url: SystemConfig.get_global_base_url(),
-         adapter: adapter_capabilities(opts)
+         adapter: adapter_capabilities(capabilities),
+         capabilities: capabilities
        }}
     end
   end
@@ -254,14 +258,17 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   end
 
   defp adapter_available(opts) do
-    case adapter_capabilities(opts) do
+    capabilities =
+      dispatch(:channel_capability_snapshot, %{provider: @provider, scope: :provider}, opts)
+
+    case adapter_capabilities(capabilities) do
       {:ok, %{available?: true}} -> :ok
       _ -> {:error, :widget_runtime_not_configured}
     end
   end
 
-  defp adapter_capabilities(opts) do
-    case dispatch(:channel_capability_snapshot, %{provider: @provider, scope: :provider}, opts) do
+  defp adapter_capabilities(capabilities) do
+    case capabilities do
       {:ok, %{resolved: %{runtime: runtime, installation: installation}}} ->
         {:ok, %{available?: runtime == true and installation == true}}
 

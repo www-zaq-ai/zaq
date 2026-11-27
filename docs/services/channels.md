@@ -998,6 +998,12 @@ Shared routing helpers pass normalized incoming envelopes to Engine admission.
 Engine persists the prompt before Agent execution and finalizes the outcome before
 delivery; bridges do not write whole exchanges.
 
+BO capability modals display "Capabilities unavailable" after a failed lookup and
+retry when opened again. This applies to generic communication channels, data-source
+providers, SMTP, IMAP and widgets. Successful snapshots, including empty results,
+remain cached for modal reopening. Retries preserve drafts and other page state;
+data-source connector refreshes also update capability data and failure state.
+
 ---
 
 ## Jido Chat Bridge
@@ -1155,6 +1161,17 @@ ingress, SMTP delivery, and lazy attachment materialization. SMTP sends use
 outbound sends — SMTP settings are read from `channel_configs.settings` for
 provider `"email:smtp"`.
 
+`capability_snapshot/1` uses the shared delivery capability contract, independently
+of connector readiness. Both email providers report `text: :native` and
+`threads: :native`; replies originating from an IMAP inbox use its SMTP binding.
+Unsupported delivery features are omitted, including attachments, streaming,
+reactions, typing indicators, and message editing. IMAP attachment reception is
+outside this contract, which has no separate receive-capability dimension.
+The `mode` describes ingress: `none` for SMTP and `imap_idle` for IMAP.
+Shared normalization supplies capability labels and unsupported detection.
+The SMTP and IMAP BO pages reuse the existing display and `:channel_capability_snapshot` event
+with provider scope, including when no connector is configured or several exist.
+
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
 - `from_listener/3` — generic sink callback for inbound email listeners; orchestration is bridge-owned.
 - `to_internal/2` — resolves the provider adapter and delegates payload normalization to the adapter.
@@ -1284,6 +1301,15 @@ stored-map projections; none of these shared helpers accesses Repo or credential
 ## Web Bridge
 
 `Zaq.Channels.WebBridge` serves the ChatLive web channel.
+
+For the built-in `web` and `web_widget` providers, `capability_snapshot/1` reports
+text, streaming, and message editing over `websocket`; widgets also support typing
+indicators. Media attachments, reactions, and threaded replies are unsupported.
+These delivery capabilities are independent of connector readiness; the snapshot
+retains adapter `runtime` and `installation` flags for widget enablement. Custom
+providers retain their adapter flags without inheriting the built-in delivery
+profile. The widget BO page loads the shared snapshot with provider scope and
+displays it in the existing capabilities modal, without requiring a connector.
 
 BO history retrieval dispatches the Engine-owned authorized `:display_history`
 operation; it does not enrich the older unscoped message reader with private
