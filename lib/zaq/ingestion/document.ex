@@ -23,12 +23,16 @@ defmodule Zaq.Ingestion.Document do
   alias Zaq.Permissions.DocumentPermission, as: Permission
   alias Zaq.Repo
 
+  @type t :: %__MODULE__{}
+
   schema "documents" do
     field :title, :string
     field :source, :string
     field :content, :string
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
+    field :chunk_refresh_id, Ecto.UUID
+    field :chunk_refresh_started_at, :utc_datetime_usec
     field :watch_status, :string, default: "unwatched"
     field :watch_requested_at, :utc_datetime
     field :watch_updated_at, :utc_datetime
@@ -73,14 +77,41 @@ defmodule Zaq.Ingestion.Document do
   Creates or updates a document by source (upsert).
   If a document with the same source exists, its content and metadata are updated.
   """
-  def upsert(attrs) do
+  def upsert(attrs, requested_at \\ DateTime.utc_now()) do
+    replace =
+      from(document in __MODULE__,
+        where:
+          is_nil(document.chunk_refresh_started_at) or
+            document.chunk_refresh_started_at <= ^requested_at,
+        update: [
+          set: [
+            content: fragment("EXCLUDED.content"),
+            title: fragment("EXCLUDED.title"),
+            content_type: fragment("EXCLUDED.content_type"),
+            metadata: fragment("EXCLUDED.metadata"),
+            chunk_refresh_id: nil,
+            chunk_refresh_started_at: ^requested_at,
+            updated_at: fragment("EXCLUDED.updated_at")
+          ]
+        ]
+      )
+
     %__MODULE__{}
     |> changeset(attrs)
+    |> put_change(:chunk_refresh_started_at, requested_at)
     |> Repo.insert(
-      on_conflict: {:replace, [:content, :title, :content_type, :metadata, :updated_at]},
+      on_conflict: replace,
       conflict_target: :source,
-      returning: true
+      returning: true,
+      stale_error_field: :chunk_refresh_started_at
     )
+    |> case do
+      {:error, %Ecto.Changeset{errors: [chunk_refresh_started_at: {_message, [stale: true]}]}} ->
+        {:error, :stale_refresh}
+
+      result ->
+        result
+    end
   end
 
   @doc """

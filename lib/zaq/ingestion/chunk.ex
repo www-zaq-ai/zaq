@@ -24,6 +24,8 @@ defmodule Zaq.Ingestion.Chunk do
   alias Zaq.Repo
   alias Zaq.Repo.ExtensionChecks
 
+  @type t :: %__MODULE__{}
+
   schema "chunks" do
     belongs_to :document, Document
     field :content, :string

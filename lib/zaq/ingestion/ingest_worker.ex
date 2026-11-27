@@ -15,6 +15,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   alias Zaq.Ingestion.{
     Chunk,
+    ChunkRefresh,
     DocumentIngestionSummary,
     ExternalPermissions,
     IngestChunkJob,
@@ -53,20 +54,31 @@ defmodule Zaq.Ingestion.IngestWorker do
   end
 
   defp process_materialized_input(input, job, telemetry_dimensions, attempt, max) do
-    case prepare_chunks(input.path, job, input.processor_opts || []) do
-      {:ok, document, :legacy_completed} ->
-        import_external_permissions(input, document)
-        finalize_legacy_job(job, document, telemetry_dimensions)
+    with {:ok, document, prepared} <- prepare_chunks(input.path, job, input.processor_opts || []),
+         :ok <- finish_preparation(input, job, document, prepared, telemetry_dimensions) do
+      :ok
+    else
+      {:error, reason} -> handle_error(job, reason, attempt, max, telemetry_dimensions)
+    end
+  end
 
-      {:ok, _document, []} ->
-        handle_error(job, :no_searchable_content, attempt, max, telemetry_dimensions)
+  defp finish_preparation(_input, _job, _document, [], _dimensions),
+    do: {:error, :no_searchable_content}
 
-      {:ok, document, indexed_payloads} ->
-        import_external_permissions(input, document)
-        schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions)
+  defp finish_preparation(input, job, document, :legacy_completed, dimensions) do
+    with {:ok, _} <-
+           ChunkRefresh.legacy_write(
+             document.id,
+             fn -> import_external_permissions(input, document) end,
+             job.inserted_at
+           ) do
+      finalize_legacy_job(job, document, dimensions)
+    end
+  end
 
-      {:error, reason} ->
-        handle_error(job, reason, attempt, max, telemetry_dimensions)
+  defp finish_preparation(input, job, document, payloads, dimensions) do
+    with {:ok, _} <- prepare_legacy_chunk_jobs(input, document, job.inserted_at) do
+      schedule_chunk_jobs(job, document, payloads, dimensions)
     end
   end
 
@@ -109,7 +121,12 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp prepare_chunks(file_path, job, opts) do
     proc = processor()
-    opts = Keyword.merge(opts, on_progress: progress_reporter(job))
+
+    opts =
+      Keyword.merge(opts,
+        on_progress: progress_reporter(job),
+        refresh_requested_at: job.inserted_at
+      )
 
     if Code.ensure_loaded?(proc) and function_exported?(proc, :prepare_file_chunks, 2) do
       proc.prepare_file_chunks(file_path, opts)
@@ -171,8 +188,18 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp import_external_permissions(_input, _document), do: :ok
 
+  defp prepare_legacy_chunk_jobs(input, document, requested_at) do
+    ChunkRefresh.legacy_write(
+      document.id,
+      fn ->
+        import_external_permissions(input, document)
+        Chunk.delete_by_document(document.id)
+      end,
+      requested_at
+    )
+  end
+
   defp schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions) do
-    Chunk.delete_by_document(document.id)
     IngestChunkJob.upsert_many(job.id, document.id, indexed_payloads)
 
     attrs = %{
@@ -271,6 +298,8 @@ defmodule Zaq.Ingestion.IngestWorker do
   defp structural_error?(reason) when is_binary(reason) do
     String.contains?(reason, "Structural error")
   end
+
+  defp structural_error?(:stale_refresh), do: true
 
   defp structural_error?(:dimension_mismatch), do: true
   defp structural_error?(:no_searchable_content), do: true

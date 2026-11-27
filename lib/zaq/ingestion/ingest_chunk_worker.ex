@@ -127,13 +127,17 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         end_line: Map.get(payload, "end_line")
       })
 
-    case processor.store_chunk_with_metadata(
-           chunk,
-           ingest_job.document_id,
-           chunk_job.chunk_index
-         ) do
+    case store_chunk(processor, chunk, ingest_job, chunk_job.chunk_index) do
       {:ok, _chunk} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp store_chunk(processor, chunk, job, index) do
+    if function_exported?(processor, :store_chunk_with_metadata, 4) do
+      processor.store_chunk_with_metadata(chunk, job.document_id, index, job.inserted_at)
+    else
+      processor.store_chunk_with_metadata(chunk, job.document_id, index)
     end
   end
 

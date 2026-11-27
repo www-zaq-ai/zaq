@@ -105,6 +105,31 @@ failing result and all `not_attempted` results carry `retry_after_seconds`.
 Filter those positions and retry them after the delay. Workflow history may
 retain input text and vectors; limit run access to authorized readers.
 
+## Store embedded chunks
+
+`StoreEmbeddedChunks` writes to the shared index. The workflow must carry a
+trusted actor for a current Back Office super admin. A signed source Record
+identifies the document; a read handle or an actorless workflow does not grant
+indexing access.
+
+Start with a new UUID as `attempt_id`, the canonical source `record`, converted
+`markdown`, and up to 16 `items`. Each item pairs a `chunk` from `ChunkContent`
+with its successful `embedding` result. Set `embedding.chunk_index` to the
+original chunk index after mapping the embedding result's batch `index` back
+to the submitted chunk. Keep the model, dimension, and vector in the embedding.
+
+Setup fetches current source permissions and clears the document's previous
+chunks once. Disk keeps the effective grants managed in its sharing UI.
+Externally managed documents receive the latest provider permissions. If the
+source permission lookup fails, setup leaves the existing index untouched.
+
+Send later batches or retry failed indices with the same `attempt_id` and
+`items` alone. A committed index returns `already_stored` on replay. Errors on
+one item do not undo other writes, and a newer refresh fences the previous
+attempt. The configured model and dimension must still match the attempt;
+start a new refresh after changing either. The Action does not call the
+embedding provider.
+
 ## Modules
 
 ### Public API (`Zaq.Ingestion`)

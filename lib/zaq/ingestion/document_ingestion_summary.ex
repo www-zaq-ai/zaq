@@ -73,7 +73,7 @@ defmodule Zaq.Ingestion.DocumentIngestionSummary do
     document =
       Document |> where([d], d.id == ^job.document_id) |> lock("FOR UPDATE") |> Repo.one()
 
-    if document do
+    if match?(%Document{chunk_refresh_id: nil}, document) do
       previous = Map.get(document.metadata || %{}, "ingestion", %{})
 
       if Keyword.get(opts, :new_run, false) or Map.get(previous, "job_id") in [nil, job.id] do
@@ -109,7 +109,8 @@ defmodule Zaq.Ingestion.DocumentIngestionSummary do
     Repo.transaction(fn ->
       document = Document |> where([d], d.id == ^document_id) |> lock("FOR UPDATE") |> Repo.one()
 
-      if document, do: persist_inline(document, detected_chunks, results, reset?)
+      if match?(%Document{chunk_refresh_id: nil}, document),
+        do: persist_inline(document, detected_chunks, results, reset?)
     end)
     |> case do
       {:ok, _} -> :ok

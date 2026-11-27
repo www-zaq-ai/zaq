@@ -27,6 +27,23 @@ defmodule Zaq.Ingestion.ExternalPermissions do
     :ok
   end
 
+  @doc """
+  Atomically replaces the indexed permission projection for a trusted, fresh
+  source snapshot. Disk's snapshot comes from its UI-managed source grants;
+  externally managed snapshots come from their provider.
+  """
+  @spec replace_projection(Record.t(), struct()) :: {:ok, list()} | {:error, term()}
+  def replace_projection(%Record{permissions: permissions} = record, document)
+      when is_list(permissions) do
+    grants =
+      Enum.map(desired_permissions(record), fn
+        {:person, id, rights} -> %{person_id: id, access_rights: rights}
+        {:team, id, rights} -> %{team_id: id, access_rights: rights}
+      end)
+
+    Permissions.replace(document, grants)
+  end
+
   defp desired_permissions(%Record{} = record) do
     record
     |> principals()
