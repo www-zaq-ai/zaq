@@ -9,8 +9,12 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
   alias Zaq.Accounts.User
   alias Zaq.Repo
 
-  setup %{conn: conn} do
-    admin = user_fixture(%{username: "user_form_admin"})
+  setup %{conn: conn} = context do
+    admin =
+      if context[:account_admin],
+        do: super_admin_fixture(%{username: "user_form_admin"}),
+        else: user_fixture(%{username: "user_form_admin"})
+
     {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
 
     conn = init_test_session(conn, %{user_id: admin.id})
@@ -42,6 +46,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
     assert has_element?(view, "li", "At least one uppercase letter")
   end
 
+  @tag :account_admin
   test "creates a user and redirects", %{conn: conn} do
     role = role_fixture(%{name: "lane6_staff"})
 
@@ -183,6 +188,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
              Accounts.authenticate_user(target.username, "AnotherStrong1!")
   end
 
+  @tag :account_admin
   test "new save with invalid params stays on form", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/users/new")
 

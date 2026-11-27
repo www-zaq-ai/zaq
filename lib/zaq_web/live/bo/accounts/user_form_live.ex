@@ -1,13 +1,14 @@
 defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
+  @moduledoc "BO user forms with guarded role assignment and independent password changes."
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
   alias Zaq.Accounts.PasswordPolicy
-  alias Zaq.Engine.Notifications.WelcomeEmail
   alias Zaq.UserPortal.AccountSync
   alias Zaq.UserPortal.Onboarding
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.Accounts.FormFlow
+  alias ZaqWeb.Live.BO.Accounts.Mutations
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -117,12 +118,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   end
 
   defp save_user(socket, :new, params) do
-    result = Accounts.create_user_with_password(params)
-
-    case result do
-      {:ok, user} -> WelcomeEmail.deliver(user)
-      _ -> :ok
-    end
+    result = Mutations.run(socket.assigns.current_user, :create_user, params)
 
     FormFlow.handle_save_result(socket, result,
       success_message: "User created.",
@@ -132,7 +128,12 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
 
   defp save_user(socket, :edit, params) do
     old_email = socket.assigns.user.email
-    result = Accounts.update_user(socket.assigns.user, params)
+
+    result =
+      Mutations.run(socket.assigns.current_user, :update_user, %{
+        id: socket.assigns.user.id,
+        attrs: params
+      })
 
     with {:ok, updated_user} <- result,
          true <- updated_user.email != old_email do

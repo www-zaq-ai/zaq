@@ -2,6 +2,7 @@
 
 defmodule Zaq.AccountsTest do
   use Zaq.DataCase
+  use ExUnitProperties
 
   import Ecto.Query
 
@@ -58,6 +59,41 @@ defmodule Zaq.AccountsTest do
       user2 = user_fixture()
       assert {:error, changeset} = Accounts.update_user(user2, %{username: user1.username})
       assert {"has already been taken", _} = changeset.errors[:username]
+    end
+
+    property "a stale role snapshot cannot update a user or restore an earlier role" do
+      user = user_fixture()
+      role = role_fixture()
+      assert {:ok, _} = Accounts.update_user(user, %{role_id: role.id})
+
+      check all(
+              role_id <-
+                member_of([user.role_id, to_string(user.role_id), role.id, to_string(role.id)]),
+              max_runs: 8
+            ) do
+        assert {:error, changeset} =
+                 Accounts.update_user(user, %{username: "stale_update", role_id: role_id})
+
+        assert errors_on(changeset).role_id == ["has changed; reload and try again"]
+        assert changeset.action == :update
+        current = Accounts.get_user!(user.id)
+        assert current.role_id == role.id
+        assert current.username == user.username
+      end
+    end
+
+    test "updates from the current row without returning stale untouched fields" do
+      user = user_fixture()
+      assert {:ok, _} = Accounts.update_user(user, %{email: "updated@example.com"})
+      assert {:ok, updated} = Accounts.update_user(user, %{username: "fresh_update"})
+      assert updated.email == "updated@example.com"
+      assert updated.username == "fresh_update"
+    end
+
+    test "returns not_found if the target was deleted before execution" do
+      user = user_fixture()
+      assert {:ok, _} = Accounts.delete_user(user)
+      assert Accounts.update_user(user, %{username: "deleted_update"}) == {:error, :not_found}
     end
   end
 

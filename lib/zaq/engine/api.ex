@@ -6,6 +6,7 @@ defmodule Zaq.Engine.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.Administration
   alias Zaq.Accounts.BOActor
   alias Zaq.Accounts.People
   alias Zaq.Channels.Events, as: ChannelsEvents
@@ -33,6 +34,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.LiveUpdateSettings
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
+  alias Zaq.Engine.Notifications.WelcomeEmail
   alias Zaq.Engine.OutboundHttp
   alias Zaq.Engine.PeopleAuthGateway
   alias Zaq.Engine.PeopleConversations
@@ -69,6 +71,26 @@ defmodule Zaq.Engine.Api do
         LiveUpdateSettings.resolve(event.request)
       else
         _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :account_administration, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           %{operation: operation, params: params} <- event.request do
+        case {operation, Administration.run(event.actor, operation, params)} do
+          {:create_user, {:ok, user} = result} ->
+            WelcomeEmail.deliver(user)
+            result
+
+          {_, result} ->
+            result
+        end
+      else
+        false -> {:error, :confidential_event_required}
+        _ -> {:error, :invalid_request}
       end
 
     %{event | response: response}
