@@ -8,7 +8,8 @@ defmodule Zaq.Engine.Extension.ProtocolTest do
     GatewayEnvelope,
     GatewayHello,
     HealthResponse,
-    ProtocolError
+    ProtocolError,
+    ZaqEnvelope
   }
 
   property "negotiation never raises the local ceiling or accepts an unimplemented version" do
@@ -73,5 +74,27 @@ defmodule Zaq.Engine.Extension.ProtocolTest do
              protocol_version: 1,
              payload: {:error, %ProtocolError{code: :INCOMPATIBLE_PROTOCOL}}
            } = Protocol.reject(id, :incompatible_protocol)
+  end
+
+  property "rejections echo IDs only when bounded in UTF-8 bytes" do
+    check all(
+            unit <- member_of(["x", "é", "🐘", "x\u0301"]),
+            count <- integer(1..256),
+            max_runs: 50
+          ) do
+      id = String.duplicate(unit, count)
+      expected_id = if byte_size(id) <= 128, do: id, else: ""
+      frame = Protocol.reject(id, :invalid_envelope)
+
+      assert frame.request_id == expected_id
+      assert byte_size(ZaqEnvelope.encode(frame)) <= 1_024
+    end
+  end
+
+  test "a single large grapheme cannot make its rejection exceed the negotiated floor" do
+    id = "x" <> String.duplicate("\u0301", 512)
+    frame = Protocol.reject(id, :invalid_envelope)
+    assert frame.request_id == ""
+    assert byte_size(ZaqEnvelope.encode(frame)) <= 1_024
   end
 end

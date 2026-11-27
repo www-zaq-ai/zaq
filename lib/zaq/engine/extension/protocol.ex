@@ -14,6 +14,7 @@ defmodule Zaq.Engine.Extension.Protocol do
   alias Zaq.System.GrpcConfig
 
   @version 1
+  @max_request_id_bytes 128
   @capabilities ["health.v1", "actions.v1"]
 
   @doc "The local encoded-envelope ceiling, also enforced by the gRPC frame limit."
@@ -62,7 +63,7 @@ defmodule Zaq.Engine.Extension.Protocol do
   @doc "Checks decoded envelope metadata without interpreting future operation variants."
   @spec validate(GatewayEnvelope.t()) :: :ok | {:error, atom()}
   def validate(%GatewayEnvelope{request_id: id, protocol_version: @version}) do
-    if byte_size(id) in 1..128, do: :ok, else: {:error, :invalid_envelope}
+    if bounded_id?(id), do: :ok, else: {:error, :invalid_envelope}
   end
 
   def validate(_frame), do: {:error, :incompatible_protocol}
@@ -78,8 +79,11 @@ defmodule Zaq.Engine.Extension.Protocol do
         _ -> :INVALID_ENVELOPE
       end
 
-    envelope(String.slice(id, 0, 128), {:error, %ProtocolError{code: code}})
+    envelope(if(bounded_id?(id), do: id, else: ""), {:error, %ProtocolError{code: code}})
   end
+
+  defp bounded_id?(id),
+    do: byte_size(id) in 1..@max_request_id_bytes and String.valid?(id)
 
   defp envelope(id, payload),
     do: %ZaqEnvelope{request_id: id, protocol_version: @version, payload: payload}

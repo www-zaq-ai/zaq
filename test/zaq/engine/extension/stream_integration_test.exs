@@ -276,9 +276,10 @@ defmodule Zaq.Engine.Extension.StreamIntegrationTest do
     await_health(runtime, :healthy)
 
     stale = %GatewayEnvelope{request_id: Ecto.UUID.generate(), protocol_version: 1}
+    received_at = System.monotonic_time(:millisecond)
 
     assert {:reject, :invalid_envelope} =
-             GenServer.call(runtime, {:extension_frame, old_generation, stale})
+             GenServer.call(runtime, {:extension_frame, old_generation, stale, received_at})
 
     assert %{status: :healthy} = Extension.snapshot(server: runtime)
   end

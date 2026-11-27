@@ -22,8 +22,10 @@ is exposed. Neither operation accepts an Elixir module name.
 `ExecuteAction` takes a Registry key, a strict UTF-8 JSON object in
 `arguments_json`, and an explicit `SYNC` or `ASYNC` mode. Unspecified and unknown
 modes fail. `timeout_ms` is required for all three operations and must be between
-1 and the negotiated maximum. It starts when ZAQ receives the request, includes
-dispatch and serialization, and is not renewed by RELAYED.
+1 and the negotiated maximum. It starts when the stream reader receives the
+encoded message, includes decoding, dispatch and serialization, and is not
+renewed by RELAYED. A request whose deadline has already passed at admission does
+not start a worker.
 
 ZAQ uses confidential Engine Events, preserves the invocation ID as `trace_id`,
 and resolves the key through Registry. `ActionContract.execute/4` normalizes
@@ -110,8 +112,8 @@ released then. Only its exact receipt releases the remaining bytes and slot.
 Reservations plus sent-but-unreceipted replies must stay within both selected
 budgets. Running worker count must stay within `max_concurrent`.
 
-A known rejection, including a full worker pool, reserves one reply slot and
-512 bytes instead of the maximum terminal reply size.
+A known rejection, including a full worker pool or insufficient credit for the
+normal reply reservation, reserves one reply slot and 512 bytes.
 If even that reservation cannot fit, ZAQ sends the credit-independent
 `ProtocolError.RESOURCE_EXHAUSTED` and closes the stream; it does not buffer
 unbounded rejection replies. A result larger than the reserved reply ceiling is
@@ -133,7 +135,8 @@ sequences and impossible outcome transitions. Reliable ordered gRPC needs no
 duplicate-receipt recovery. A sent reply not receipted within `receipt_timeout_ms`
 closes the stream. Generation teardown releases transport reservations, not
 execution capacity for workers that are still running. An Engine-owned task
-supervisor tracks those workers even if the Extension runtime itself restarts.
+pool retains their invocation IDs and execution capacity even if the Extension
+runtime itself restarts.
 
 ## Deadlines and disconnection
 

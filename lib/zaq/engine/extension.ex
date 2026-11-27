@@ -101,11 +101,19 @@ defmodule Zaq.Engine.Extension do
     {:reply, health, state}
   end
 
-  def handle_call({:extension_frame, generation, _frame}, _from, %{generation: active} = state)
+  def handle_call(
+        {:extension_frame, generation, _frame, _received_at},
+        _from,
+        %{generation: active} = state
+      )
       when generation != active,
       do: {:reply, {:reject, :invalid_envelope}, state}
 
-  def handle_call({:extension_frame, _generation, frame}, _from, %{phase: :negotiating} = state) do
+  def handle_call(
+        {:extension_frame, _generation, frame, _received_at},
+        _from,
+        %{phase: :negotiating} = state
+      ) do
     with {:ok, limit} <- Protocol.negotiate(frame, state.hello_id),
          {:hello, hello} <- frame.payload,
          {:ok, action_limits} <- ActionProtocol.negotiate(hello, limit) do
@@ -120,14 +128,18 @@ defmodule Zaq.Engine.Extension do
     end
   end
 
-  def handle_call({:extension_frame, _generation, frame}, _from, %{phase: :ready} = state) do
+  def handle_call(
+        {:extension_frame, _generation, frame, received_at},
+        _from,
+        %{phase: :ready} = state
+      ) do
     case Protocol.validate(frame) do
-      :ok -> receive_frame(frame, state)
+      :ok -> receive_frame(frame, received_at, state)
       {:error, reason} -> reject_frame(state, reason)
     end
   end
 
-  def handle_call({:extension_frame, _generation, _frame}, _from, state),
+  def handle_call({:extension_frame, _generation, _frame, _received_at}, _from, state),
     do: {:reply, {:reject, :invalid_envelope}, state}
 
   def handle_call(
@@ -282,6 +294,7 @@ defmodule Zaq.Engine.Extension do
            request_id: id,
            payload: {:health_response, %HealthResponse{} = response}
          },
+         _received_at,
          %{pending: %{id: id} = pending} = state
        ) do
     result = if response.status == "ok", do: {:ok, :healthy}, else: {:error, :unexpected_status}
@@ -297,27 +310,35 @@ defmodule Zaq.Engine.Extension do
     {:reply, :continue, %{state | scheduled: timer}}
   end
 
-  defp receive_frame(%GatewayEnvelope{request_id: id, payload: {:action_request, request}}, state) do
-    case ActionSession.request(state.actions, id, request) do
+  defp receive_frame(
+         %GatewayEnvelope{request_id: id, payload: {:action_request, request}},
+         received_at,
+         state
+       ) do
+    case ActionSession.request(state.actions, id, request, received_at) do
       {:ok, actions} -> {:reply, :continue, pump_actions(%{state | actions: actions})}
       {:error, reason, actions} -> reject_frame(%{state | actions: actions}, reason)
     end
   end
 
-  defp receive_frame(%GatewayEnvelope{request_id: id, payload: {:action_receipt, receipt}}, state) do
+  defp receive_frame(
+         %GatewayEnvelope{request_id: id, payload: {:action_receipt, receipt}},
+         _received_at,
+         state
+       ) do
     case ActionSession.receipt(state.actions, id, receipt.sequence) do
       {:ok, actions} -> {:reply, :continue, %{state | actions: actions}}
       {:error, reason, actions} -> reject_frame(%{state | actions: actions}, reason)
     end
   end
 
-  defp receive_frame(%GatewayEnvelope{payload: {:health_response, _}}, state),
+  defp receive_frame(%GatewayEnvelope{payload: {:health_response, _}}, _received_at, state),
     do: {:reply, :continue, state}
 
-  defp receive_frame(%GatewayEnvelope{payload: {:error, _}}, state),
+  defp receive_frame(%GatewayEnvelope{payload: {:error, _}}, _received_at, state),
     do: reject_frame(state, :rpc_error)
 
-  defp receive_frame(_frame, state), do: reject_frame(state, :unsupported_operation)
+  defp receive_frame(_frame, _received_at, state), do: reject_frame(state, :unsupported_operation)
 
   defp pump_actions(%{phase: :ready, writing: false, probe_due: true} = state) do
     send(self(), :probe)

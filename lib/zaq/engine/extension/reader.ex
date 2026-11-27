@@ -48,9 +48,10 @@ defmodule Zaq.Engine.Extension.Reader do
   end
 
   defp handle_message(bytes, owner, generation, stream, limit) do
+    received_at = System.monotonic_time(:millisecond)
     frame = GatewayEnvelope.decode(bytes)
 
-    case GenServer.call(owner, {:extension_frame, generation, frame}, :infinity) do
+    case GenServer.call(owner, {:extension_frame, generation, frame, received_at}, :infinity) do
       :continue -> {:cont, {:reading, limit}}
       {:continue, selected_limit} -> {:cont, {:reading, selected_limit}}
       {:reject, reason} -> reject(stream, frame.request_id, reason)

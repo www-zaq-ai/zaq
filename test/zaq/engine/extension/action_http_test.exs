@@ -301,9 +301,78 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
     refute_received {:gateway_rejection, ^gateway, _}
   end
 
+  test "a replacement runtime rejects a live invocation ID even with a free worker slot",
+       %{gateway: gateway, runtime: runtime, url: url} do
+    id = invoke(gateway, "general.http_request", %{method: "GET", url: url}, :ASYNC)
+    assert_receive {:gateway_connected, ^gateway, first}, 2_000
+
+    assert_receive {:gateway_action_reply, ^gateway, ^id, %{sequence: 1, outcome: {:relayed, _}}},
+                   2_000
+
+    receipt(gateway, id, 1)
+    assert_receive {:http_waiting, http}, 2_000
+    worker = :sys.get_state(runtime).actions.workers |> Map.values() |> hd()
+    worker_monitor = Process.monitor(worker.pid)
+    runtime_monitor = Process.monitor(runtime)
+    Process.exit(runtime, :kill)
+    assert_receive {:DOWN, ^runtime_monitor, :process, ^runtime, :killed}, 2_000
+    assert_receive {:gateway_connected, ^gateway, replacement}, 2_000
+    refute replacement == first
+    assert_receive {:gateway_request, ^gateway, ^replacement, _}, 2_000
+
+    fresh_id = invoke(gateway, "arithmetic.add", %{value: 2.0, amount: 3.0}, :SYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^fresh_id,
+                    %{sequence: 1, outcome: {:result_json, _}}},
+                   2_000
+
+    receipt(gateway, fresh_id, 1)
+    push_invocation(gateway, id, "arithmetic.add", %{value: 2.0, amount: 3.0}, :SYNC, 5_000)
+    assert_receive {:gateway_rejection, ^gateway, %{code: :INVALID_ENVELOPE}}, 2_000
+    assert Process.alive?(worker.pid)
+    send(http, :release)
+    assert_receive {:DOWN, ^worker_monitor, :process, _, _}, 2_000
+    refute_received {:gateway_action_reply, ^gateway, ^id, _}
+  end
+
+  @tag max_unreceipted_bytes: 262_656
+  test "lack of full reply credit returns a bounded failure while the original request completes",
+       %{gateway: gateway, url: url} do
+    id = invoke(gateway, "general.http_request", %{method: "GET", url: url}, :SYNC)
+    assert_receive {:http_waiting, http}, 2_000
+    rejected_id = invoke(gateway, "arithmetic.add", %{value: 2.0, amount: 3.0}, :ASYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^rejected_id,
+                    %{sequence: 1, outcome: {:failure, failure}}},
+                   2_000
+
+    assert failure.code == :RESOURCE_EXHAUSTED
+    refute failure.effects_may_have_occurred
+    receipt(gateway, rejected_id, 1)
+    send(http, :release)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^id,
+                    %{sequence: 2, outcome: {:result_json, _}}},
+                   2_000
+
+    receipt(gateway, id, 2)
+    fresh_id = invoke(gateway, "arithmetic.add", %{value: 2.0, amount: 3.0}, :SYNC)
+
+    assert_receive {:gateway_action_reply, ^gateway, ^fresh_id,
+                    %{sequence: 3, outcome: {:result_json, _}}},
+                   2_000
+
+    receipt(gateway, fresh_id, 3)
+    refute_received {:gateway_rejection, ^gateway, _}
+  end
+
   defp invoke(gateway, key, params, mode, timeout_ms \\ 5_000) do
     id = Ecto.UUID.generate()
+    push_invocation(gateway, id, key, params, mode, timeout_ms)
+    id
+  end
 
+  defp push_invocation(gateway, id, key, params, mode, timeout_ms) do
     ExtensionGateway.push(gateway, %GatewayEnvelope{
       request_id: id,
       protocol_version: 1,
@@ -316,8 +385,6 @@ defmodule Zaq.Engine.Extension.ActionHttpTest do
               %ExecuteAction{key: key, arguments_json: Jason.encode!(params), mode: mode}}
          }}
     })
-
-    id
   end
 
   defp receipt(gateway, id, sequence) do

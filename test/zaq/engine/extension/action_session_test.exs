@@ -277,4 +277,35 @@ defmodule Zaq.Engine.Extension.ActionSessionTest do
     assert session.used_slots == 0
     assert session.requests == %{}
   end
+
+  test "an execution whose deadline elapsed before admission sends no RELAYED and starts no worker" do
+    supervisor = start_supervised!({Task.Supervisor, []})
+    limits = ActionProtocol.offer(262_144)
+    session = ActionSession.configure(ActionSession.new(supervisor), limits, make_ref())
+    id = Ecto.UUID.generate()
+
+    request = %ActionRequest{
+      timeout_ms: 1_000,
+      operation:
+        {:execute,
+         %ExecuteAction{
+           key: "arithmetic.add",
+           arguments_json: ~s({"value":2.0,"amount":3.0}),
+           mode: :ASYNC
+         }}
+    }
+
+    received_at = System.monotonic_time(:millisecond) - request.timeout_ms
+    assert {:ok, session} = ActionSession.request(session, id, request, received_at)
+
+    assert {{1, %{payload: {:action_reply, %{outcome: {:failure, failure}}}}}, session} =
+             ActionSession.take_next(session)
+
+    assert failure.code == :DEADLINE_EXCEEDED
+    refute failure.effects_may_have_occurred
+    assert {nil, ^session} = ActionSession.take_next(session)
+    assert session.workers == %{}
+    assert Task.Supervisor.children(supervisor) == []
+    assert {:ok, %{used_slots: 0, used_bytes: 0}} = ActionSession.receipt(session, id, 1)
+  end
 end

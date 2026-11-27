@@ -29,6 +29,7 @@ defmodule Zaq.Engine.Supervisor do
 
   use Supervisor
 
+  alias Zaq.Engine.Extension.ActionWorkers
   alias Zaq.Engine.GrpcSettings
 
   def start_link(opts \\ []) do
@@ -42,9 +43,11 @@ defmodule Zaq.Engine.Supervisor do
       {Registry, keys: :unique, name: Zaq.Engine.Workflows.RunRegistry},
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.People.AuthRateLimiter,
-      Supervisor.child_spec({Task.Supervisor, name: Zaq.Engine.Extension.ActionSupervisor},
-        id: Zaq.Engine.Extension.ActionSupervisor
-      ),
+      %{
+        id: Zaq.Engine.Extension.ActionSupervisor,
+        start: {ActionWorkers, :start_pool_link, []},
+        type: :supervisor
+      },
       Zaq.Engine.Extension,
       {DynamicSupervisor, strategy: :one_for_one, name: Zaq.Engine.Connect.DeviceSupervisor},
       Zaq.Engine.IngestionSupervisor,

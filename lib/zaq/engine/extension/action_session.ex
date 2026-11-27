@@ -1,14 +1,14 @@
 defmodule Zaq.Engine.Extension.ActionSession do
   @moduledoc """
   Transient Action admission, worker accounting and reply-credit ledger.
-  Disconnect discards transport state. The Engine-owned task supervisor tracks
-  live capacity even across runtime restarts. Receipts acknowledge encoded
+  Disconnect discards transport state. The Engine-owned worker pool retains
+  live IDs and capacity across runtime restarts. Receipts acknowledge encoded
   envelopes, not business success.
   """
 
-  alias Zaq.Engine.Extension.{ActionProtocol, Actions}
+  alias Zaq.Engine.Extension.{ActionProtocol, Actions, ActionWorkers}
   alias Zaq.Engine.Extension.Rpc.Gateway.V1.{ActionReply, Relayed, ZaqEnvelope}
-  alias Zaq.{Event, NodeRouter}
+  alias Zaq.Event
 
   @failure_credit_bytes 512
   @relayed_credit_bytes 512
@@ -43,14 +43,14 @@ defmodule Zaq.Engine.Extension.ActionSession do
     }
   end
 
-  @doc "Reserves terminal/ACK capacity before starting the existing asynchronous Engine hop."
-  @spec request(t(), String.t(), struct()) :: {:ok, t()} | {:error, atom(), t()}
-  def request(%{limits: nil} = session, _id, _request),
+  @doc "Reserves reply capacity and admits an Action against its monotonic receipt time."
+  @spec request(t(), String.t(), struct(), integer()) :: {:ok, t()} | {:error, atom(), t()}
+  def request(session, id, request, received_at \\ System.monotonic_time(:millisecond))
+
+  def request(%{limits: nil} = session, _id, _request, _received_at),
     do: {:error, :unsupported_operation, session}
 
-  def request(session, id, request) do
-    started_at = System.monotonic_time(:millisecond)
-
+  def request(session, id, request, received_at) do
     cond do
       not ActionProtocol.valid_id?(id) or active?(session, id) ->
         {:error, :invalid_envelope, session}
@@ -59,14 +59,15 @@ defmodule Zaq.Engine.Extension.ActionSession do
         {:error, :unsupported_operation, session}
 
       true ->
-        admit(session, id, request, started_at)
+        admit(session, id, request, received_at)
     end
   end
 
-  defp admit(session, id, request, started_at) do
+  defp admit(session, id, request, received_at) do
     case ActionProtocol.invocation(request, session.limits) do
       {:ok, invocation, mode} ->
-        admit_invocation(session, id, invocation, request.timeout_ms, mode, started_at)
+        expires_at = received_at + request.timeout_ms
+        admit_invocation(session, id, invocation, mode, expires_at)
 
       {:error, :unsupported_operation} ->
         {:error, :unsupported_operation, session}
@@ -76,16 +77,41 @@ defmodule Zaq.Engine.Extension.ActionSession do
     end
   end
 
-  defp admit_invocation(session, id, invocation, timeout, mode, started_at) do
-    # The sole runtime serializes admission; a task start takes the slot.
-    active =
-      session.action_supervisor |> Task.Supervisor.children() |> Enum.count(&Process.alive?/1)
+  defp admit_invocation(session, id, invocation, mode, expires_at) do
+    cond do
+      System.monotonic_time(:millisecond) >= expires_at ->
+        reject_request(session, id, :DEADLINE_EXCEEDED)
 
-    if active < session.limits.max_concurrent do
-      with {:ok, session} <- reserve(session, id, mode, session.limits.max_reply_envelope_bytes),
-           do: {:ok, dispatch(session, id, invocation, timeout, mode, started_at)}
+      worker_available?(session) ->
+        dispatch_invocation(session, id, invocation, mode, expires_at)
+
+      true ->
+        reject_request(session, id, :RESOURCE_EXHAUSTED)
+    end
+  end
+
+  defp worker_available?(session) do
+    # The sole runtime serializes admission; a task start takes the slot.
+    active = Enum.count(Task.Supervisor.children(session.action_supervisor), &Process.alive?/1)
+    active < session.limits.max_concurrent
+  end
+
+  defp dispatch_invocation(session, id, invocation, mode, expires_at) do
+    with {:ok, reserved} <- reserve(session, id, mode, session.limits.max_reply_envelope_bytes),
+         {:ok, pid} <- dispatch(session, id, invocation, expires_at) do
+      {:ok, track_worker(reserved, id, pid, mode, expires_at)}
     else
-      reject_request(session, id, :RESOURCE_EXHAUSTED)
+      {:error, :resource_exhausted, _session} ->
+        reject_request(session, id, :RESOURCE_EXHAUSTED)
+
+      {:error, :invalid_envelope} ->
+        {:error, :invalid_envelope, session}
+
+      {:error, :deadline_exceeded} ->
+        reject_request(session, id, :DEADLINE_EXCEEDED)
+
+      {:error, :unavailable} ->
+        reject_request(session, id, :UNAVAILABLE)
     end
   end
 
@@ -114,7 +140,7 @@ defmodule Zaq.Engine.Extension.ActionSession do
     end
   end
 
-  defp dispatch(session, id, invocation, timeout_ms, mode, started_at) do
+  defp dispatch(session, id, invocation, expires_at) do
     event =
       Event.new(invocation, :engine,
         type: :async,
@@ -123,36 +149,25 @@ defmodule Zaq.Engine.Extension.ActionSession do
         assigns: %{extension_owner: self(), extension_generation: session.generation}
       )
 
-    case NodeRouter.dispatch(event, %{async_task_supervisor: session.action_supervisor}) do
-      %Event{assigns: %{async_task_pid: pid}} when is_pid(pid) ->
-        ref = Process.monitor(pid)
-        remaining = max(timeout_ms - (System.monotonic_time(:millisecond) - started_at), 0)
-        timer = Process.send_after(self(), {:action_deadline, session.generation, id}, remaining)
-        entry = %{session.requests[id] | timer: timer, expires_at: started_at + timeout_ms}
-        worker = %{id: id, generation: session.generation, pid: pid}
+    ActionWorkers.dispatch(session.action_supervisor, event, expires_at)
+  end
 
-        session = %{
-          session
-          | requests: Map.put(session.requests, id, entry),
-            workers: Map.put(session.workers, ref, worker)
-        }
+  defp track_worker(session, id, pid, mode, expires_at) do
+    ref = Process.monitor(pid)
+    remaining = max(expires_at - System.monotonic_time(:millisecond), 0)
+    timer = Process.send_after(self(), {:action_deadline, session.generation, id}, remaining)
+    entry = %{session.requests[id] | timer: timer, expires_at: expires_at}
+    worker = %{id: id, generation: session.generation, pid: pid}
 
-        if mode == :ASYNC,
-          do: enqueue(session, id, {:relayed, %Relayed{}}, @relayed_credit_bytes),
-          else: session
+    session = %{
+      session
+      | requests: Map.put(session.requests, id, entry),
+        workers: Map.put(session.workers, ref, worker)
+    }
 
-      _ ->
-        session =
-          if mode == :ASYNC,
-            do: %{
-              session
-              | used_slots: session.used_slots - 1,
-                used_bytes: session.used_bytes - @relayed_credit_bytes
-            },
-            else: session
-
-        finish(session, id, Actions.failure(:UNAVAILABLE))
-    end
+    if mode == :ASYNC,
+      do: enqueue(session, id, {:relayed, %Relayed{}}, @relayed_credit_bytes),
+      else: session
   end
 
   @doc "Settles a waiting invocation once; late or old-generation completions are ignored."
@@ -303,7 +318,8 @@ defmodule Zaq.Engine.Extension.ActionSession do
   defp active?(session, id),
     do:
       Map.has_key?(session.requests, id) or
-        Enum.any?(session.workers, fn {_ref, worker} -> worker.id == id end)
+        Enum.any?(session.workers, fn {_ref, worker} -> worker.id == id end) or
+        ActionWorkers.active?(session.action_supervisor, id)
 
   defp cancel(nil), do: :ok
   defp cancel(timer), do: Process.cancel_timer(timer)
