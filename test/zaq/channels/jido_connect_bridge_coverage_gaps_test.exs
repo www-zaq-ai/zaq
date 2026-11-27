@@ -693,6 +693,9 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     assert stats.folders_count == 2
     assert stats.principals_count == 1
     assert stats.root_folders == ["Empty Parent"]
+
+    assert {:ok, %{records: [%{id: "p1"}], metadata: %{incomplete_permission_projection?: true}}} =
+             JidoConnectBridge.list_permissions(config, %{file_id: "mixed-principals"})
   end
 
   test "list_files sanitizes atom and tuple provider errors" do

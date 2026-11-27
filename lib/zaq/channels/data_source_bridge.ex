@@ -83,6 +83,11 @@ defmodule Zaq.Channels.DataSourceBridge do
               {:ok, RecordPage.t()} | {:error, term()}
   @callback download_document(map(), map(), TrustedContext.t()) ::
               {:ok, map()} | {:error, term()}
+  @doc """
+  Lists source permissions. Set `metadata.incomplete_permission_projection?` when
+  the provider omits permissions or the bridge drops malformed entries. Such a
+  page remains useful for listing but cannot supply a signed source snapshot.
+  """
   @callback list_permissions(map(), map(), TrustedContext.t()) ::
               {:ok, RecordPage.t()} | {:error, term()}
   @callback replace_permissions(map(), map(), TrustedContext.t()) ::
@@ -579,11 +584,12 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp load_download_permissions(source, bridge, config, params, context) do
     with true <- supports_callback?(bridge, :list_permissions, 3),
-         {:ok, %RecordPage{records: records, pagination: pagination}} <-
+         {:ok, %RecordPage{records: records, pagination: pagination, metadata: metadata}} <-
            bridge.list_permissions(config, Map.take(params, ["file_id"]), context),
          true <-
            is_list(records) && !Map.get(pagination || %{}, :has_more?, false) &&
-             !Map.get(pagination || %{}, :truncated?, false) do
+             !Map.get(pagination || %{}, :truncated?, false) &&
+             !Map.get(metadata || %{}, :incomplete_permission_projection?, false) do
       %{source | permissions: records}
     else
       _other -> source

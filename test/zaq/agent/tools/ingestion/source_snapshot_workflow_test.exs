@@ -63,6 +63,15 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
       {:ok, %{record: source(id)}}
     end
 
+    def list_permissions(_config, %{"file_id" => "incomplete"}, _context) do
+      {:ok,
+       %RecordPage{
+         resource_type: :permission,
+         records: [],
+         metadata: %{incomplete_permission_projection?: true}
+       }}
+    end
+
     def list_permissions(_config, %{"file_id" => id}, _context) do
       send(self(), :source_permissions_loaded)
 
@@ -223,6 +232,16 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
 
     assert {:ok, %{"permissions" => %{"state" => "not_loaded", "entries" => nil}}} =
              Provenance.verify(missing)
+  end
+
+  test "does not sign an incomplete permission page as an empty projection", %{
+    config: config,
+    context: context
+  } do
+    assert {:ok, %{record: incomplete}} = download(config, "incomplete", context)
+
+    assert {:ok, %{"permissions" => %{"state" => "not_loaded", "entries" => nil}}} =
+             Provenance.verify(incomplete)
   end
 
   @tag :tmp_dir
