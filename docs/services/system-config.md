@@ -3,6 +3,30 @@
 This document covers runtime requirements for Back Office system settings,
 including AI model configuration and SMTP secret encryption.
 
+## Global gRPC message limit
+
+The Global tab exposes **gRPC maximum message size (MiB)**, defaulting to
+**64 MiB (67,108,864 bytes)**. It accepts whole numbers from 1 to 4095 MiB;
+the upper bound keeps the byte size within the Extension protocol's unsigned
+32-bit field. `Zaq.System.GrpcConfig` owns the units, default and validation.
+`Zaq.System` persists bytes as a numeric string under
+`system.global.grpc_max_message_bytes`, using the existing `system_configs` table.
+Only a missing row means default; malformed, null and non-whole-MiB stored values
+return an explicit read error. Invalid saves leave the stored value unchanged.
+
+BO reads and saves through Engine events, never by accessing the database directly.
+Saving requires **restarting each Engine node**; it does not mutate running gRPC
+limits or interrupt streams. At startup, before Engine services open connections,
+`Zaq.Engine.GrpcSettings` applies the saved value to the VM-wide gRPC send/receive
+limit. If startup cannot read a valid value, it logs a safe diagnostic and uses
+the bounded 64 MiB default, rather than the library's much larger fallback.
+
+Extension negotiation advertises the applied limit and selects the smaller peer
+limit. It does not override destination policy or HTTP response limits. The limit
+counts encoded protobuf bytes, including any Base64 expansion in future Action
+results, and is separate from the transport read-ahead window. See
+[Extension transport](engine.md#optional-extension-gateway-health) for stream details.
+
 ## Global Runtime Keys
 
 - `system.global.base_url`

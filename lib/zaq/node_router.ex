@@ -126,6 +126,10 @@ defmodule Zaq.NodeRouter do
   @spec fire(Event.t()) :: Event.t()
   def fire(%Event{} = event), do: broadcast_event(event)
 
+  @doc """
+  Routes an event with local runtime overrides. `:async_task_supervisor` selects
+  the task supervisor for async hops; it is not carried on the Event.
+  """
   @spec dispatch(Event.t(), map()) :: Event.t()
   def dispatch(%Event{next_hop: %EventHop{destination: role}} = event, runtime)
       when is_map(runtime) do
@@ -255,8 +259,10 @@ defmodule Zaq.NodeRouter do
   end
 
   defp async_start(runtime, fun) when is_function(fun, 0) do
+    supervisor = Map.get(runtime, :async_task_supervisor, Zaq.TaskSupervisor)
+
     runtime
-    |> Map.get(:async_start_fn, &Task.Supervisor.start_child(Zaq.TaskSupervisor, &1))
+    |> Map.get(:async_start_fn, &Task.Supervisor.start_child(supervisor, &1))
     |> then(& &1.(fun))
   end
 
@@ -299,8 +305,8 @@ defmodule Zaq.NodeRouter do
   end
 
   defp do_dispatch(%{hop_type: :async} = dispatch_ctx) do
-    _ =
-      async_start(dispatch_ctx.runtime, fn ->
+    started =
+      start_dispatch_task(dispatch_ctx, fn ->
         routed_event =
           do_dispatch_sync(dispatch_ctx)
           |> continue_dispatch(dispatch_ctx.runtime)
@@ -310,7 +316,32 @@ defmodule Zaq.NodeRouter do
         :ok
       end)
 
-    dispatch_ctx.event
+    track_dispatch(dispatch_ctx.event, started)
+  end
+
+  defp start_dispatch_task(dispatch_ctx, fun) do
+    if dispatch_ctx.event.opts[:track_dispatch] do
+      try do
+        async_start(dispatch_ctx.runtime, fun)
+      rescue
+        _ -> {:error, :dispatch_unavailable}
+      catch
+        :exit, _ -> {:error, :dispatch_unavailable}
+      end
+    else
+      async_start(dispatch_ctx.runtime, fun)
+    end
+  end
+
+  defp track_dispatch(%Event{opts: opts} = event, started) do
+    if Keyword.get(opts, :track_dispatch, false) do
+      case started do
+        {:ok, pid} -> %{event | assigns: Map.put(event.assigns, :async_task_pid, pid)}
+        _ -> %{event | response: {:error, :dispatch_unavailable}}
+      end
+    else
+      event
+    end
   end
 
   defp broadcast_event(%Event{} = event) do

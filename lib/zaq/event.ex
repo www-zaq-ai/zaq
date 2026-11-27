@@ -15,6 +15,9 @@ defmodule Zaq.Event do
   - Trusted `opts[:confidential] == true` excludes the entire envelope from
     observer/workflow broadcasts and payload-bearing async diagnostics. Routing
     still executes normally. Callers must propagate this option to child events.
+  - `opts[:track_dispatch] == true` on an async hop returns its local router worker
+    PID in `assigns[:async_task_pid]`, or `{:error, :dispatch_unavailable}` on task
+    admission failure. This is dispatch evidence, not execution success.
   """
 
   alias Zaq.EventHop

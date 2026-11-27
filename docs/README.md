@@ -41,7 +41,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 | Domain | Guide |
 | --- | --- |
 | Agent execution, retrieval and tools | [Agent](services/agent.md) |
-| Routing, conversations and coordination | [Engine](services/engine.md), including [personal grant sequences](services/personal-grant-sequences.md) |
+| Routing, conversations and coordination | [Engine](services/engine.md), including [personal grant sequences](services/personal-grant-sequences.md) and [Extension Action exchange](services/extension-actions.md) |
 | Provider bridges and integrations | [Channels](services/channels.md) |
 | Message identity, routing, history and delivery sequences | [Message lifecycle](services/message-lifecycle.md) |
 | Documents, chunking and search | [Ingestion](services/ingestion.md) |
