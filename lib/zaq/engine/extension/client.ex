@@ -44,7 +44,8 @@ defmodule Zaq.Engine.Extension.Client do
   @spec connect(keyword()) :: {:ok, struct()} | {:error, atom()}
   def connect(opts \\ []) do
     with {:ok, settings} <- settings(opts),
-         {:ok, channel} <- open_connection(settings, Keyword.fetch!(opts, :connection_name)) do
+         {:ok, channel, _alert_seen} <-
+           open_connection(settings, Keyword.fetch!(opts, :connection_name)) do
       {:ok, Gateway.Stub.connect(channel, timeout: :infinity, codec: ConnectCodec)}
     end
   rescue
@@ -71,12 +72,12 @@ defmodule Zaq.Engine.Extension.Client do
 
   defp probe(settings, name) do
     case open_connection(settings, name) do
-      {:ok, channel} ->
+      {:ok, channel, alert_seen} ->
         try do
           case Gateway.Stub.health(channel, %HealthRequest{}, timeout: 2_000) do
             {:ok, %HealthResponse{status: "ok"}} -> {:ok, :healthy}
             {:ok, %HealthResponse{}} -> {:error, :unexpected_status}
-            {:error, _} -> {:error, :rpc_error}
+            {:error, _} -> {:error, late_tls_error(alert_seen, :rpc_error)}
           end
         after
           disconnect(name)
@@ -90,6 +91,7 @@ defmodule Zaq.Engine.Extension.Client do
   defp open_connection(settings, name) do
     # A bare socket path takes gRPC's legacy insecure branch even with credentials.
     target = "unix://" <> settings[:socket_path]
+    alert_seen = :atomics.new(1, [])
 
     case GRPC.Stub.connect(target,
            name: name,
@@ -97,7 +99,7 @@ defmodule Zaq.Engine.Extension.Client do
            cred: credential(settings),
            connect_timeout: 1_500,
            adapter_opts: [
-             event_handler: {Zaq.Engine.Extension.TLSEvents, nil},
+             event_handler: {Zaq.Engine.Extension.TLSEvents, alert_seen},
              retry: 0,
              connect_timeout: 1_000,
              tls_handshake_timeout: 1_000,
@@ -107,11 +109,15 @@ defmodule Zaq.Engine.Extension.Client do
            ]
          ) do
       {:ok, channel} ->
-        {:ok, channel}
+        {:ok, channel, alert_seen}
 
       {:error, reason} ->
-        {:error, connection_error(reason)}
+        {:error, late_tls_error(alert_seen, connection_error(reason))}
     end
+  end
+
+  defp late_tls_error(alert_seen, fallback) do
+    if :atomics.get(alert_seen, 1) == 1, do: :tls_error, else: fallback
   end
 
   defp credential(settings) do

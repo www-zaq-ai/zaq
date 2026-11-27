@@ -32,7 +32,8 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
 
   test "rejects wrong server identity and a client certificate with server-only usage", %{
     settings: settings,
-    directory: directory
+    directory: directory,
+    gateway: gateway
   } do
     assert {:error, :tls_error} =
              Client.health(settings: Keyword.put(settings, :server_name, "wrong.local"))
@@ -45,6 +46,7 @@ defmodule Zaq.Engine.Extension.ClientIntegrationTest do
 
     assert {:error, reason} = Client.health(settings: invalid_client)
     assert reason in [:tls_error, :rpc_error]
+    refute_received {:gateway_unary_health, ^gateway}
   end
 
   test "rejects an unrelated trust root", %{settings: settings, directory: directory} do

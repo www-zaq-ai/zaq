@@ -9,6 +9,7 @@ defmodule Zaq.Engine.Extension.ActionSessionTest do
     ActionReply,
     ActionRequest,
     ExecuteAction,
+    HealthRequest,
     ListActions,
     ZaqEnvelope
   }
@@ -106,8 +107,18 @@ defmodule Zaq.Engine.Extension.ActionSessionTest do
     end
   end
 
-  test "worker completions cannot enqueue duplicate pending Health probes after a blocked write" do
+  test "a due Health probe takes the next writer slot before queued Action replies" do
     generation = make_ref()
+    id = Ecto.UUID.generate()
+    limits = ActionProtocol.offer(262_144)
+    session = ActionSession.configure(%ActionSession{}, limits, generation)
+
+    request = %ActionRequest{
+      timeout_ms: limits.max_timeout_ms + 1,
+      operation: {:list, %ListActions{}}
+    }
+
+    assert {:ok, session} = ActionSession.request(session, id, request)
 
     state = %{
       phase: :ready,
@@ -119,21 +130,36 @@ defmodule Zaq.Engine.Extension.ActionSessionTest do
       scheduled: nil,
       deadline: nil,
       probe_timeout_ms: 5_000,
-      actions: %ActionSession{}
+      first_probe: false,
+      clock: fn -> 123 end,
+      actions: session
     }
 
     {:noreply, state} = Extension.handle_info(:probe, state)
+    assert state.probe_due
+    deadline = state.deadline
     {:noreply, state} = Extension.handle_info({:extension_sent, generation}, state)
-    assert_receive :probe
+    assert %{writing: true, probe_due: false, pending: %{id: probe_id, started_at: 123}} = state
+    assert state.deadline == deadline
 
-    {:noreply, state} =
-      Extension.handle_info(
-        {:extension_action_completed, make_ref(), Ecto.UUID.generate(), nil},
-        state
-      )
+    assert_received {:write,
+                     %ZaqEnvelope{
+                       request_id: ^probe_id,
+                       payload: {:health_request, %HealthRequest{}}
+                     }}
 
-    refute_receive :probe
-    Process.cancel_timer(elem(state.deadline, 0))
+    assert {:noreply, ^state} =
+             Extension.handle_info(
+               {:extension_action_completed, make_ref(), Ecto.UUID.generate(), nil},
+               state
+             )
+
+    refute_received {:write, _}
+    refute_received :probe
+    {:noreply, state} = Extension.handle_info({:extension_sent, generation}, state)
+    assert_received {:write, %ZaqEnvelope{request_id: ^id, payload: {:action_reply, _}}}
+    assert {:ok, _session} = ActionSession.receipt(state.actions, id, 1)
+    Process.cancel_timer(elem(deadline, 0))
   end
 
   property "every invalid-operation reply reserves and releases its exact encoded envelope bytes" do
@@ -152,6 +178,36 @@ defmodule Zaq.Engine.Extension.ActionSessionTest do
       assert session.used_bytes == 0
       assert session.requests == %{}
       assert {:error, :invalid_envelope, ^session} = ActionSession.receipt(session, id, 1)
+    end
+  end
+
+  property "reply credits count encoded bytes across protobuf length boundaries" do
+    check all(
+            unit <- member_of(["x", "é", "🐘"]),
+            count <-
+              member_of([31, 32, 63, 64, 127, 128, 4_095, 4_096, 8_191, 8_192, 16_383, 16_384])
+          ) do
+      generation = make_ref()
+      id = Ecto.UUID.generate()
+      limits = ActionProtocol.offer(262_144)
+
+      session = %ActionSession{
+        limits: limits,
+        generation: generation,
+        requests: %{id => %{waiting: true, timer: nil, expires_at: nil}},
+        used_slots: 1,
+        used_bytes: limits.max_reply_envelope_bytes
+      }
+
+      json = Jason.encode!(String.duplicate(unit, count))
+      session = ActionSession.complete(session, generation, id, {:result_json, json})
+      assert {{1, frame}, session} = ActionSession.take_next(session)
+
+      assert frame.payload ==
+               {:action_reply, %ActionReply{sequence: 1, outcome: {:result_json, json}}}
+
+      assert session.used_bytes == byte_size(ZaqEnvelope.encode(frame))
+      assert {:ok, %{used_bytes: 0, used_slots: 0}} = ActionSession.receipt(session, id, 1)
     end
   end
 

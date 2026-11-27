@@ -167,7 +167,7 @@ defmodule Zaq.Engine.Extension.Actions do
 
   defp metadata(descriptor) do
     version =
-      if function_exported?(descriptor.module, :vsn, 0) do
+      if Code.ensure_loaded?(descriptor.module) and function_exported?(descriptor.module, :vsn, 0) do
         case descriptor.module.vsn() do
           value when is_binary(value) -> value
           _ -> nil

@@ -224,7 +224,7 @@ defmodule Zaq.Engine.Extension.ActionSession do
   defp enqueue(session, id, outcome, reservation) do
     sequence = session.sequence + 1
     frame = envelope(id, sequence, outcome)
-    size = frame |> ZaqEnvelope.encode() |> byte_size()
+    size = encoded_size(frame)
     {frame, size} = bounded_frame(frame, size, reservation)
     reply = %{id: id, bytes: size, frame: frame, timer: nil, writing: false}
 
@@ -246,8 +246,10 @@ defmodule Zaq.Engine.Extension.ActionSession do
         Actions.failure(:RESULT_TOO_LARGE, true)
       )
 
-    {replacement, replacement |> ZaqEnvelope.encode() |> byte_size()}
+    {replacement, encoded_size(replacement)}
   end
+
+  defp encoded_size(frame), do: frame |> Protobuf.encode_to_iodata() |> IO.iodata_length()
 
   defp envelope(id, sequence, outcome),
     do: %ZaqEnvelope{

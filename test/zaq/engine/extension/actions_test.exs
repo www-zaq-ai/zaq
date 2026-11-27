@@ -23,6 +23,37 @@ defmodule Zaq.Engine.Extension.ActionsTest do
     assert hd(next.actions).key > page.next_page_token
   end
 
+  test "Action versions are consistent before and after describing an unloaded module" do
+    code_path = Path.join(Path.dirname(Application.app_dir(:zaq)), "*/ebin")
+
+    script = """
+    alias Zaq.Engine.Extension.{Actions, Invocation}
+
+    false = :code.is_loaded(Jido.Tools.LuaEval)
+
+    metadata = fn ->
+      {:listed, page} = Actions.execute(%Invocation{operation: :list, page_size: 100})
+      Map.new(page.actions, &{&1.key, &1.version})
+    end
+
+    before = metadata.()
+    "0.1.0" = Map.fetch!(before, "advanced.lua_eval")
+    nil = Map.fetch!(before, "arithmetic.add")
+    {:described, description} =
+      Actions.execute(%Invocation{operation: :describe, key: "advanced.lua_eval"})
+
+    "0.1.0" = description.metadata.version
+    true = before == metadata.()
+    """
+
+    assert {output, 0} =
+             System.cmd("elixir", ["--erl", "+S 2:2", "-pa", code_path, "-e", script],
+               stderr_to_stdout: true
+             )
+
+    assert output == ""
+  end
+
   test "describe exports the existing Action schema and execute uses Jido validation" do
     assert {:described, description} =
              Actions.execute(%Invocation{operation: :describe, key: "arithmetic.add"})

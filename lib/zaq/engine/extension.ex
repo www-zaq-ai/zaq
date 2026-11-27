@@ -196,15 +196,7 @@ defmodule Zaq.Engine.Extension do
   end
 
   def handle_info(:probe, %{phase: :ready, pending: nil, writing: false} = state) do
-    pending = %{
-      id: Ecto.UUID.generate(),
-      started_at: if(state.first_probe, do: state.started_at, else: state.clock.())
-    }
-
-    frame = Protocol.health_request(pending.id)
-    send(state.writer.pid, {:write, frame})
-    state = %{state | pending: pending, writing: true, scheduled: nil, probe_due: false}
-    {:noreply, if(state.deadline, do: state, else: start_deadline(state))}
+    {:noreply, start_probe(state)}
   end
 
   def handle_info(:probe, %{phase: :ready, pending: nil, writing: true} = state) do
@@ -341,8 +333,7 @@ defmodule Zaq.Engine.Extension do
   defp receive_frame(_frame, _received_at, state), do: reject_frame(state, :unsupported_operation)
 
   defp pump_actions(%{phase: :ready, writing: false, probe_due: true} = state) do
-    send(self(), :probe)
-    %{state | probe_due: false}
+    start_probe(state)
   end
 
   defp pump_actions(%{phase: :ready, writing: false} = state) do
@@ -357,6 +348,17 @@ defmodule Zaq.Engine.Extension do
   end
 
   defp pump_actions(state), do: state
+
+  defp start_probe(state) do
+    pending = %{
+      id: Ecto.UUID.generate(),
+      started_at: if(state.first_probe, do: state.started_at, else: state.clock.())
+    }
+
+    send(state.writer.pid, {:write, Protocol.health_request(pending.id)})
+    state = %{state | pending: pending, writing: true, scheduled: nil, probe_due: false}
+    if state.deadline, do: state, else: start_deadline(state)
+  end
 
   defp reject_frame(state, reason) do
     if state.scheduled, do: Process.cancel_timer(state.scheduled)
