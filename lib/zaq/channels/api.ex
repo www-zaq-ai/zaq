@@ -613,6 +613,13 @@ defmodule Zaq.Channels.Api do
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
 
+    params =
+      if event.opts[:include_source_snapshot] do
+        Map.put(params, "include_source_snapshot", true)
+      else
+        params
+      end
+
     %{
       event
       | response:

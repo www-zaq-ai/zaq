@@ -9,6 +9,7 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
 
   @behaviour Zaq.Materialization.Handler
 
+  alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Events.TrustedContext
   alias Zaq.Helpers
   alias Zaq.Materialization
@@ -48,6 +49,18 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
 
   @impl true
   def do_materialize(locator, context, options)
+
+  def do_materialize(
+        %{"config_id" => config_id} = locator,
+        %{include_source_snapshot: true} = context,
+        options
+      )
+      when is_integer(config_id) or (is_binary(config_id) and config_id != "") do
+    locator
+    |> Map.put("provider", "disk")
+    |> Map.put("config_id", to_string(config_id))
+    |> DataSourceDocument.do_materialize(context, options)
+  end
 
   def do_materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do

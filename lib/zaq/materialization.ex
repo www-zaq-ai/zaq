@@ -113,7 +113,10 @@ defmodule Zaq.Materialization do
          depth
        )
        when is_binary(handle) do
-    with {:ok, %{record: nested}} <- materialize_handle(handle, context, prefix, depth + 1, %{}) do
+    nested_context = Map.delete(context, :include_source_snapshot)
+
+    with {:ok, %{record: nested}} <-
+           materialize_handle(handle, nested_context, prefix, depth + 1, %{}) do
       {:ok, %{record: merge_record(record, nested)}}
     end
   end

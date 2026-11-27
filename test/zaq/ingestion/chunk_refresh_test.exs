@@ -53,7 +53,7 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     assert {:ok, :stored} = ChunkRefresh.insert(id, 2, context, &insert(&1, 2, "retried"))
   end
 
-  test "denies missing and non-admin actors, forged locator fields, and handle-only input" do
+  test "denies missing and non-admin actors, invalid tokens, and handle-only input" do
     source = source_record()
     id = Ecto.UUID.generate()
     admin = super_admin()
@@ -62,7 +62,7 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     assert {:error, :unauthorized} = ChunkRefresh.start(id, source, "text", %{})
     assert {:error, :unauthorized} = ChunkRefresh.start(id, source, "text", context(plain_user))
 
-    forged = %{source | attributes: %{source.attributes | "config_id" => "8"}}
+    forged = %{source | provenance_ref: source.provenance_ref <> "tampered"}
 
     assert {:error, :invalid_source_record} =
              ChunkRefresh.start(id, forged, "text", context(admin))
@@ -158,15 +158,14 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     assert People.get_person(person_id).email == email
   end
 
-  test "rejects a modified signed permission projection before changing the index" do
+  test "a display projection cannot add grants absent from the signed snapshot" do
     user = super_admin()
     source = source_record([])
     forged = %{source | permissions: [public_grant()]}
 
-    assert {:error, :invalid_source_record} =
-             ChunkRefresh.start(Ecto.UUID.generate(), forged, "text", context(user))
-
-    refute Repo.exists?(Document)
+    assert {:error, :record_provenance_mismatch} = Provenance.verify(forged)
+    assert {:ok, doc} = ChunkRefresh.start(Ecto.UUID.generate(), forged, "text", context(user))
+    refute Permissions.public?(doc)
   end
 
   test "a new storage refresh fences old chunk writes and a new full legacy refresh supersedes it" do
@@ -211,7 +210,13 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
       attributes: %{"provider" => provider, "config_id" => "7", "provider_record_id" => "file"}
     }
 
-    {:ok, record} = Provenance.seal(record, %{"provider" => provider, "config_id" => 7})
+    {:ok, record} =
+      Provenance.seal(record, %{
+        "provider" => provider,
+        "config_id" => 7,
+        "source_metadata" => %{"name" => record.name}
+      })
+
     record
   end
 

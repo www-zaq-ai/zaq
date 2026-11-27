@@ -56,7 +56,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
     Optional MIME fields control source/export representation only; they are not identity or
     authorization inputs.
 
-    Returns the normalized record including its materialized content.
+    Returns the normalized record including its materialized content. Data-source
+    documents also carry a signed source snapshot for downstream indexing.
     """,
     schema: @schema
 
@@ -94,7 +95,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   def run(%{materialization_handle: handle} = params, context) when is_binary(handle) do
     Materialization.materialize(
       handle,
-      context,
+      Map.put(context, :include_source_snapshot, true),
       "Record materialization failed",
       materialization_options(params)
     )

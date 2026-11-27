@@ -33,8 +33,12 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   Disk entries name ZAQ people and teams; external entries identify principals
   from the provider. Unsigned owners and raw provider fields are not grants.
   """
-  @spec replace_projection(Record.t(), struct(), [map()]) :: {:ok, list()} | {:error, term()}
-  def replace_projection(%Record{} = record, document, entries) do
+  @spec replace_projection(struct(), Zaq.Ingestion.ChunkRefreshSource.identity()) ::
+          {:ok, list()} | {:error, term()}
+  def replace_projection(document, %{
+        record: record,
+        permission_projection: %{"entries" => entries}
+      }) do
     principals = Enum.map(entries, &signed_principal(&1, provider(record)))
 
     grants =

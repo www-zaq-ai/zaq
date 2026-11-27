@@ -68,6 +68,14 @@ The handler always dispatches `:data_source_download_document` to the Channels r
 trusted context to data-source file callbacks as a separate argument rather than embedding
 identity or permission flags in provider parameters.
 
+`DownloadDocument` requests a signed source snapshot with the bytes. Channels
+reuses a complete snapshot from the download when available and loads missing
+metadata or permissions through the configured bridge. The snapshot signs the
+source identity, title, URL, MIME type, parent IDs, and normalized permissions.
+The downloaded representation may have a different MIME type, for example when
+exporting a spreadsheet to CSV. Missing permissions remain `nil`; an explicitly
+empty projection is `[]`. See [Store embedded chunks](ingestion.md#store-embedded-chunks).
+
 ## Communication Media
 
 `communication_media` is implemented by
@@ -134,12 +142,11 @@ Per-redemption options:
 - `export_mime_type` — accepted for cross-source compatibility with data-source
   document redemption. Storage currently ignores it until export conversion is implemented.
 
-The handler always dispatches `:materialize_document` directly to the Storage role via
-`Zaq.Storage.Events`. A consumer that already has a Disk record redeems this handle without
-going back through Channels. Provider-plus-id consumers still use the generic
-`data_source_document` path first; for Disk, that Channels hop returns an unmaterialized
-record carrying the `disk_document` handle, and `Zaq.Materialization` redeems that second
-handle against Storage.
+The handler dispatches byte reads to `:materialize_document` on Storage.
+When `DownloadDocument` redeems a Disk handle scoped to a data-source
+configuration, it first asks Channels to issue the signed Record with Disk's
+effective Storage grants. Materialization redeems the returned nested Disk
+handle for the bytes without asking for another snapshot.
 
 ## Extension Rules
 

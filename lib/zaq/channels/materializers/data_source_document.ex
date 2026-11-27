@@ -82,9 +82,11 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   end
 
   defp data_source_event_opts(context) do
-    case Map.get(context, :data_source_bridge_module) do
-      nil -> []
-      module -> [data_source_bridge_module: module]
+    opts = if context[:include_source_snapshot], do: [include_source_snapshot: true], else: []
+
+    case context[:data_source_bridge_module] do
+      nil -> opts
+      module -> Keyword.put(opts, :data_source_bridge_module, module)
     end
   end
 

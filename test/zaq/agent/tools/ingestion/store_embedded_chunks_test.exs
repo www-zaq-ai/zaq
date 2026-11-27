@@ -28,7 +28,13 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunksTest do
       attributes: %{"provider" => "google_drive", "config_id" => "42"}
     }
 
-    {:ok, record} = Provenance.seal(record, %{"provider" => "google_drive", "config_id" => 42})
+    {:ok, record} =
+      Provenance.seal(record, %{
+        "provider" => "google_drive",
+        "config_id" => 42,
+        "source_metadata" => %{"name" => record.name}
+      })
+
     %{context: %{actor: %{user_id: user.id}, node_router: NodeRouterMock}, record: record}
   end
 

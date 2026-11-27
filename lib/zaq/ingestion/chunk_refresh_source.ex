@@ -12,7 +12,8 @@ defmodule Zaq.Ingestion.ChunkRefreshSource do
 
   @type identity :: %{
           source: String.t(),
-          permission_projection: map()
+          permission_projection: map(),
+          record: Record.t()
         }
 
   @doc "Returns the currently authorized Back Office super admin."
@@ -25,34 +26,40 @@ defmodule Zaq.Ingestion.ChunkRefreshSource do
   end
 
   @doc "Derives the source and permission projection from authenticated Record claims."
-  @spec identity(Record.t()) :: {:ok, identity()} | {:error, :invalid_source_record}
-  def identity(%Record{kind: :file, attributes: attrs} = record) when is_map(attrs) do
+  @spec identity(map()) :: {:ok, identity()} | {:error, :invalid_source_record}
+  def identity(record) when is_map(record) do
+    ref = Map.get(record, :provenance_ref) || Map.get(record, "provenance_ref")
+
     with {:ok,
           %{
             "provider" => provider,
             "config_id" => config_id,
             "provider_record_id" => file_id,
+            "kind" => "file",
+            "source_metadata" => metadata,
             "permissions" => projection
-          }} <-
-           Provenance.verify(record),
+          } = claims} <-
+           Provenance.verify_ref(ref),
          true <- is_binary(provider) and provider not in ["", "local"],
          true <- is_integer(config_id) or is_binary(config_id),
-         true <- is_binary(file_id) and file_id != "",
-         ^provider <- ExternalSource.provider(record),
-         true <- config_matches?(attrs, config_id),
-         ^file_id <- ExternalSource.file_id(record) do
-      {:ok, %{source: ExternalSource.source(record), permission_projection: projection}}
+         true <- is_binary(file_id) and file_id != "" do
+      source = %Record{
+        id: file_id,
+        kind: :file,
+        name: metadata["name"],
+        mime_type: metadata["mime_type"],
+        url: metadata["url"],
+        parent_id: claims["parent_id"],
+        parent_ids: metadata["parent_ids"] || [],
+        attributes: %{"provider" => provider, "config_id" => config_id}
+      }
+
+      {:ok,
+       %{source: ExternalSource.source(source), permission_projection: projection, record: source}}
     else
       _ -> {:error, :invalid_source_record}
     end
   end
 
   def identity(_record), do: {:error, :invalid_source_record}
-
-  defp config_matches?(attrs, signed_id) do
-    case Map.get(attrs, "config_id") || Map.get(attrs, :config_id) do
-      id when is_integer(id) or is_binary(id) -> to_string(id) == to_string(signed_id)
-      _ -> false
-    end
-  end
 end

@@ -33,7 +33,13 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
       %{
         attempt_id: Zoi.string(description: "Stable UUID for the refresh"),
         record:
-          Record.zoi_type(description: "Source Record with signed permissions; required on start")
+          Zoi.object(
+            %{provenance_ref: Zoi.string()},
+            coerce: true,
+            unrecognized_keys: :preserve,
+            metadata: [zaq_semantic_type: Record.semantic_type()],
+            description: "DownloadDocument Record with signed source metadata; required on start"
+          )
           |> Zoi.optional(),
         markdown:
           Zoi.string(description: "Converted content; required on start") |> Zoi.optional(),
@@ -75,7 +81,7 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
 
   defp prepare(id, nil, nil, context), do: ChunkRefresh.resume(id, context)
 
-  defp prepare(id, %Record{} = record, markdown, context) when is_binary(markdown),
+  defp prepare(id, record, markdown, context) when is_map(record) and is_binary(markdown),
     do: ChunkRefresh.start(id, record, markdown, context)
 
   defp prepare(_id, _record, _markdown, _context), do: {:error, :invalid_refresh_input}

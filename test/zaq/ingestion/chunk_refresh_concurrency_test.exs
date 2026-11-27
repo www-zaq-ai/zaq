@@ -90,7 +90,13 @@ defmodule Zaq.Ingestion.ChunkRefreshConcurrencyTest do
       attributes: %{"provider" => "google_drive", "config_id" => "7"}
     }
 
-    {:ok, record} = Provenance.seal(record, %{"provider" => "google_drive", "config_id" => 7})
+    {:ok, record} =
+      Provenance.seal(record, %{
+        "provider" => "google_drive",
+        "config_id" => 7,
+        "source_metadata" => %{"name" => record.name}
+      })
+
     record
   end
 

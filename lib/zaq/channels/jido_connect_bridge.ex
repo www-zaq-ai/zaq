@@ -345,12 +345,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def list_permissions(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
-    with {:ok, payload} <- invoke_intent(config, :list_principals, params) do
-      permissions =
-        payload
-        |> read_list([:permissions, "permissions"], [])
-        |> Enum.filter(&is_map/1)
-
+    with {:ok, payload} <- invoke_intent(config, :list_principals, params),
+         {:ok, permissions} <- permission_entries(payload) do
       next_cursor = read_stringish(payload, [:next_page_token, "next_page_token"])
       page_size = map_get_integer(params, [:page_size, "page_size"])
 
@@ -1905,14 +1901,18 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp map_embedded_permissions(raw) when is_map(raw) do
-    case read_any(raw, ["permissions", :permissions]) do
-      list when is_list(list) ->
-        list
-        |> Enum.filter(&is_map/1)
-        |> Enum.map(&map_permission_record/1)
+    case permission_entries(raw) do
+      {:ok, entries} -> Enum.map(entries, &map_permission_record/1)
+      {:error, _reason} -> nil
+    end
+  end
 
-      _ ->
-        nil
+  defp permission_entries(payload) do
+    with entries when is_list(entries) <- read_any(payload, ["permissions", :permissions]),
+         true <- Enum.all?(entries, &is_map/1) do
+      {:ok, entries}
+    else
+      _ -> {:error, :missing_permission_projection}
     end
   end
 

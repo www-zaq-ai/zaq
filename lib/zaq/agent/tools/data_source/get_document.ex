@@ -22,18 +22,12 @@ defmodule Zaq.Agent.Tools.DataSource.GetDocument do
     description: """
     Get a document by id from a specific datasource provider.
     Returns metadata for the selected document.
-    Request include_permissions when preparing a source Record for indexing.
     """,
     schema: [
       provider: [type: :string, required: true, doc: "Datasource provider key"],
       document_id: [type: :string, required: true, doc: "Provider document identifier"],
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"],
-      scope_id: [type: :string, required: false, doc: "Optional scoped datasource volume id"],
-      include_permissions: [
-        type: :boolean,
-        required: false,
-        doc: "Request the effective permission projection on the returned Record"
-      ]
+      scope_id: [type: :string, required: false, doc: "Optional scoped datasource volume id"]
     ]
 
   alias Zaq.Agent.Tools.DataSourceTool
@@ -43,7 +37,7 @@ defmodule Zaq.Agent.Tools.DataSource.GetDocument do
   def run(%{provider: provider, document_id: document_id} = params, context) do
     request =
       %{"file_id" => document_id}
-      |> DataSourceTool.merge_optional(params, [:config_id, :scope_id, :include_permissions])
+      |> DataSourceTool.merge_optional(params, [:config_id, :scope_id])
       |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(

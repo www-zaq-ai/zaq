@@ -112,20 +112,22 @@ trusted actor for a current Back Office super admin. A signed source Record
 identifies the document; a read handle or an actorless workflow does not grant
 indexing access.
 
-Acquire a fresh source Record with `GetDocument` and `include_permissions: true`.
-Keep this Record for storage and pass its handle to `DownloadDocument` for conversion.
-Start with a new UUID as `attempt_id`, the source `record`, converted `markdown`,
-and up to 16 `items`. Each item pairs a `chunk` from `ChunkContent`
+Use the Record returned by `DownloadDocument` for conversion and storage.
+For a source-backed download it carries content and a signed source snapshot.
+Start storage with a new UUID as `attempt_id`, that `record`, converted
+`markdown`, and up to 16 `items`. Each item pairs a `chunk` from `ChunkContent`
 with its successful `embedding` result. Set `embedding.chunk_index` to the
 original chunk index after mapping the embedding result's batch `index` back
 to the submitted chunk. Keep the model, dimension, and vector in the embedding.
 
-Setup uses the Record's verified permission projection without contacting the
-source again, then clears the previous chunks once. For Disk the projection
-contains effective grants managed through its sharing UI. For external documents
-it comes from the provider. An explicitly empty projection removes existing
-indexed grants; missing permissions leave the index untouched and return
-`missing_permission_projection`.
+Setup verifies `provenance_ref` and uses the signed source identity, metadata,
+and permissions without contacting the source again. Agents can still see the
+Record's display fields; editing those fields does not change what is indexed
+as source metadata or permissions. Disk grants come from its sharing UI, and
+external grants come from the provider. An explicitly empty projection removes
+existing indexed grants; missing permissions leave the index untouched and
+return `missing_permission_projection`. The snapshot does not sign or validate
+the generated Markdown, chunks, or vectors.
 
 Send later batches or retry failed indices with the same `attempt_id` and
 `items` alone. A committed index returns `already_stored` on replay. Errors on

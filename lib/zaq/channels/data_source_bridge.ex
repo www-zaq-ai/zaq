@@ -540,13 +540,121 @@ defmodule Zaq.Channels.DataSourceBridge do
           {:ok, map()} | {:error, term()}
   def download_document(provider, params \\ %{}, context \\ %{})
       when is_map(params) and is_map(context) do
+    {snapshot?, params} = Map.pop(params, "include_source_snapshot", false)
+    context = TrustedContext.normalize(context)
+
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :download_document, 3) || {:error, :unsupported} do
-      bridge.download_document(config, params, TrustedContext.normalize(context))
-      |> seal_response(config)
+      download_with_snapshot(bridge, config, params, context, snapshot?)
     end
   end
+
+  defp download_with_snapshot(bridge, config, params, context, true) do
+    params = Map.put(params, "include_permissions", true)
+
+    with {:ok, %{record: %Record{} = downloaded} = result} <-
+           bridge.download_document(config, params, context),
+         {:ok, source} <- download_source(bridge, config, params, context, downloaded),
+         source = load_download_permissions(source, bridge, config, params, context),
+         {:ok, record} <- seal_download(source, downloaded, config, params) do
+      {:ok, %{result | record: record}}
+    end
+  end
+
+  defp download_with_snapshot(bridge, config, params, context, _snapshot?) do
+    bridge.download_document(config, params, context)
+    |> seal_response(config)
+  end
+
+  defp load_download_permissions(
+         %Record{permissions: permissions} = source,
+         _bridge,
+         _config,
+         _params,
+         _context
+       )
+       when is_list(permissions),
+       do: source
+
+  defp load_download_permissions(source, bridge, config, params, context) do
+    with true <- supports_callback?(bridge, :list_permissions, 3),
+         {:ok, %RecordPage{records: records, pagination: pagination}} <-
+           bridge.list_permissions(config, Map.take(params, ["file_id"]), context),
+         true <-
+           is_list(records) && !Map.get(pagination || %{}, :has_more?, false) &&
+             !Map.get(pagination || %{}, :truncated?, false) do
+      %{source | permissions: records}
+    else
+      _other -> source
+    end
+  end
+
+  defp download_source(
+         _bridge,
+         _config,
+         _params,
+         _context,
+         %Record{name: name} = record
+       )
+       when is_binary(name) and name != "",
+       do: {:ok, record}
+
+  defp download_source(bridge, config, params, context, %Record{} = downloaded) do
+    if supports_callback?(bridge, :get_file, 3) do
+      case bridge.get_file(config, Map.take(params, ~w(file_id include_permissions)), context) do
+        {:ok, %{record: %Record{} = source}} ->
+          # Some providers include permissions in the download but omit them in metadata.
+          {:ok, %{source | permissions: source.permissions || downloaded.permissions}}
+
+        {:error, _reason} = error ->
+          error
+
+        _other ->
+          {:error, :invalid_source_snapshot}
+      end
+    else
+      {:ok, downloaded}
+    end
+  end
+
+  defp seal_download(%Record{kind: :file} = source, downloaded, config, %{"file_id" => id})
+       when source.id == id and downloaded.id == id do
+    attrs =
+      (source.attributes || %{})
+      |> Map.merge(Map.take(downloaded.attributes || %{}, ["encoding", :encoding]))
+      |> Map.put("provider", config.provider)
+      |> Map.put("config_id", to_string(config.id))
+      |> Map.put("provider_record_id", id)
+
+    source = %{source | attributes: attrs}
+
+    metadata = %{
+      "name" => source.name,
+      "url" => source.url,
+      "mime_type" => source.mime_type,
+      "parent_ids" => source.parent_ids || []
+    }
+
+    with {:ok, permissions} <- seal_permissions(source.permissions, config),
+         {:ok, sealed} <-
+           Provenance.seal(
+             %{source | permissions: permissions},
+             Map.put(provenance_claims(config), "source_metadata", metadata)
+           ) do
+      {:ok,
+       %{
+         sealed
+         | content: downloaded.content,
+           mime_type: downloaded.mime_type || source.mime_type,
+           size: downloaded.size || source.size,
+           materialization_handle: downloaded.materialization_handle
+       }}
+    end
+  end
+
+  defp seal_download(_source, _downloaded, _config, _params),
+    do: {:error, :invalid_source_snapshot}
 
   @doc "Lists provider file permissions through the configured DataSource bridge."
   @spec list_permissions(atom() | String.t(), map(), map() | TrustedContext.t()) ::

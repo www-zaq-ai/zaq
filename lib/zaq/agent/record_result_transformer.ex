@@ -5,8 +5,8 @@ defmodule Zaq.Agent.RecordResultTransformer do
 
   This happens after tool output validation and opaque aliasing. Keeping the
   projection shallow prevents the bounded transport sanitizer from replacing
-  nested permission data with summaries, while provenance still authenticates
-  every projected field when a later tool accepts the Record.
+  nested permission data with summaries. Provenance is the authority for signed
+  claims; the visible fields give the model context.
   """
 
   alias ReqLLM.ToolResult
@@ -38,9 +38,11 @@ defmodule Zaq.Agent.RecordResultTransformer do
       "size" => record.size,
       "materialization_handle" => record.materialization_handle,
       "permissions" => project_permissions(record.permissions),
-      "attributes" => %{"provider_record_id" => provider_record_id(record)},
+      "attributes" => projected_attributes(record),
       "provenance_ref" => ref
     }
+    |> put_visible("url", record.url)
+    |> put_visible("parent_ids", record.parent_ids)
   end
 
   defp project(%Record{} = record), do: record
@@ -62,6 +64,18 @@ defmodule Zaq.Agent.RecordResultTransformer do
   end
 
   defp project_permission(permission), do: permission
+
+  defp projected_attributes(%Record{attributes: attrs} = record) do
+    attrs = attrs || %{}
+
+    %{"provider_record_id" => provider_record_id(record)}
+    |> put_visible("encoding", Map.get(attrs, "encoding") || Map.get(attrs, :encoding))
+    |> put_visible("provider", Map.get(attrs, "provider") || Map.get(attrs, :provider))
+    |> put_visible("config_id", Map.get(attrs, "config_id") || Map.get(attrs, :config_id))
+  end
+
+  defp put_visible(map, _key, value) when value in [nil, []], do: map
+  defp put_visible(map, key, value), do: Map.put(map, key, value)
 
   defp provider_record_id(%Record{attributes: attributes, id: id}) do
     Map.get(attributes || %{}, "provider_record_id") ||
