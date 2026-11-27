@@ -66,11 +66,13 @@ defmodule Zaq.Ingestion.IngestWorker do
     do: {:error, :no_searchable_content}
 
   defp finish_preparation(input, job, document, :legacy_completed, dimensions) do
+    requested_at = Map.get(document, :chunk_refresh_started_at) || job.inserted_at
+
     with {:ok, _} <-
            ChunkRefresh.legacy_write(
              document.id,
              fn -> import_external_permissions(input, document) end,
-             job.inserted_at
+             requested_at
            ) do
       finalize_legacy_job(job, document, dimensions)
     end
