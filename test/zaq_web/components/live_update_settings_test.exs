@@ -6,6 +6,20 @@ defmodule ZaqWeb.Components.LiveUpdateSettingsTest do
   alias Zaq.ConnectorConfig.LiveUpdates
   alias ZaqWeb.Components.LiveUpdateSettings
 
+  test "embedded fields leave the section heading and disclosure to their parent" do
+    html =
+      render_component(&LiveUpdateSettings.fields/1,
+        id: "embedded-updates",
+        policy: LiveUpdates.defaults(),
+        embedded: true
+      )
+
+    refute html =~ "<details"
+    refute html =~ "<summary"
+    assert html =~ "live_updates[enabled]"
+    assert html =~ "live_updates[min_interval_ms]"
+  end
+
   test "fields explain throttling, expose exactly three triggers, and never create a form or save button" do
     html =
       render_component(&LiveUpdateSettings.fields/1,

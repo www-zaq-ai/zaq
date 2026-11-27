@@ -17,12 +17,14 @@ defmodule Zaq.Channels.CommunicationBridge do
     activity: Engine routing events for incoming messages, and message ratings
     once a channel has mapped its provider vocabulary to a ZAQ rating.
   - Enforce conversation-agent eligibility for selection helpers.
+  - Validate communication-specific metadata returned by capability snapshots.
 
   This module is stateless and does not own bridge runtime process internals;
   runtime process construction and transport behavior belong to each bridge.
   """
 
   alias Zaq.Channels.Bridge
+  alias Zaq.ConnectorConfig.FileSettings
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
@@ -30,6 +32,31 @@ defmodule Zaq.Channels.CommunicationBridge do
   alias Zaq.NodeRouter
 
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
+
+  @doc """
+  Adds validated communication metadata to a normalized capability snapshot.
+
+  Producers use the existing `capability_snapshot/1` callback. Optional
+  `file_delivery` metadata cannot grant delivery support or provide policy.
+  Malformed metadata returns `:invalid_file_delivery_capabilities`; other
+  channel kinds return `:unsupported`.
+  """
+  @spec normalize_capability_snapshot(map(), map()) :: {:ok, map()} | {:error, atom()}
+  def normalize_capability_snapshot(raw_snapshot, %{kind: :communication} = snapshot)
+      when is_map(raw_snapshot) do
+    case Map.fetch(raw_snapshot, :file_delivery) do
+      :error ->
+        {:ok, snapshot}
+
+      {:ok, metadata} ->
+        case FileSettings.metadata(Map.put(snapshot, :file_delivery, metadata)) do
+          nil -> {:error, :invalid_file_delivery_capabilities}
+          normalized -> {:ok, Map.put(snapshot, :file_delivery, normalized)}
+        end
+    end
+  end
+
+  def normalize_capability_snapshot(_, _), do: {:error, :unsupported}
 
   # `{:ok, receipt}` carries channel-assigned threading pointers (the delivered
   # message's id/anchor) back to the caller; bridges without receipts return `:ok`,

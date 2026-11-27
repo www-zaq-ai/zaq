@@ -5,9 +5,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
+  import Zaq.ChannelCapabilityFixtures
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Channels.AgentRouting
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
@@ -163,6 +165,544 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     end)
 
     %{conn: conn, user: user}
+  end
+
+  test "connection tabs reflect applicable sections and start on Main", %{conn: conn} do
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "new"})
+    refute has_element?(view, "#channel-settings-selector")
+
+    assert has_element?(
+             view,
+             "#channel-settings-panel-main:not([hidden]) input[name='form[name]']"
+           )
+
+    render_click(view, "close_modal")
+    file_tab_capabilities()
+    render_click(view, "open_modal", %{"action" => "new"})
+
+    assert has_element?(
+             view,
+             "#channel-settings-selector button[phx-value-tab='main'][aria-pressed=true]"
+           )
+
+    assert has_element?(
+             view,
+             "#channel-settings-panel-advanced[hidden] #channel-file-delivery"
+           )
+
+    refute has_element?(view, "[id^=stream-updates-]")
+
+    render_click(view, "close_modal")
+    config = insert_channel_config(%{})
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{file: :unsupported}}})
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+
+    assert has_element?(
+             view,
+             "#channel-settings-selector button[phx-value-tab='main'][aria-pressed=true]"
+           )
+
+    assert has_element?(view, "#channel-streamed-updates")
+    refute has_element?(view, "#channel-file-delivery")
+  end
+
+  test "repeated tab switches preserve drafts and whole-form submission includes the inactive panel",
+       %{conn: conn} do
+    file_tab_capabilities()
+    config = insert_channel_config(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+
+    payload = tabbed_channel_params()
+    view |> form("#config-form", payload) |> render_change()
+
+    for tab <- ~w(advanced main advanced main) do
+      view
+      |> element("#channel-settings-selector button[phx-value-tab='#{tab}']")
+      |> render_click()
+
+      assert has_element?(view, "#channel-settings-panel-#{tab}:not([hidden])")
+      assert has_element?(view, "input[name='form[name]'][value='Tabbed draft']")
+      assert has_element?(view, "input[name='form[token]'][value='draft-token']")
+
+      assert has_element?(
+               view,
+               "input[name='form[settings][file_delivery][max_attachment_mb]'][value='1.000001']"
+             )
+
+      refute has_element?(
+               view,
+               "input[name='form[settings][file_delivery][send_on_file_failure]'][type=checkbox][checked]"
+             )
+
+      assert Repo.reload!(config).settings == config.settings
+      assert BridgeFake.calls(:sync_runtime) == []
+    end
+
+    view |> form("#config-form") |> render_submit()
+    refute has_element?(view, "#config-form")
+    saved = Repo.reload!(config)
+    assert saved.name == "Tabbed draft"
+    assert ChannelConfig.to_runtime_config(saved).token == "draft-token"
+
+    assert saved.settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_001,
+             "send_on_file_failure" => false
+           }
+
+    assert saved.settings["live_updates"]["min_interval_ms"] == 250
+    refute saved.settings["live_updates"]["triggers"]["tool_call"]
+  end
+
+  for {label, main?, file?, stream?} <- [
+        {"Main", true, false, false},
+        {"File delivery", false, true, false},
+        {"streamed updates", false, false, true},
+        {"both tabs", true, true, true}
+      ] do
+    @tag main_error: main?, file_error: file?, stream_error: stream?
+    test "rejected save exposes #{label} errors and retains all submit drafts", context do
+      file_tab_capabilities()
+      config = insert_channel_config(%{})
+      {:ok, view, _} = live(context.conn, "/bo/channels/retrieval/mattermost")
+      render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+      inactive = if context.main_error, do: "advanced", else: "main"
+
+      view
+      |> element("#channel-settings-selector button[phx-value-tab='#{inactive}']")
+      |> render_click()
+
+      payload = tabbed_channel_params()
+      payload = if context.main_error, do: put_in(payload, ["form", "name"], ""), else: payload
+
+      payload =
+        if context.file_error,
+          do: put_in(payload, ["form", "settings", "file_delivery", "max_attachment_mb"], "6"),
+          else: payload
+
+      payload =
+        if context.stream_error,
+          do: put_in(payload, ["live_updates", "min_interval_ms"], "0"),
+          else: payload
+
+      render_submit(view, "save", payload)
+
+      selected = if context.main_error, do: "main", else: "advanced"
+
+      assert has_element?(
+               view,
+               "#channel-settings-selector button[phx-value-tab='#{selected}'][aria-pressed=true]"
+             )
+
+      assert has_element?(
+               view,
+               "#channel-settings-selector button[phx-value-tab='#{selected}']",
+               "Errors"
+             )
+
+      if context.main_error && (context.file_error || context.stream_error),
+        do:
+          assert(
+            has_element?(
+              view,
+              "#channel-settings-selector button[phx-value-tab='advanced']",
+              "Errors"
+            )
+          )
+
+      assert has_element?(view, "input[name='form[token]'][value='draft-token']")
+      assert has_element?(view, "input[name='form[url]'][value='https://draft.example.com']")
+
+      refute has_element?(
+               view,
+               "input[name='form[settings][file_delivery][send_on_file_failure]'][type=checkbox][checked]"
+             )
+
+      saved = Repo.reload!(config)
+      assert saved.name == config.name
+      assert saved.settings == config.settings
+
+      assert ChannelConfig.to_runtime_config(saved).token ==
+               ChannelConfig.to_runtime_config(config).token
+
+      assert BridgeFake.calls(:sync_runtime) == []
+    end
+  end
+
+  defp file_tab_capabilities do
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok,
+       %{
+         resolved: %{file: :native},
+         file_delivery: %{
+           limits: %{
+             max_attachment_bytes: %{value: 5_000_000, configurable: true, required: false}
+           }
+         }
+       }}
+    )
+  end
+
+  test "stale restrictive file feedback cannot veto a server-valid save", %{conn: conn} do
+    file_tab_capabilities()
+    config = insert_channel_config(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok,
+       %{
+         resolved: %{file: :native},
+         file_delivery: %{
+           limits: %{max_attachment_bytes: %{value: 1_000_000, configurable: true}}
+         }
+       }}
+    )
+
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+
+    payload =
+      put_in(
+        tabbed_channel_params(),
+        ["form", "settings", "file_delivery", "max_attachment_mb"],
+        "4"
+      )
+
+    render_change(view, "validate", payload)
+    assert render(view) =~ "Must not exceed the transport limit"
+    file_tab_capabilities()
+    render_submit(view, "save", payload)
+    refute has_element?(view, "#config-form")
+    assert Repo.reload!(config).settings["file_delivery"]["max_attachment_bytes"] == 4_000_000
+  end
+
+  test "failed selected capability lookup is recoverable and preserves all drafts", %{conn: conn} do
+    file_tab_capabilities()
+    config = insert_channel_config(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    BridgeFake.put(:capability_snapshot, {:error, :unavailable})
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+    assert has_element?(view, "#channel-file-delivery-unavailable", "Capabilities unavailable")
+    render_change(view, "validate", tabbed_channel_params())
+    file_tab_capabilities()
+    view |> element("#channel-file-delivery button", "Retry capabilities") |> render_click()
+    assert has_element?(view, "input[name='form[name]'][value='Tabbed draft']")
+    assert has_element?(view, "input[name='form[token]'][value='draft-token']")
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[value='1.000001']")
+    refute has_element?(view, "#channel-file-delivery-unavailable")
+    assert Repo.reload!(config).settings == config.settings
+  end
+
+  test "untouched file controls accept LiveView usage markers while unknown file fields still fail",
+       %{conn: conn} do
+    file_tab_capabilities()
+    config = insert_channel_config(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+    params = tabbed_channel_params()
+
+    params =
+      update_in(
+        params,
+        ["form", "settings", "file_delivery"],
+        &Map.put(&1, "_unused_send_on_file_failure", "")
+      )
+
+    render_change(view, "validate", params)
+    refute has_element?(view, "#channel-settings-selector button", "Errors")
+
+    render_submit(
+      view,
+      "save",
+      put_in(params, ["form", "settings", "file_delivery", "unexpected"], "true")
+    )
+
+    assert has_element?(
+             view,
+             "#channel-settings-selector button[phx-value-tab=advanced][aria-pressed=true]",
+             "Errors"
+           )
+
+    assert Repo.reload!(config).settings == config.settings
+
+    render_submit(view, "save", params)
+    refute has_element?(view, "#config-form")
+
+    assert Repo.reload!(config).settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_001,
+             "send_on_file_failure" => false
+           }
+  end
+
+  defp tabbed_channel_params do
+    %{
+      "form" => %{
+        "name" => "Tabbed draft",
+        "url" => "https://draft.example.com",
+        "token" => "draft-token",
+        "settings" => %{
+          "file_delivery" => %{
+            "max_attachment_mb" => "1.000001",
+            "send_on_file_failure" => "false"
+          }
+        }
+      },
+      "live_updates" => %{
+        "enabled" => "true",
+        "throttle_enabled" => "true",
+        "min_interval_ms" => "250",
+        "triggers" => %{"tool_call" => "false"}
+      }
+    }
+  end
+
+  test "shared file policy in a channel form preserves unrelated settings", %{conn: conn} do
+    :persistent_term.put(BridgeFake, %{
+      capability_snapshot: {:ok, %{resolved: %{file: :fallback}}}
+    })
+
+    config = insert_channel_config(%{settings: %{"jido_chat" => %{"bot_name" => "retained"}}})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+    assert has_element?(view, "#channel-file-delivery")
+    assert render(view) =~ "Unresolved"
+
+    render_submit(view, "save", %{
+      "form" => %{
+        "settings" => %{
+          "file_delivery" => %{
+            "send_on_file_failure" => "false"
+          }
+        }
+      }
+    })
+
+    saved = ChannelConfig.get(config.id)
+    assert saved.settings["jido_chat"]["bot_name"] == "retained"
+    assert saved.settings["file_delivery"]["send_on_file_failure"] == false
+  end
+
+  test "file ceilings are shared by validate and persistence, including stale capability errors",
+       %{conn: conn} do
+    metadata = %{
+      password: "not capability metadata",
+      failure_policy: :abort,
+      limits: %{
+        max_attachment_bytes: %{value: 5_000_000, configurable: true, required: false},
+        max_encoded_message_bytes: %{value: :not_applicable, configurable: false, required: false},
+        max_attachments_per_message: %{value: 10, configurable: false, required: true}
+      }
+    }
+
+    state = %{
+      capability_snapshot: {:ok, %{resolved: %{file: :native}, file_delivery: metadata}}
+    }
+
+    :persistent_term.put(BridgeFake, state)
+    config = insert_channel_config(%{settings: %{"jido_chat" => %{"bot_name" => "retained"}}})
+
+    assert {:ok, capabilities} =
+             Bridge.capability_snapshot("mattermost", %{
+               scope: :configuration,
+               config_id: config.id
+             })
+
+    refute Map.has_key?(capabilities.file_delivery, :password)
+    refute Map.has_key?(capabilities.file_delivery, :failure_policy)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+
+    assert has_element?(
+             view,
+             "input[name='form[settings][file_delivery][max_attachment_mb]'][max='5']"
+           )
+
+    refute has_element?(
+             view,
+             "input[name='form[settings][file_delivery][max_encoded_message_mb]']"
+           )
+
+    params = %{"form" => %{"settings" => %{"file_delivery" => %{"max_attachment_mb" => "6"}}}}
+    render_change(view, "validate", params)
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb-error")
+    assert ChannelConfig.get(config.id).settings == config.settings
+
+    :persistent_term.put(BridgeFake, %{
+      state
+      | capability_snapshot:
+          {:ok,
+           %{
+             resolved: %{file: :native},
+             file_delivery: put_in(metadata, [:limits, :max_attachment_bytes, :value], 2_000_000)
+           }}
+    })
+
+    params = put_in(params, ["form", "settings", "file_delivery", "max_attachment_mb"], "4")
+    render_change(view, "validate", params)
+    refute has_element?(view, "#channel-file-delivery-max_attachment_mb-error")
+    render_submit(view, "save", params)
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb-error")
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[max='2'][value='4']")
+    assert ChannelConfig.get(config.id).settings == config.settings
+
+    params =
+      put_in(params, ["form", "settings", "file_delivery", "max_attachment_mb"], "1.000001")
+
+    render_change(view, "validate", params)
+    render_submit(view, "save", params)
+    saved = ChannelConfig.get(config.id)
+    assert saved.settings["file_delivery"]["max_attachment_bytes"] == 1_000_001
+    assert saved.settings["jido_chat"]["bot_name"] == "retained"
+  end
+
+  test "a rejected save replaces fixed file controls with current required controls", %{
+    conn: conn
+  } do
+    fixed = %{value: 5_000_000, configurable: false, required: false}
+
+    snapshot = %{
+      resolved: %{file: :native},
+      file_delivery: %{limits: %{max_attachment_bytes: fixed}}
+    }
+
+    BridgeFake.put(:capability_snapshot, {:ok, snapshot})
+    config = insert_channel_config(%{}) |> Repo.reload!()
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+    refute has_element?(view, "#channel-file-delivery-max_attachment_mb")
+
+    required = %{value: :unresolved, configurable: true, required: true}
+
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok, put_in(snapshot.file_delivery.limits.max_attachment_bytes, required)}
+    )
+
+    params = %{
+      "form" => %{
+        "name" => "Retained draft",
+        "token" => "retained-token",
+        "settings" => %{"file_delivery" => %{"send_on_file_failure" => "false"}}
+      },
+      "live_updates" => %{"enabled" => "false"}
+    }
+
+    render_submit(view, "save", params)
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[aria-required=true]")
+
+    assert has_element?(
+             view,
+             "#channel-file-delivery-max_attachment_mb-error",
+             "Required for file delivery"
+           )
+
+    assert has_element?(view, "input[name='form[name]'][value='Retained draft']")
+    assert has_element?(view, "input[name='form[token]'][value='retained-token']")
+    refute has_element?(view, "#channel-file-delivery-send_on_file_failure[checked]")
+    assert Repo.reload!(config) == config
+    render_click(view, "open_capabilities")
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[aria-required=true]")
+    render_click(view, "close_capabilities")
+
+    render_submit(
+      view,
+      "save",
+      put_in(params, ["form", "settings", "file_delivery", "max_attachment_mb"], "1")
+    )
+
+    refute has_element?(view, "#config-form")
+    saved = Repo.reload!(config)
+    assert saved.name == "Retained draft"
+
+    assert saved.settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_000,
+             "send_on_file_failure" => false
+           }
+
+    assert saved.settings["live_updates"]["enabled"] == false
+  end
+
+  test "data source drafts cache routed facts while saves recheck requirements and recover failures",
+       %{user: user} do
+    :ok = ZaqSystem.set_global_base_url(nil)
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(channels, :google_drive, %{bridge: BridgeFake, integration: :google_drive})
+    )
+
+    config =
+      insert_channel_config(%{provider: "google_drive", kind: "data_source"}) |> Repo.reload!()
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        service_available: true,
+        live_action: :data_source,
+        current_user: user,
+        flash: %{}
+      }
+    }
+
+    {:ok, socket} = ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+
+    {:noreply, socket} =
+      ChannelsLive.handle_event(
+        "open_modal",
+        %{"action" => "edit", "id" => to_string(config.id)},
+        socket
+      )
+
+    observe_capability_lookups()
+    params = %{"form" => %{"name" => "Retained Drive"}}
+    {:noreply, socket} = ChannelsLive.handle_event("validate", params, socket)
+
+    {:noreply, socket} =
+      ChannelsLive.handle_event("switch_settings_tab", %{"tab" => "main"}, socket)
+
+    {:noreply, socket} = ChannelsLive.handle_event("open_capabilities", %{}, socket)
+    {:noreply, socket} = ChannelsLive.handle_event("close_capabilities", %{}, socket)
+    assert capability_lookup_count() == 0
+
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{watch_changes_webhook: %{}}}})
+    :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+    {:noreply, socket} = ChannelsLive.handle_event("save", params, socket)
+    assert capability_lookup_count() == 1
+
+    assert Enum.any?(
+             socket.assigns.modal_errors,
+             &String.contains?(&1, "Global base URL is required")
+           )
+
+    assert Repo.reload!(config) == config
+    config_id = config.id
+
+    assert_receive {:node_router_event,
+                    %Zaq.Event{request: %{scope: :configuration, config_id: ^config_id}}}
+
+    configured = remove_capability_bridge(:google_drive)
+    {:noreply, socket} = ChannelsLive.handle_event("save", params, socket)
+    assert socket.assigns.capabilities_error
+
+    assert Enum.any?(
+             socket.assigns.modal_errors,
+             &String.contains?(&1, "Capabilities unavailable")
+           )
+
+    assert socket.assigns.form[:name].value == "Retained Drive"
+    assert Repo.reload!(config) == config
+    Application.put_env(:zaq, :channels, configured)
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{}}})
+    {:noreply, socket} = ChannelsLive.handle_event("open_capabilities", %{}, socket)
+    refute socket.assigns.capabilities_error
+    {:noreply, socket} = ChannelsLive.handle_event("close_capabilities", %{}, socket)
+    {:noreply, socket} = ChannelsLive.handle_event("save", params, socket)
+    assert socket.assigns.modal == nil
+    assert Repo.reload!(config).name == "Retained Drive"
   end
 
   test "shows empty state and modal controls", %{conn: conn} do
@@ -2312,52 +2852,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       Application.put_env(:zaq, :channels, existing_channels)
     end)
 
-    changeset =
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        "provider" => "google_drive",
-        "kind" => "data_source",
-        "name" => "Webhook Drive"
-      })
-
     socket = %Phoenix.LiveView.Socket{
-      assigns: %{
-        __changed__: %{},
-        flash: %{},
-        modal: :new,
-        provider: "google_drive",
-        kind: :data_source,
-        changeset: changeset,
-        configs: [],
-        provider_default_agent_id: nil,
-        retrieval_channels: [],
-        form: Phoenix.Component.to_form(changeset, as: :form),
-        modal_errors: [],
-        credential_modal: false,
-        credential_changeset: nil,
-        credential_form: nil,
-        credential_errors: [],
-        oauth_claim_modal: false,
-        oauth_claim_url: nil,
-        confirm_delete: nil,
-        confirm_clear: false,
-        clear_channel_id: "",
-        clear_status: :idle,
-        test_config: nil,
-        test_status: :idle,
-        test_channel_id: "",
-        send_channel_id: "",
-        send_message: "",
-        send_status: :idle,
-        posts_channel_id: "",
-        posts: [],
-        posts_status: :idle,
-        posts_next_id: nil,
-        posts_prev_id: nil,
-        connect_credentials: [],
-        grants_by_config: %{}
-      }
+      assigns: %{__changed__: %{}, provider: "google_drive", kind: :data_source}
     }
+
+    :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+
+    assert {:noreply, socket} =
+             ChannelsLive.handle_event("open_modal", %{"action" => "new"}, socket)
+
+    assert_receive {:node_router_event,
+                    %Zaq.Event{request: %{provider: "google_drive", scope: :provider}, opts: opts}}
+
+    assert opts[:action] == :channel_capability_snapshot
+    observe_capability_lookups()
 
     assert {:noreply, result_socket} =
              ChannelsLive.handle_event(
@@ -2383,6 +2891,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert String.contains?(err_msg, "Global base URL"),
            "Expected settings error to mention 'Global base URL', got: #{inspect(err_msg)}"
+
+    assert capability_lookup_count() == 0
   end
 
   # ---------------------------------------------------------------------------

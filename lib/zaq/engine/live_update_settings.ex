@@ -14,7 +14,7 @@ defmodule Zaq.Engine.LiveUpdateSettings do
 
   import Ecto.Query
 
-  alias Zaq.ConnectorConfig.LiveUpdates
+  alias Zaq.ConnectorConfig.{FileSettings, LiveUpdates}
   alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Repo
@@ -69,28 +69,44 @@ defmodule Zaq.Engine.LiveUpdateSettings do
          :ok <- generic_connector(config),
          {:ok, descriptor} <- ConnectorLifecycle.context(id, config.provider, config.kind),
          :ok <- validate_revision(revision, descriptor.revision),
-         {:ok, saved} <- update_configuration(config, params) do
+         {:ok, saved} <-
+           update_configuration(config, params,
+             defer_file_validation: LiveUpdates.from_settings(config.settings) != {:ok, policy}
+           ) do
       if LiveUpdates.from_settings(config.settings) == {:ok, policy},
         do: snapshot(saved),
-        else: save_locked(id, policy, nil)
+        else: save_locked(id, policy, nil) |> configuration_result()
     end
   end
 
   defp generic_connector(%{provider: "web_widget"}), do: {:error, :invalid_request}
   defp generic_connector(_config), do: :ok
 
-  defp update_configuration(config, params) do
+  defp update_configuration(config, params, opts) do
     attrs = Map.take(params, ~w(name url token enabled settings))
 
-    case config |> ChannelConfig.changeset(attrs) |> Repo.update() do
-      {:ok, saved} ->
-        {:ok, saved}
-
-      {:error, changeset} ->
-        errors = Ecto.Changeset.traverse_errors(changeset, fn {message, _} -> message end)
-        {:error, {:configuration, errors}}
-    end
+    config |> ChannelConfig.changeset(attrs, opts) |> Repo.update() |> configuration_result()
   end
+
+  defp configuration_result({:error, %Ecto.Changeset{} = changeset}) do
+    errors = Ecto.Changeset.traverse_errors(changeset, fn {message, _} -> message end)
+    file_errors = FileSettings.errors(changeset)
+
+    errors =
+      if map_size(file_errors) > 0,
+        do: Map.put(errors, :file_delivery, file_errors),
+        else: errors
+
+    errors =
+      case FileSettings.validation_capabilities(changeset) do
+        nil -> errors
+        result -> Map.put(errors, :capabilities, result)
+      end
+
+    {:error, {:configuration, errors}}
+  end
+
+  defp configuration_result(result), do: result
 
   @doc "Projects only the policy for already-admitted trusted incoming routing."
   def resolve(%Incoming{provider: provider, routing_context: context}) do
@@ -137,9 +153,19 @@ defmodule Zaq.Engine.LiveUpdateSettings do
   end
 
   defp persist(config, policy) do
-    config
-    |> Ecto.Changeset.change(settings: Map.put(config.settings, "live_updates", policy))
-    |> Repo.update()
+    changeset =
+      ChannelConfig.changeset(
+        config,
+        %{settings: Map.put(config.settings, "live_updates", policy)},
+        preserve_live_update_policy: false
+      )
+
+    changeset =
+      Enum.reduce(Map.keys(changeset.changes) -- [:settings], changeset, fn field, changeset ->
+        Ecto.Changeset.delete_change(changeset, field)
+      end)
+
+    Repo.update(changeset)
   end
 
   defp snapshot(config) do

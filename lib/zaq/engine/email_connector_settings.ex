@@ -12,6 +12,7 @@ defmodule Zaq.Engine.EmailConnectorSettings do
 
   import Zaq.Helpers, only: [blank?: 1]
 
+  alias Zaq.ConnectorConfig.FileSettings
   alias Zaq.ConnectorConfig.ImapSettings, as: ImapConfigHelpers
   alias Zaq.ConnectorConfig.SmtpSettings, as: SmtpHelpers
   alias Zaq.Engine.ChannelConfig
@@ -103,11 +104,17 @@ defmodule Zaq.Engine.EmailConnectorSettings do
             "username" => blank_to_nil(value.username),
             "password" => password,
             "from_email" => value.from_email,
-            "from_name" => value.from_name
+            "from_name" => value.from_name,
+            "file_delivery" => Map.get(params, "file_delivery", value.file_delivery)
           }
         }
 
-        channel |> ChannelConfig.changeset(attrs) |> Zaq.Repo.insert_or_update()
+        attrs = %{attrs | settings: Map.merge(channel.settings || %{}, attrs.settings)}
+
+        channel
+        |> ChannelConfig.changeset(attrs)
+        |> Zaq.Repo.insert_or_update()
+        |> smtp_persistence_result(changeset)
       end
     else
       {:error, changeset}
@@ -192,7 +199,8 @@ defmodule Zaq.Engine.EmailConnectorSettings do
       username: map_get(settings, "username"),
       password: decrypt(map_get(settings, "password")),
       from_email: map_get(settings, "from_email") || "noreply@zaq.local",
-      from_name: map_get(settings, "from_name") || "ZAQ"
+      from_name: map_get(settings, "from_name") || "ZAQ",
+      file_delivery: FileSettings.from_connection(channel)
     }
   end
 
@@ -303,4 +311,29 @@ defmodule Zaq.Engine.EmailConnectorSettings do
   defp parse_int(value, default), do: ParseUtils.parse_int(value, default)
   defp blank_to_nil(value), do: if(blank?(value), do: nil, else: value)
   defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
+
+  defp smtp_persistence_result({:error, %Ecto.Changeset{} = persisted}, form) do
+    form =
+      FileSettings.add_errors(form, :file_delivery, FileSettings.errors(persisted),
+        capabilities: FileSettings.validation_capabilities(persisted)
+      )
+
+    form =
+      persisted.errors
+      |> Enum.reject(fn {_field, {_message, options}} -> options[:file_field] end)
+      |> Enum.reduce(form, fn {field, {message, options}}, form ->
+        field =
+          case field do
+            :name -> :connector_name
+            field when is_map_key(form.types, field) -> field
+            _ -> :base
+          end
+
+        Ecto.Changeset.add_error(form, field, message, options)
+      end)
+
+    {:error, form}
+  end
+
+  defp smtp_persistence_result(result, _form), do: result
 end

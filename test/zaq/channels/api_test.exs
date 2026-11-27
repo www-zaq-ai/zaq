@@ -2387,6 +2387,81 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   describe "email capability snapshots" do
+    test "proposed snapshots require confidentiality and preserve selected identity" do
+      proposal = %ChannelConfig{
+        provider: "email:smtp",
+        kind: "retrieval",
+        enabled: false,
+        settings: %{}
+      }
+
+      request = %{provider: "email:smtp", scope: :proposal, proposed_config: proposal}
+      event = Event.new(request, :channels, actor: %{id: 123}, opts: [bridge_module: Bridge])
+
+      assert Api.handle_event(event, :channel_capability_snapshot, nil).response ==
+               {:error, :confidential_event_required}
+
+      confidential = %{event | opts: [bridge_module: Bridge, confidential: true]}
+      result = Api.handle_event(confidential, :channel_capability_snapshot, nil)
+      assert result.actor == event.actor
+      assert {:ok, snapshot} = result.response
+      assert snapshot.file_delivery.limits.max_encoded_message_bytes.type == :integer
+      assert :file in snapshot.unsupported
+
+      config = insert_config("email:smtp", %{enabled: false})
+
+      assert {:ok, _} =
+               Bridge.capability_snapshot("email:smtp", %{request | proposed_config: config})
+
+      for invalid <- [
+            %{config | provider: "email:imap"},
+            %{config | kind: "data_source"},
+            %{config | archived_at: DateTime.utc_now(:second)}
+          ] do
+        assert {:error, _} =
+                 Bridge.capability_snapshot("email:smtp", %{request | proposed_config: invalid})
+      end
+    end
+
+    test "configuration inspection includes a disabled exact connector without changing runtime lookup" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Disabled file settings",
+          url: "smtp://configured-in-settings",
+          token: "smtp-unused",
+          provider: "email:smtp",
+          kind: "retrieval",
+          enabled: false,
+          settings: %{"relay" => "smtp.example.com"}
+        })
+        |> Repo.insert!()
+
+      assert {:error, _} = Bridge.capability_snapshot("email:smtp", %{config_id: config.id})
+
+      assert {:ok, snapshot} =
+               Bridge.capability_snapshot("email:smtp", %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      assert snapshot.file_delivery.limits.max_encoded_message_bytes.configurable
+
+      assert {:error, _} =
+               Bridge.capability_snapshot("email:imap", %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+
+      config |> ChannelConfig.changeset(%{kind: "data_source"}) |> Repo.update!()
+
+      assert {:error, _} =
+               Bridge.capability_snapshot("email:smtp", %{
+                 scope: :configuration,
+                 config_id: config.id
+               })
+    end
+
     for {provider, mode, unsupported} <- [
           {"email:smtp", "none",
            [:image, :audio, :video, :file, :streaming, :reactions, :typing, :edit_messages]},
@@ -2405,6 +2480,26 @@ defmodule Zaq.Channels.ApiTest do
         assert snapshot.resolved.mode == unquote(mode)
         assert snapshot.labels.text == "Text"
         assert snapshot.labels.threads == "Threads"
+        refute Map.has_key?(snapshot.resolved, :file)
+
+        if unquote(provider) == "email:smtp" do
+          assert :file in snapshot.unsupported
+          assert snapshot.file_delivery.transfer_mode == :unresolved
+
+          assert snapshot.file_delivery.limits.max_encoded_message_bytes == %{
+                   value: :unresolved,
+                   configurable: true,
+                   required: true,
+                   type: :integer,
+                   unit: :bytes,
+                   validation: %{greater_than: 0}
+                 }
+
+          assert snapshot.file_delivery.limits.max_attachments_per_message.required
+        else
+          refute Map.has_key?(snapshot, :file_delivery)
+        end
+
         refute Map.has_key?(snapshot, :settings)
         refute Map.has_key?(snapshot, :token)
       end

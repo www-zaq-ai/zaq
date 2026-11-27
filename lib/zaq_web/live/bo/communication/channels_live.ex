@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.{AgentRouting, Bridge}
   alias Zaq.Channels.ProviderCatalog, as: ChannelProvider
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.ConnectorConfig.FileSettings
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.IncomingMessageRouting
@@ -18,11 +19,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Components.ConnectionSettings
   alias ZaqWeb.Components.DesignSystem.ChannelConnectorCard
+  alias ZaqWeb.Components.FileDeliverySettings
   alias ZaqWeb.Components.LiveUpdateSettings
   alias ZaqWeb.Helpers.Timezone
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
@@ -80,6 +84,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:changeset, nil)
      |> assign(:form, nil)
      |> assign(:modal_errors, [])
+     |> assign(:settings_tab, :main)
+     |> assign(:live_update_policy, nil)
+     |> assign(:live_update_errors, %{})
+     |> assign(:live_update_load_error, nil)
      |> assign(:credential_modal, false)
      |> assign(:credential_changeset, nil)
      |> assign(:credential_form, nil)
@@ -180,6 +188,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     {:noreply,
      socket
      |> assign(:modal, :new)
+     |> assign(:settings_tab, :main)
+     |> assign(:live_update_errors, %{})
+     |> load_capabilities(nil)
      |> assign(:changeset, changeset)
      |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
@@ -192,11 +203,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     {:noreply,
      socket
      |> assign(:modal, :edit)
+     |> assign(:settings_tab, :main)
+     |> load_capabilities(config.id)
      |> load_live_updates(config)
      |> assign(:changeset, changeset)
      |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
   end
+
+  def handle_event("switch_settings_tab", params, socket),
+    do: ConnectionSettings.switch_settings_tab(params, socket)
 
   def handle_event("close_modal", _params, socket) do
     {:noreply,
@@ -291,6 +307,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   def handle_event("validate", %{"form" => params} = event, socket) do
     socket = update_live_update_draft(socket, event)
+    params = FileDeliverySettings.form_params(params, ["settings", "file_delivery"])
     raw_token = Map.get(params, "token")
 
     params =
@@ -299,13 +316,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         _ -> params
       end
 
-    changeset =
-      socket.assigns.changeset.data
-      |> ChannelConfig.changeset(params)
-      |> maybe_validate_connect_credential_provider(socket.assigns.provider)
-      |> maybe_validate_global_base_url_requirement(socket.assigns.kind, socket.assigns.provider)
-      |> with_visible_token(raw_token)
-      |> Map.put(:action, :validate)
+    changeset = configuration_draft(socket, params, raw_token) |> Map.put(:action, :validate)
 
     {:noreply,
      socket
@@ -315,6 +326,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   def handle_event("save", %{"form" => params} = event, socket) do
     socket = update_live_update_draft(socket, event)
+    params = FileDeliverySettings.form_params(params, ["settings", "file_delivery"])
 
     previous_config =
       if socket.assigns.modal == :edit, do: socket.assigns.changeset.data, else: nil
@@ -327,6 +339,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         _ -> params
       end
 
+    draft = configuration_draft(socket, params, raw_token)
+    socket = refresh_save_capabilities(socket)
+    socket = socket |> assign(:changeset, draft) |> assign(:form, to_form(draft, as: :form))
     result = persist_modal_configuration(socket, params)
 
     case result do
@@ -351,7 +366,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
 
       {:error, reason} ->
-        {:noreply, configuration_save_error(socket, reason, raw_token)}
+        socket = configuration_save_error(socket, reason, raw_token)
+
+        errors =
+          configuration_tab_errors(socket.assigns.changeset, socket.assigns.live_update_errors)
+
+        {:noreply,
+         assign(
+           socket,
+           :settings_tab,
+           ConnectionSettings.tab_for_errors(socket.assigns.settings_tab, errors)
+         )}
     end
   end
 
@@ -364,7 +389,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("open_capabilities", _params, socket) do
-    socket = if socket.assigns[:capabilities_error], do: load_capabilities(socket), else: socket
+    config_id =
+      if socket.assigns[:modal] == :edit, do: socket.assigns.changeset.data.id, else: nil
+
+    socket =
+      if socket.assigns[:capabilities_error],
+        do: load_capabilities(socket, config_id),
+        else: socket
+
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
@@ -1290,10 +1322,31 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     NodeRouter.dispatch(event).response
   end
 
+  defp configuration_draft(socket, params, raw_token) do
+    socket.assigns.changeset.data
+    |> ChannelConfig.changeset(params)
+    |> validate_file_settings(Map.get(socket.assigns, :capabilities_snapshot, %{}))
+    |> maybe_validate_connect_credential_provider(socket.assigns.provider)
+    |> maybe_validate_global_base_url_requirement(socket)
+    |> with_visible_token(raw_token)
+  end
+
+  defp configuration_tab_errors(changeset, live_update_errors) do
+    errors = if changeset.action, do: changeset.errors, else: []
+
+    %{
+      main: Enum.any?(errors, fn {_field, {_message, options}} -> !options[:file_field] end),
+      advanced:
+        Enum.any?(errors, fn {_field, {_message, options}} -> !!options[:file_field] end) or
+          live_update_errors != %{}
+    }
+  end
+
   defp configuration_save_error(socket, %Ecto.Changeset{} = changeset, raw_token) do
-    changeset = with_visible_token(changeset, raw_token)
+    changeset = changeset |> Map.put(:action, :validate) |> with_visible_token(raw_token)
 
     socket
+    |> CapabilitySnapshot.recover(changeset)
     |> assign(:changeset, changeset)
     |> assign(:form, to_form(changeset, as: :form))
     |> assign(:modal_errors, format_errors(changeset))
@@ -1301,6 +1354,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp configuration_save_error(socket, {:validation, errors}, _token),
     do: assign(socket, :live_update_errors, errors)
+
+  defp configuration_save_error(
+         socket,
+         {:configuration, %{file_delivery: errors} = validation},
+         token
+       ) do
+    socket = CapabilitySnapshot.recover(socket, validation)
+
+    changeset =
+      socket.assigns.changeset
+      |> FileSettings.add_errors(:settings, errors)
+      |> Map.put(:action, :validate)
+
+    configuration_save_error(socket, changeset, token)
+  end
 
   defp configuration_save_error(socket, {:configuration, errors}, _token) do
     assign(
@@ -1359,7 +1427,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     validate = fn changeset, provider ->
       changeset
       |> maybe_validate_connect_credential_provider(provider)
-      |> maybe_validate_global_base_url_requirement(socket.assigns.kind, provider)
+      |> maybe_validate_global_base_url_requirement(socket)
     end
 
     if socket.assigns.modal == :edit and socket.assigns.kind == :retrieval do
@@ -1551,30 +1619,38 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     end
   end
 
-  defp maybe_validate_global_base_url_requirement(changeset, kind, provider) do
-    if provider_requires_global_base_url?(kind, provider) and
-         is_nil(Zaq.System.get_global_base_url()) do
-      Ecto.Changeset.add_error(
-        changeset,
-        :settings,
-        "Global base URL is required for webhook/watch capable providers. Configure it in System Configuration > Global."
-      )
-    else
-      changeset
+  defp maybe_validate_global_base_url_requirement(changeset, socket) do
+    cond do
+      not is_nil(Zaq.System.get_global_base_url()) ->
+        changeset
+
+      socket.assigns.kind == :data_source and socket.assigns[:capabilities_error] != false ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :settings,
+          "Capabilities unavailable. Retry capabilities before saving."
+        )
+
+      provider_requires_global_base_url?(socket) ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :settings,
+          "Global base URL is required for webhook/watch capable providers. Configure it in System Configuration > Global."
+        )
+
+      true ->
+        changeset
     end
   end
 
-  defp provider_requires_global_base_url?(:data_source, provider) do
-    case Bridge.capability_snapshot(provider) do
-      {:ok, %{resolved: resolved}} when is_map(resolved) ->
-        Bridge.webhook_capability_declared?(resolved)
-
-      _ ->
-        false
-    end
+  defp provider_requires_global_base_url?(%{assigns: %{kind: :data_source}} = socket) do
+    socket.assigns
+    |> Map.get(:capabilities_snapshot, %{})
+    |> Map.get(:resolved, %{})
+    |> Bridge.webhook_capability_declared?()
   end
 
-  defp provider_requires_global_base_url?(_kind, provider) do
+  defp provider_requires_global_base_url?(%{assigns: %{provider: provider}}) do
     Application.get_env(:zaq, :channels, %{})
     |> Enum.find_value(false, fn {key, cfg} ->
       if to_string(key) == to_string(provider) do
@@ -1584,6 +1660,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       end
     end)
   end
+
+  defp refresh_save_capabilities(%{assigns: %{kind: :data_source}} = socket) do
+    if is_nil(Zaq.System.get_global_base_url()),
+      do: load_capabilities(socket, socket.assigns.changeset.data.id),
+      else: socket
+  end
+
+  defp refresh_save_capabilities(socket), do: socket
 
   defp ensure_global_base_url_for_oauth2("oauth2") do
     if is_nil(Zaq.System.get_global_base_url()) do
@@ -1596,23 +1680,25 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp ensure_global_base_url_for_oauth2(_), do: :ok
 
-  defp load_capabilities(socket) do
-    event =
-      Event.new(%{provider: socket.assigns.provider}, :channels,
-        opts: [action: :channel_capability_snapshot]
-      )
+  defp load_capabilities(socket, config_id \\ :provider) do
+    request =
+      case config_id do
+        :provider -> %{provider: socket.assigns.provider}
+        nil -> %{provider: socket.assigns.provider, scope: :provider}
+        id -> %{provider: socket.assigns.provider, scope: :configuration, config_id: id}
+      end
 
-    case NodeRouter.dispatch(event).response do
-      {:ok, snapshot} when is_map(snapshot) ->
-        assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
+    CapabilitySnapshot.load(socket, request)
+  end
 
-      _ ->
-        assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
+  defp validate_file_settings(changeset, snapshot) do
+    file_settings =
+      Map.get(Ecto.Changeset.get_field(changeset, :settings) || %{}, "file_delivery", %{})
+
+    case FileSettings.validate(file_settings, snapshot) do
+      :ok -> changeset
+      {:error, errors} -> FileSettings.add_errors(changeset, :settings, errors)
     end
-  rescue
-    _error -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
-  catch
-    _kind, _reason -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
   end
 
   defp ingress_statuses(configs) when is_list(configs) do

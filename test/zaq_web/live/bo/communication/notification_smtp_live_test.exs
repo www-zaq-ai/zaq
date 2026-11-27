@@ -6,6 +6,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   import Zaq.ChannelCapabilityFixtures
   import Zaq.AccountsFixtures
 
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
+
+  test "missing capability responses fail while errors without new facts retain the cache" do
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{__changed__: %{}, capabilities_snapshot: %{}, capabilities_error: false}
+    }
+
+    assert CapabilitySnapshot.recover(socket, %{}) == socket
+    failed = CapabilitySnapshot.apply_result(socket, nil)
+    assert failed.assigns.capabilities_error
+  end
+
   test "successful empty capability snapshots are cached on every settings page" do
     observe_capability_lookups()
 
@@ -62,6 +74,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
 
+  defmodule DeclaredSmtpBridge do
+    alias Zaq.Channels.EmailBridge
+
+    def capability_snapshot(config) do
+      {:ok, snapshot} = EmailBridge.capability_snapshot(config)
+
+      {:ok,
+       put_in(snapshot, [:file_delivery, :limits, :max_attachment_bytes, :validation], %{
+         greater_than: 1_000_000,
+         less_than_or_equal_to: 2_000_000
+       })}
+    end
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -88,24 +114,353 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     %{conn: conn, user: user}
   end
 
+  test "SMTP tabs retain credentials, false policy and inactive advanced controls on save", %{
+    conn: conn
+  } do
+    config = insert_smtp_channel(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+
+    assert has_element?(
+             view,
+             "#smtp-settings-selector button[phx-value-tab='main'][aria-pressed=true]"
+           )
+
+    assert has_element?(view, "#smtp-settings-panel-advanced[hidden] #smtp-transport-mode")
+
+    view
+    |> form("#smtp-config-form", %{"email_config" => tabbed_smtp_params()})
+    |> render_change()
+
+    for tab <- ~w(advanced main advanced main) do
+      view |> element("#smtp-settings-selector button[phx-value-tab='#{tab}']") |> render_click()
+      assert has_element?(view, "#smtp-settings-panel-#{tab}:not([hidden])")
+      assert has_element?(view, "#smtp-password[value='draft-password']")
+      assert has_element?(view, "#smtp-ca-cert-path[value='/tmp/draft-ca.pem']")
+
+      refute has_element?(
+               view,
+               "input[name='email_config[file_delivery][send_on_file_failure]'][type=checkbox][checked]"
+             )
+
+      assert Repo.reload!(config).settings == config.settings
+    end
+
+    view |> form("#smtp-config-form") |> render_submit()
+    assert has_element?(view, "#save-status-ok")
+    saved = Repo.reload!(config)
+    assert saved.settings["relay"] == "draft.example.com"
+    assert saved.settings["ca_cert_path"] == "/tmp/draft-ca.pem"
+    assert SecretConfig.decrypt(saved.settings["password"]) == {:ok, "draft-password"}
+
+    assert saved.settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_001,
+             "send_on_file_failure" => false
+           }
+
+    {:ok, reloaded, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+
+    assert has_element?(
+             reloaded,
+             "#smtp-settings-selector button[phx-value-tab='main'][aria-pressed=true]"
+           )
+
+    assert has_element?(reloaded, "#smtp-file-delivery-max_attachment_mb[value='1.000001']")
+  end
+
+  for {label, main?, advanced?} <- [
+        {"Main", true, false},
+        {"Advanced", false, true},
+        {"both tabs", true, true}
+      ] do
+    @tag main_error: main?, advanced_error: advanced?
+    test "SMTP rejected save selects #{label} errors and preserves all submitted drafts",
+         context do
+      config = insert_smtp_channel(%{})
+      {:ok, view, _} = live(context.conn, "/bo/channels/retrieval/email/smtp")
+      inactive = if context.main_error, do: "advanced", else: "main"
+
+      view
+      |> element("#smtp-settings-selector button[phx-value-tab='#{inactive}']")
+      |> render_click()
+
+      params = tabbed_smtp_params()
+      params = if context.main_error, do: Map.put(params, "from_email", "invalid"), else: params
+
+      params =
+        if context.advanced_error,
+          do: put_in(params, ["file_delivery", "max_attachment_mb"], "0.0000001"),
+          else: params
+
+      render_submit(view, "save", %{"email_config" => params})
+
+      selected = if context.main_error, do: "main", else: "advanced"
+
+      assert has_element?(
+               view,
+               "#smtp-settings-selector button[phx-value-tab='#{selected}'][aria-pressed=true]",
+               "Errors"
+             )
+
+      if context.main_error && context.advanced_error,
+        do:
+          assert(
+            has_element?(
+              view,
+              "#smtp-settings-selector button[phx-value-tab='advanced']",
+              "Errors"
+            )
+          )
+
+      assert has_element?(view, "#smtp-password[value='draft-password']")
+      assert has_element?(view, "#smtp-ca-cert-path[value='/tmp/draft-ca.pem']")
+      assert has_element?(view, "input[name='email_config[relay]'][value='draft.example.com']")
+
+      refute has_element?(
+               view,
+               "input[name='email_config[file_delivery][send_on_file_failure]'][type=checkbox][checked]"
+             )
+
+      saved = Repo.reload!(config)
+      assert saved.settings == config.settings
+      assert saved.name == config.name
+    end
+  end
+
+  test "blank configuration name preserves SMTP drafts and selects Main after persistence rejection",
+       %{conn: conn} do
+    config = insert_smtp_channel(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    view |> element("#smtp-settings-selector button[phx-value-tab='advanced']") |> render_click()
+    params = Map.put(tabbed_smtp_params(), "connector_name", "")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#smtp-settings-panel-main:not([hidden])")
+    assert has_element?(view, "#smtp-connector-name[value='']")
+    assert has_element?(view, "input[name='email_config[relay]'][value='draft.example.com']")
+    assert has_element?(view, "#smtp-password[value='draft-password']")
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[value='1.000001']")
+    assert render(view) =~ "can&#39;t be blank"
+    assert Repo.reload!(config).settings == config.settings
+    assert Repo.reload!(config).name == config.name
+
+    render_submit(view, "save", %{
+      "email_config" => Map.put(params, "connector_name", "Recovered SMTP")
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    assert Repo.reload!(config).name == "Recovered SMTP"
+    assert Repo.reload!(config).settings["relay"] == "draft.example.com"
+    assert Repo.reload!(config).settings["file_delivery"]["send_on_file_failure"] == false
+  end
+
+  defp tabbed_smtp_params do
+    %{
+      "relay" => "draft.example.com",
+      "port" => "587",
+      "from_email" => "draft@example.com",
+      "password" => "draft-password",
+      "transport_mode" => "starttls",
+      "tls_verify" => "verify_peer",
+      "ca_cert_path" => "/tmp/draft-ca.pem",
+      "file_delivery" => %{"max_attachment_mb" => "1.000001", "send_on_file_failure" => "false"}
+    }
+  end
+
+  test "SMTP rejected saves refresh controls and retain connection and credential drafts", %{
+    conn: conn
+  } do
+    config = insert_smtp_channel(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.update!(channels, :email, &Map.put(&1, :bridge, DeclaredSmtpBridge))
+    )
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+    params = put_in(tabbed_smtp_params(), ["file_delivery", "max_attachment_mb"], "3")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[max='2'][value='3']")
+    assert has_element?(view, "input[name='email_config[relay]'][value='draft.example.com']")
+    assert has_element?(view, "input[name='email_config[password]'][value='draft-password']")
+    refute has_element?(view, "#smtp-file-delivery-send_on_file_failure[checked]")
+    assert Repo.reload!(config).settings == config.settings
+
+    render_submit(view, "save", %{
+      "email_config" => put_in(params, ["file_delivery", "max_attachment_mb"], "1.5")
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    assert Repo.reload!(config).settings["file_delivery"]["max_attachment_bytes"] == 1_500_000
+  end
+
+  test "SMTP capability recovery retains drafts and validate does not perform lookups", %{
+    conn: conn
+  } do
+    config = insert_smtp_channel(%{})
+    channels = remove_capability_bridge(:email)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert has_element?(view, "#smtp-file-delivery-unavailable", "Capabilities unavailable")
+    observe_capability_lookups()
+    render_change(view, "validate", %{"email_config" => tabbed_smtp_params()})
+    assert capability_lookup_count() == 0
+    Application.put_env(:zaq, :channels, channels)
+    view |> element("#smtp-file-delivery button", "Retry capabilities") |> render_click()
+    refute has_element?(view, "#smtp-file-delivery-unavailable")
+    assert has_element?(view, "#smtp-password[value='draft-password']")
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[value='1.000001']")
+    assert Repo.reload!(config).settings == config.settings
+    render_submit(view, "save", %{"email_config" => tabbed_smtp_params()})
+    assert has_element?(view, "#save-status-ok")
+  end
+
+  test "SMTP rendering and persistence adapt to normalized declarations without granting support",
+       %{conn: conn} do
+    config = insert_smtp_channel(%{})
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.update!(channels, :email, &Map.put(&1, :bridge, DeclaredSmtpBridge))
+    )
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[min='1.000001'][max='2']")
+    assert render(view) =~ "Attachment sending is unavailable"
+    params = put_in(tabbed_smtp_params(), ["file_delivery", "max_attachment_mb"], "3")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#smtp-settings-panel-advanced:not([hidden])")
+    assert render(view) =~ "Must satisfy the declared numeric limit"
+    assert Repo.reload!(config).settings == config.settings
+    params = put_in(params, ["file_delivery", "max_attachment_mb"], "1.5")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#save-status-ok")
+
+    assert Repo.reload!(config).settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_500_000,
+             "send_on_file_failure" => false
+           }
+
+    {:ok, reloaded, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    assert has_element?(reloaded, "#smtp-file-delivery-max_attachment_mb[value='1.5'][max='2']")
+  end
+
+  test "SMTP untouched file controls ignore usage markers and still reject unknown settings", %{
+    conn: conn
+  } do
+    config = insert_smtp_channel(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    params = tabbed_smtp_params()
+
+    params =
+      update_in(params, ["file_delivery"], &Map.put(&1, "_unused_send_on_file_failure", ""))
+
+    render_change(view, "validate", %{"email_config" => params})
+    refute has_element?(view, "#smtp-settings-selector button", "Errors")
+
+    render_submit(view, "save", %{
+      "email_config" => put_in(params, ["file_delivery", "unexpected"], "true")
+    })
+
+    assert has_element?(
+             view,
+             "#smtp-settings-selector button[phx-value-tab=advanced][aria-pressed=true]",
+             "Errors"
+           )
+
+    assert Repo.reload!(config).settings == config.settings
+
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#save-status-ok")
+
+    assert Repo.reload!(config).settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_001,
+             "send_on_file_failure" => false
+           }
+  end
+
   describe "email capability display" do
+    test "shared file controls save exact bytes and reload the selected SMTP connection", %{
+      conn: conn
+    } do
+      {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+      assert has_element?(view, "#smtp-file-delivery")
+      assert render(view) =~ "Optional override"
+      assert render(view) =~ "Attachment sending is unavailable"
+
+      render_submit(view, "save", %{
+        "email_config" => %{
+          "relay" => "files.example.com",
+          "from_email" => "files@example.com",
+          "file_delivery" => %{
+            "max_attachment_mb" => "1.000001",
+            "max_encoded_message_mb" => "25",
+            "max_attachments_per_message" => "4",
+            "send_on_file_failure" => "false"
+          }
+        }
+      })
+
+      [saved] = ChannelConfig.list_by_provider("email:smtp")
+
+      assert saved.settings["file_delivery"] == %{
+               "max_attachment_bytes" => 1_000_001,
+               "max_encoded_message_bytes" => 25_000_000,
+               "max_attachments_per_message" => 4,
+               "send_on_file_failure" => false
+             }
+
+      {:ok, reloaded, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+
+      assert has_element?(
+               reloaded,
+               "input[name='email_config[file_delivery][max_attachment_mb]'][value='1.000001']"
+             )
+    end
+
+    test "malformed file settings render beside the field and do not save", %{conn: conn} do
+      before = ChannelConfig.list_by_provider("email:smtp")
+      {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+
+      render_change(view, "validate", %{
+        "email_config" => %{
+          "file_delivery" => %{"max_attachment_mb" => "0.0000001"}
+        }
+      })
+
+      assert has_element?(view, "#smtp-file-delivery-max_attachment_mb-error")
+      assert ChannelConfig.list_by_provider("email:smtp") == before
+
+      render_change(view, "validate", %{"email_config" => %{"file_delivery" => "malformed"}})
+      assert has_element?(view, "#smtp-file-delivery-error")
+      assert ChannelConfig.list_by_provider("email:smtp") == before
+    end
+
     for {transport, mode} <- [{"smtp", "none"}, {"imap", "imap_idle"}] do
-      test "#{transport} uses the shared modal and provider-scoped Channels endpoint", %{
+      test "#{transport} uses the shared modal and appropriately scoped Channels endpoint", %{
         conn: conn
       } do
         :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
         transport = unquote(transport)
         provider = "email:" <> transport
+        scope = if transport == "smtp", do: :configuration, else: :provider
         {:ok, view, _html} = live(conn, "/bo/channels/retrieval/email/" <> transport)
 
         assert_receive {:node_router_event,
                         %Event{
-                          request: %{provider: ^provider, scope: :provider},
+                          request: %{provider: ^provider, scope: ^scope} = request,
                           next_hop: %{destination: :channels},
                           opts: opts
                         }}
 
         assert opts[:action] == :channel_capability_snapshot
+
+        if transport == "smtp",
+          do: assert(request.config_id == ChannelConfig.get_any_by_provider(provider).id)
+
         assert has_element?(view, "[data-testid='channel-capabilities-trigger']")
         refute has_element?(view, "#capabilities-modal")
 
@@ -155,6 +510,35 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
       view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
       assert has_element?(view, "#capabilities-modal li", "Mode: none")
       refute has_element?(view, "#smtp-config-form")
+
+      :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+      observe_capability_lookups()
+
+      for {config, index} <- Enum.with_index(ChannelConfig.list_by_provider("email:smtp"), 1) do
+        render_click(view, "select_connector", %{"id" => to_string(config.id)})
+        config_id = config.id
+
+        assert_receive {:node_router_event,
+                        %Event{request: %{scope: :configuration, config_id: ^config_id}}}
+
+        assert capability_lookup_count() == index
+
+        render_change(view, "validate", %{
+          "email_config" => %{"connector_name" => config.name <> " draft"}
+        })
+
+        render_click(view, "switch_settings_tab", %{"tab" => "advanced"})
+        render_click(view, "open_capabilities")
+        assert has_element?(view, "#capabilities-modal li", "Mode: none")
+
+        assert has_element?(
+                 view,
+                 "input[name='email_config[connector_name]'][value='#{config.name} draft']"
+               )
+
+        assert capability_lookup_count() == index
+        render_click(view, "close_capabilities")
+      end
     end
 
     test "capability event handlers use only socket state" do

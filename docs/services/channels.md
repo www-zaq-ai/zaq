@@ -1413,6 +1413,101 @@ continues starting bridge infrastructure.
 
 ---
 
+## File configuration and transport requirements
+
+The shared **File delivery** section uses `ZaqWeb.Components.FileDeliverySettings`
+inside shared Advanced settings for channel, SMTP and applicable widget forms.
+`Zaq.ConnectorConfig.FileSettings` owns normalization, capability validation and
+effective limits. Configuration storage is described in
+[Engine configuration persistence](engine.md#connector-configuration-persistence).
+
+The existing `:channel_capability_snapshot` event carries optional `file_delivery`
+metadata returned by the existing `capability_snapshot/1` callback.
+`CommunicationBridge.normalize_capability_snapshot/2` validates and projects this
+communication-specific metadata; the generic bridge delegates by channel kind.
+Data-source snapshots and connections cannot enable message file delivery.
+The metadata contains a
+declared `transfer_mode`, explicit `supports_attachment_edits`, and `limits` keyed
+by the existing `TransportRequirements` limit fields. Each limit has a `value`
+(positive integer, `:unresolved`, or `:not_applicable`), `configurable`, and
+`required`. Optional configuration metadata uses `type: :integer`, `unit: :bytes`
+(or `:count` for `max_attachments_per_message`), and a `validation` map. Supported
+rules are `greater_than`, `greater_than_or_equal_to`, `less_than`, and
+`less_than_or_equal_to`, with nonnegative integer bounds. For example:
+
+```elixir
+max_attachment_bytes: %{
+  value: :unresolved,
+  configurable: true,
+  required: false,
+  type: :integer,
+  unit: :bytes,
+  validation: %{greater_than: 0}
+}
+```
+
+Legacy declarations without optional metadata retain positive integer semantics.
+Unknown types, mismatched units and unsupported rules reject the snapshot;
+adapters cannot supply executable validators. Unrelated metadata and ZAQ failure
+policy are excluded from this projection. Existing
+delivery statuses and ingress-mode meanings remain unchanged. `scope: :configuration`
+with `config_id` inspects an exact unarchived connection, including disabled ones;
+provider and capability kind must match. Default runtime lookup still requires
+enablement. A confidential `scope: :proposal` request on the same event accepts
+an Engine-prepared `proposed_config` ChannelConfig struct. Existing IDs must match
+an unarchived retrieval connector's provider and kind; built inserts may have a
+preassigned unused ID. Identity is checked against storage, while capability facts
+come from proposed settings and connection fields. Channels neither persists the
+proposal nor returns it in the snapshot.
+
+Fixed values are read-only. Configurable overrides cannot exceed known ceilings.
+Declared aggregate-attachment and upload-request limits also appear when provided.
+Blank optional values fall back to declared transport limits; missing facts remain
+unresolved. SMTP declares configuration controls without advertising attachment
+sending. Required values apply only to usable file support (`:native`, `:fallback`
+or `true`). A valid fixed value satisfies a requirement; an unresolved required
+configurable value needs input. Ecto validates effective types and numeric rules
+through FileSettings; BO hints and the resolver consume those same rules.
+Incomplete configuration can be saved while file delivery is unsupported. The locked Jido adapter
+APIs expose support statuses without structured file limits, so those limits remain
+unresolved and numeric overrides are unavailable. Adapter metadata discovery remains
+separate from snapshot normalization. Generic message editing never implies attachment
+editing support. Neither labels nor provider names determine these behaviors.
+
+The existing bridge `capability_snapshot/1` callback is the extension boundary.
+Concrete bridges translate available adapter vocabulary; they do not normalize,
+validate settings or build transport requirements. Current Jido/Web adapters
+without metadata keep unresolved facts and unavailable overrides. External adapter
+declaration/release work is tracked in `zaq-h2i.4`; this foundation requires no
+new pins or adapter callbacks. Later adapters can change declarations for these
+supported fields/rules without changing SMTP-specific BO or validation code.
+Configured/effective adapter values (including Mattermost `max_file_size`) must
+never be projected as independently known transport ceilings.
+
+Channel, SMTP and applicable widget Advanced controls reuse FileDeliverySettings
+and ConnectionSettings. Inputs project declared bounds in exact MB/count units;
+fixed, unresolved and inapplicable states remain distinct. Required help describes
+effective input requirements without hidden native validation blocking Save.
+Failed lookups show retry feedback and retain drafts; successful empty snapshots
+stay successful. Validate handlers use cached assigns only. Engine checks the
+effective proposed configuration at Save, so cached facts cannot veto a valid
+proposal or authorize an invalid one.
+
+The capability dialog and file controls share the current editor's snapshot.
+Existing connectors use exact selected-connector scope; new or unselected
+connectors use provider scope. A rejected file save returns the evaluated
+normalized facts beside field errors, retaining drafts and reflecting the final
+proposed settings and policy. Lookup failures retain the retry presentation.
+
+`Zaq.Channels.TransportRequirements.resolve(snapshot, selected_connection)`
+is the sole requirements derivation operation. It returns the existing struct or
+`:unsupported`, `:capabilities_unavailable`, `{:invalid_configuration, field_errors}`,
+or `{:unresolved_capabilities, fields}`. Success requires a declared transfer mode
+and positive attachment count. Optional unknown byte limits remain unresolved.
+The caller selects the outbound connection first, including SMTP for IMAP-origin
+replies, then resolves once per delivery attempt and passes that result onward.
+The resolver performs no acquisition, planning, sending or history operations.
+
 ## Channel Config
 
 Configuration persistence is owned by [`Zaq.Engine.ChannelConfig`](engine.md#connector-configuration-persistence).

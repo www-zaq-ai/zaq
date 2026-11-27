@@ -123,241 +123,265 @@
         <.form
           for={@form}
           id="smtp-config-form"
+          novalidate
           phx-submit="save"
           phx-change="validate"
           class="space-y-5"
         >
-          <!-- SMTP Relay -->
-          <div>
-            <label for="smtp-connector-name" class="zaq-field-label">Configuration name</label>
-            <input
-              id="smtp-connector-name"
-              name="email_config[connector_name]"
-              class="zaq-control"
-              required
-              value={
-                Map.get(
-                  @form.source.params || %{},
-                  "connector_name",
-                  ConnectorSelection.name(@configs, @selected_config_id, "Email SMTP")
-                )
-              }
-            />
-          </div>
-          <div class="grid grid-cols-2 gap-4">
-            <div class="col-span-2 sm:col-span-1">
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                SMTP Relay
-              </label>
-              <input
-                type="text"
-                name="email_config[relay]"
-                value={@form[:relay].value}
-                phx-debounce="400"
-                placeholder="smtp.example.com"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-              />
-              <p
-                :if={@form[:relay].errors != []}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {elem(hd(@form[:relay].errors), 0)}
-              </p>
-            </div>
-
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Port
-              </label>
-              <input
-                type="number"
-                name="email_config[port]"
-                value={@form[:port].value}
-                phx-debounce="400"
-                placeholder="587"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-              />
-              <p
-                :if={@form[:port].errors != []}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {elem(hd(@form[:port].errors), 0)}
-              </p>
-            </div>
-          </div>
-
-          <!-- TLS -->
-          <div>
-            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              TLS
-            </label>
-            <select
-              name="email_config[tls]"
-              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all appearance-none"
-            >
-              <option value="enabled" selected={to_string(@form[:tls].value) == "enabled"}>
-                enabled (if available)
-              </option>
-              <option value="always" selected={to_string(@form[:tls].value) == "always"}>
-                always (require TLS)
-              </option>
-              <option value="never" selected={to_string(@form[:tls].value) == "never"}>
-                never (no TLS)
-              </option>
-            </select>
-          </div>
-
-          <!-- Advanced SMTP -->
-          <div
-            id="smtp-advanced-section"
-            class="rounded-xl border border-black/[0.06] bg-[#fafafa] p-4 space-y-4"
+          <ConnectionSettings.editor
+            id="smtp-settings"
+            active_tab={@settings_tab}
+            errors={configuration_tab_errors(@form.source)}
           >
-            <p class="font-mono text-[0.72rem] font-semibold text-black/60 uppercase tracking-wider">
-              Advanced SMTP
-            </p>
+            <:main>
+              <!-- SMTP Relay -->
+              <div>
+                <Input.input
+                  id="smtp-connector-name"
+                  name="email_config[connector_name]"
+                  label="Configuration name"
+                  errors={
+                    for {message, _} <- Keyword.get_values(@form.errors, :connector_name),
+                        do: message
+                  }
+                  required
+                  value={
+                    Map.get(
+                      @form.source.params || %{},
+                      "connector_name",
+                      ConnectorSelection.name(@configs, @selected_config_id, "Email SMTP")
+                    )
+                  }
+                />
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="col-span-2 sm:col-span-1">
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    SMTP Relay
+                  </label>
+                  <input
+                    type="text"
+                    name="email_config[relay]"
+                    value={@form[:relay].value}
+                    phx-debounce="400"
+                    placeholder="smtp.example.com"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                  />
+                  <p
+                    :if={@form[:relay].errors != []}
+                    class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+                  >
+                    {elem(hd(@form[:relay].errors), 0)}
+                  </p>
+                </div>
 
-            <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    Port
+                  </label>
+                  <input
+                    type="number"
+                    name="email_config[port]"
+                    value={@form[:port].value}
+                    phx-debounce="400"
+                    placeholder="587"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                  />
+                  <p
+                    :if={@form[:port].errors != []}
+                    class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+                  >
+                    {elem(hd(@form[:port].errors), 0)}
+                  </p>
+                </div>
+              </div>
+
+              <!-- TLS -->
               <div>
                 <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                  Transport Mode
+                  TLS
                 </label>
                 <select
-                  id="smtp-transport-mode"
-                  name="email_config[transport_mode]"
-                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all appearance-none"
+                  name="email_config[tls]"
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all appearance-none"
                 >
-                  <option
-                    value="starttls"
-                    selected={to_string(@form[:transport_mode].value) == "starttls"}
-                  >
-                    STARTTLS (explicit TLS)
+                  <option value="enabled" selected={to_string(@form[:tls].value) == "enabled"}>
+                    enabled (if available)
                   </option>
-                  <option value="ssl" selected={to_string(@form[:transport_mode].value) == "ssl"}>
-                    SSL/TLS (implicit TLS)
+                  <option value="always" selected={to_string(@form[:tls].value) == "always"}>
+                    always (require TLS)
+                  </option>
+                  <option value="never" selected={to_string(@form[:tls].value) == "never"}>
+                    never (no TLS)
                   </option>
                 </select>
               </div>
 
-              <div>
-                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                  TLS Verification
-                </label>
-                <select
-                  id="smtp-tls-verify"
-                  name="email_config[tls_verify]"
-                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all appearance-none"
-                >
-                  <option
-                    value="verify_peer"
-                    selected={to_string(@form[:tls_verify].value) == "verify_peer"}
-                  >
-                    verify_peer (recommended)
-                  </option>
-                  <option
-                    value="verify_none"
-                    selected={to_string(@form[:tls_verify].value) == "verify_none"}
-                  >
-                    verify_none (insecure)
-                  </option>
-                </select>
+              <!-- Auth -->
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    Username <span class="normal-case font-normal text-black/30">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="email_config[username]"
+                    value={@form[:username].value}
+                    phx-debounce="400"
+                    placeholder="you@example.com"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                  />
+                </div>
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    Password <span class="normal-case font-normal text-black/30">(optional)</span>
+                  </label>
+                  <.secret_input
+                    id="smtp-password"
+                    name="email_config[password]"
+                    value={@form[:password].value}
+                    phx-debounce="400"
+                    placeholder="••••••••"
+                    input_class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-11 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                    button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+                  />
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                CA Cert Path <span class="normal-case font-normal text-black/30">(optional)</span>
-              </label>
-              <input
-                id="smtp-ca-cert-path"
-                type="text"
-                name="email_config[ca_cert_path]"
-                value={@form[:ca_cert_path].value}
-                phx-debounce="400"
-                placeholder="/etc/ssl/certs/custom-ca.pem"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-              />
-            </div>
-
-            <div
-              :if={@smtp_warnings != []}
-              id="smtp-security-warnings"
-              class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1"
+              <!-- From -->
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    From Name
+                  </label>
+                  <input
+                    type="text"
+                    name="email_config[from_name]"
+                    value={@form[:from_name].value}
+                    phx-debounce="400"
+                    placeholder="ZAQ"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                  />
+                </div>
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    From Email
+                  </label>
+                  <input
+                    type="email"
+                    name="email_config[from_email]"
+                    value={@form[:from_email].value}
+                    phx-debounce="400"
+                    placeholder="noreply@zaq.local"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                  />
+                  <p
+                    :if={@form[:from_email].errors != []}
+                    class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+                  >
+                    {elem(hd(@form[:from_email].errors), 0)}
+                  </p>
+                </div>
+              </div>
+            </:main>
+            <:advanced
+              :if={
+                @capabilities_error ||
+                  Zaq.ConnectorConfig.FileSettings.visible?(@capabilities_snapshot)
+              }
+              id="smtp-files-section"
+              label="File delivery"
             >
-              <%= for warning <- @smtp_warnings do %>
-                <p id={warning.id} class="font-mono text-[0.72rem] text-amber-800">
-                  {warning.message}
-                </p>
-              <% end %>
-            </div>
-          </div>
+              <ZaqWeb.Components.FileDeliverySettings.section
+                id="smtp-file-delivery"
+                name="email_config[file_delivery]"
+                heading={false}
+                snapshot={@capabilities_snapshot}
+                unavailable={@capabilities_error}
+                settings={@form[:file_delivery].value || %{}}
+                errors={ZaqWeb.Components.FileDeliverySettings.errors(@form.source)}
+              />
+            </:advanced>
+            <:advanced id="smtp-advanced-section" label="SMTP transport">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    Transport Mode
+                  </label>
+                  <select
+                    id="smtp-transport-mode"
+                    name="email_config[transport_mode]"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all appearance-none"
+                  >
+                    <option
+                      value="starttls"
+                      selected={to_string(@form[:transport_mode].value) == "starttls"}
+                    >
+                      STARTTLS (explicit TLS)
+                    </option>
+                    <option
+                      value="ssl"
+                      selected={to_string(@form[:transport_mode].value) == "ssl"}
+                    >
+                      SSL/TLS (implicit TLS)
+                    </option>
+                  </select>
+                </div>
 
-          <!-- Auth -->
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Username <span class="normal-case font-normal text-black/30">(optional)</span>
-              </label>
-              <input
-                type="text"
-                name="email_config[username]"
-                value={@form[:username].value}
-                phx-debounce="400"
-                placeholder="you@example.com"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-              />
-            </div>
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Password <span class="normal-case font-normal text-black/30">(optional)</span>
-              </label>
-              <.secret_input
-                id="smtp-password"
-                name="email_config[password]"
-                value={@form[:password].value}
-                phx-debounce="400"
-                placeholder="••••••••"
-                input_class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-11 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-                button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
-              />
-            </div>
-          </div>
+                <div>
+                  <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                    TLS Verification
+                  </label>
+                  <select
+                    id="smtp-tls-verify"
+                    name="email_config[tls_verify]"
+                    class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all appearance-none"
+                  >
+                    <option
+                      value="verify_peer"
+                      selected={to_string(@form[:tls_verify].value) == "verify_peer"}
+                    >
+                      verify_peer (recommended)
+                    </option>
+                    <option
+                      value="verify_none"
+                      selected={to_string(@form[:tls_verify].value) == "verify_none"}
+                    >
+                      verify_none (insecure)
+                    </option>
+                  </select>
+                </div>
+              </div>
 
-          <!-- From -->
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                From Name
-              </label>
-              <input
-                type="text"
-                name="email_config[from_name]"
-                value={@form[:from_name].value}
-                phx-debounce="400"
-                placeholder="ZAQ"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-              />
-            </div>
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                From Email
-              </label>
-              <input
-                type="email"
-                name="email_config[from_email]"
-                value={@form[:from_email].value}
-                phx-debounce="400"
-                placeholder="noreply@zaq.local"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
-              />
-              <p
-                :if={@form[:from_email].errors != []}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              <div>
+                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                  CA Cert Path
+                  <span class="normal-case font-normal text-black/30">(optional)</span>
+                </label>
+                <input
+                  id="smtp-ca-cert-path"
+                  type="text"
+                  name="email_config[ca_cert_path]"
+                  value={@form[:ca_cert_path].value}
+                  phx-debounce="400"
+                  placeholder="/etc/ssl/certs/custom-ca.pem"
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#16a34a]/20 focus:border-[#16a34a] transition-all"
+                />
+              </div>
+
+              <div
+                :if={@smtp_warnings != []}
+                id="smtp-security-warnings"
+                class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1"
               >
-                {elem(hd(@form[:from_email].errors), 0)}
-              </p>
-            </div>
-          </div>
-
+                <%= for warning <- @smtp_warnings do %>
+                  <p id={warning.id} class="font-mono text-[0.72rem] text-amber-800">
+                    {warning.message}
+                  </p>
+                <% end %>
+              </div>
+            </:advanced>
+          </ConnectionSettings.editor>
           <!-- Save -->
           <div class="pt-2 flex items-center gap-3">
             <button

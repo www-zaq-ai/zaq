@@ -13,10 +13,16 @@ defmodule ZaqWeb.Components.DesignSystem.FieldHint do
   attr :hint, :string, default: nil
   attr :hint_tone, :atom, default: :info, values: [:info, :success, :error]
   attr :hint_id, :string, default: nil
+  attr :error_id, :string, default: nil
 
   def field_messages(assigns) do
     ~H"""
-    <.field_error :for={msg <- @errors}>{msg}</.field_error>
+    <.field_error
+      :for={{msg, index} <- Enum.with_index(@errors)}
+      id={if @error_id, do: if(index == 0, do: @error_id, else: "#{@error_id}-#{index}")}
+    >
+      {msg}
+    </.field_error>
     <p
       :if={@errors == [] && @hint}
       id={@hint_id}
@@ -31,11 +37,12 @@ defmodule ZaqWeb.Components.DesignSystem.FieldHint do
     """
   end
 
+  attr :id, :string, default: nil
   slot :inner_block, required: true
 
   defp field_error(assigns) do
     ~H"""
-    <p class="zaq-field-error zaq-text-body-sm">
+    <p id={@id} class="zaq-field-error zaq-text-body-sm">
       <.icon name="hero-exclamation-circle" class="zaq-icon-sm" />
       {render_slot(@inner_block)}
     </p>

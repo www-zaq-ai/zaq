@@ -37,6 +37,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
     doc: "a form field struct retrieved from the form, for example: @form[:email]"
 
   attr :errors, :list, default: []
+  attr :error_id, :string, default: nil
 
   attr :checked, :boolean, doc: "the checked flag for checkbox inputs"
 
@@ -100,6 +101,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
       </label>
       <FieldHint.field_messages
         errors={@errors}
+        error_id={@error_id}
         hint={@hint}
         hint_tone={@hint_tone}
         hint_id={@hint_id}
@@ -115,6 +117,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
     <.input_shell
       label={@label}
       errors={@errors}
+      error_id={@error_id}
       hint={@hint}
       hint_tone={@hint_tone}
       hint_id={@hint_id}
@@ -139,6 +142,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
     <.input_shell
       label={@label}
       errors={@errors}
+      error_id={@error_id}
       hint={@hint}
       hint_tone={@hint_tone}
       hint_id={@hint_id}
@@ -160,6 +164,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
 
   attr :label, :string, default: nil
   attr :errors, :list, default: []
+  attr :error_id, :string, default: nil
   attr :hint, :string, default: nil
   attr :hint_tone, :atom, default: :info
   attr :hint_id, :string, default: nil
@@ -175,6 +180,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
       {render_slot(@field)}
       <FieldHint.field_messages
         errors={@errors}
+        error_id={@error_id}
         hint={@hint}
         hint_tone={@hint_tone}
         hint_id={@hint_id}

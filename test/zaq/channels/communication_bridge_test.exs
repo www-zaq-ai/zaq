@@ -1,7 +1,8 @@
 defmodule Zaq.Channels.CommunicationBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{AgentRouting, Bridge, CommunicationBridge}
+  alias Zaq.Channels.{AgentRouting, Bridge, CommunicationBridge, EmailBridge}
+  alias Zaq.ConnectorConfig.FileSettings
   alias Zaq.Contracts.Record
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -317,6 +318,84 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
   defp imap_settings do
     %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+  end
+
+  describe "communication capability metadata" do
+    test "projects typed SMTP declarations through the shared communication owner" do
+      assert {:ok, raw} = EmailBridge.capability_snapshot(%{provider: "email:smtp"})
+
+      envelope = %{
+        kind: :communication,
+        required: [:text, :file],
+        resolved: raw.resolved,
+        unsupported: [:file],
+        labels: %{file: "Files"}
+      }
+
+      assert {:ok, normalized} = CommunicationBridge.normalize_capability_snapshot(raw, envelope)
+      assert Map.drop(normalized, [:file_delivery]) == envelope
+      assert normalized.file_delivery.limits.max_encoded_message_bytes.type == :integer
+      assert normalized.file_delivery.limits.max_encoded_message_bytes.unit == :bytes
+
+      assert normalized.file_delivery.limits.max_encoded_message_bytes.validation == %{
+               greater_than: 0
+             }
+
+      assert normalized.file_delivery.limits.max_attachments_per_message.unit == :count
+      refute FileSettings.supported?(normalized, :file)
+    end
+
+    test "uses the existing snapshot contract without additional file callbacks" do
+      assert Code.ensure_loaded?(Bridge)
+      assert {:ok, callbacks} = Code.Typespec.fetch_callbacks(Bridge)
+      refute List.keymember?(callbacks, {:file_delivery_capabilities, 1}, 0)
+
+      for bridge <- [Bridge, Zaq.Channels.EmailBridge, Zaq.Channels.JidoChatBridge] do
+        assert Code.ensure_loaded?(bridge)
+        refute function_exported?(bridge, :file_delivery_capabilities, 1)
+      end
+    end
+
+    test "normalizes optional metadata without changing delivery support or accepting policy" do
+      snapshot = %{kind: :communication, resolved: %{text: :native}, unsupported: [:file]}
+
+      raw = %{
+        file_delivery: %{
+          limits: %{max_attachment_bytes: %{value: 1000, configurable: true}},
+          failure_policy: :abort,
+          token: "not capability metadata"
+        }
+      }
+
+      assert {:ok, normalized} = CommunicationBridge.normalize_capability_snapshot(raw, snapshot)
+      assert normalized.resolved == snapshot.resolved
+      assert normalized.unsupported == [:file]
+
+      assert normalized.file_delivery.limits.max_attachment_bytes == %{
+               value: 1000,
+               configurable: true,
+               required: false
+             }
+
+      refute Map.has_key?(normalized.file_delivery, :failure_policy)
+      refute Map.has_key?(normalized.file_delivery, :token)
+    end
+
+    test "preserves absent metadata and rejects malformed metadata and other channel kinds" do
+      snapshot = %{kind: :communication, resolved: %{file: :native}}
+      assert {:ok, ^snapshot} = CommunicationBridge.normalize_capability_snapshot(%{}, snapshot)
+
+      for metadata <- [nil, "invalid", %{limits: %{max_attachment_bytes: %{value: 0}}}] do
+        assert {:error, :invalid_file_delivery_capabilities} =
+                 CommunicationBridge.normalize_capability_snapshot(
+                   %{file_delivery: metadata},
+                   snapshot
+                 )
+      end
+
+      assert {:error, :unsupported} =
+               CommunicationBridge.normalize_capability_snapshot(%{}, %{kind: :data_source})
+    end
   end
 
   describe "provider normalization and bridge resolution" do

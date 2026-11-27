@@ -42,7 +42,40 @@ defmodule Zaq.Channels.EmailBridge do
   def capability_snapshot(config) when is_map(config) do
     case config_provider(config) do
       provider when provider in ["email:smtp", :"email:smtp"] ->
-        {:ok, %{resolved: %{text: :native, threads: :native, mode: "none"}}}
+        {:ok,
+         %{
+           resolved: %{text: :native, threads: :native, mode: "none"},
+           file_delivery: %{
+             transfer_mode: :unresolved,
+             supports_attachment_edits: false,
+             limits: %{
+               max_attachment_bytes: %{
+                 value: :unresolved,
+                 configurable: true,
+                 required: false,
+                 type: :integer,
+                 unit: :bytes,
+                 validation: %{greater_than: 0}
+               },
+               max_encoded_message_bytes: %{
+                 value: :unresolved,
+                 configurable: true,
+                 required: true,
+                 type: :integer,
+                 unit: :bytes,
+                 validation: %{greater_than: 0}
+               },
+               max_attachments_per_message: %{
+                 value: :unresolved,
+                 configurable: true,
+                 required: true,
+                 type: :integer,
+                 unit: :count,
+                 validation: %{greater_than: 0}
+               }
+             }
+           }
+         }}
 
       provider when provider in ["email:imap", :"email:imap"] ->
         {:ok, %{resolved: %{text: :native, threads: :native, mode: "imap_idle"}}}

@@ -4,12 +4,14 @@ defmodule Zaq.System.EmailConfig do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Zaq.ConnectorConfig.FileSettings
 
   @transport_modes ~w(starttls ssl)
   @tls_options ~w(enabled if_available always never)
   @tls_verify_options ~w(verify_peer verify_none)
 
   embedded_schema do
+    field :file_delivery, :map, default: %{}
     field :enabled, :boolean, default: false
     field :relay, :string
     field :port, :integer, default: 587
@@ -36,7 +38,8 @@ defmodule Zaq.System.EmailConfig do
       :username,
       :password,
       :from_email,
-      :from_name
+      :from_name,
+      :file_delivery
     ])
     |> maybe_require_relay()
     |> validate_format(:from_email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -50,6 +53,20 @@ defmodule Zaq.System.EmailConfig do
     |> validate_inclusion(:tls_verify, @tls_verify_options,
       message: "must be verify_peer or verify_none"
     )
+    |> normalize_file_settings()
+  end
+
+  defp normalize_file_settings(changeset) do
+    case fetch_change(changeset, :file_delivery) do
+      {:ok, form} ->
+        case FileSettings.merge_form(changeset.data.file_delivery || %{}, form) do
+          {:ok, settings} -> put_change(changeset, :file_delivery, settings)
+          {:error, errors} -> FileSettings.add_errors(changeset, :file_delivery, errors)
+        end
+
+      :error ->
+        changeset
+    end
   end
 
   defp maybe_require_relay(changeset) do

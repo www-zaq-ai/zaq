@@ -324,7 +324,39 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "SMTP advertises text and threads without claiming attachment delivery" do
       assert {:ok, snapshot} = EmailBridge.capability_snapshot(%{provider: "email:smtp"})
 
-      assert snapshot == %{resolved: %{text: :native, threads: :native, mode: "none"}}
+      assert snapshot == %{
+               resolved: %{text: :native, threads: :native, mode: "none"},
+               file_delivery: %{
+                 transfer_mode: :unresolved,
+                 supports_attachment_edits: false,
+                 limits: %{
+                   max_attachment_bytes: %{
+                     value: :unresolved,
+                     configurable: true,
+                     required: false,
+                     type: :integer,
+                     unit: :bytes,
+                     validation: %{greater_than: 0}
+                   },
+                   max_encoded_message_bytes: %{
+                     value: :unresolved,
+                     configurable: true,
+                     required: true,
+                     type: :integer,
+                     unit: :bytes,
+                     validation: %{greater_than: 0}
+                   },
+                   max_attachments_per_message: %{
+                     value: :unresolved,
+                     configurable: true,
+                     required: true,
+                     type: :integer,
+                     unit: :count,
+                     validation: %{greater_than: 0}
+                   }
+                 }
+               }
+             }
     end
 
     test "IMAP advertises SMTP-backed text and threaded replies without attachment delivery" do

@@ -24,18 +24,26 @@ defmodule ZaqWeb.Components.LiveUpdateSettings do
   attr :policy, :map, default: nil
   attr :errors, :map, default: %{}
   attr :load_error, :string, default: nil
+  attr :embedded, :boolean, default: false
 
   def fields(assigns) do
     assigns = assign(assigns, :triggers, @triggers)
 
     ~H"""
-    <details
+    <.dynamic_tag
+      tag_name={if @embedded, do: "div", else: "details"}
       id={@id}
-      phx-mounted={JS.ignore_attributes("open")}
-      class="mt-3 rounded-xl border p-4"
-      style="background: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default)"
+      phx-mounted={if !@embedded, do: JS.ignore_attributes("open")}
+      class={if @embedded, do: "zaq-layout-stack", else: "mt-3 rounded-xl border p-4"}
+      style={
+        if !@embedded,
+          do:
+            "background: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default)"
+      }
     >
-      <summary class="zaq-text-body-sm cursor-pointer">Streamed message updates</summary>
+      <summary :if={!@embedded} class="zaq-text-body-sm cursor-pointer">
+        Streamed message updates
+      </summary>
       <p class="zaq-text-body-sm mt-3" style="color: var(--zaq-text-color-body-secondary)">
         Progress/status messages are unaffected and may still update the message.
         Selected events may trigger a streamed update when eligible; updates can include
@@ -101,7 +109,7 @@ defmodule ZaqWeb.Components.LiveUpdateSettings do
           {key}: {error}
         </p>
       </div>
-    </details>
+    </.dynamic_tag>
     """
   end
 

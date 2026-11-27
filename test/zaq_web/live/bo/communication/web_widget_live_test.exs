@@ -46,10 +46,177 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
          }}
   end
 
+  defmodule DeclaredFileBridge do
+    def capability_snapshot(config) do
+      {:ok, snapshot} = WebBridge.capability_snapshot(config)
+
+      {:ok,
+       snapshot
+       |> Map.update!(:resolved, &Map.put(&1, :file, :native))
+       |> Map.put(:file_delivery, %{
+         transfer_mode: :send_with_attachments,
+         limits: %{
+           max_attachment_bytes: %{
+             value: Map.get(config.settings, "declared_limit", 2_000_000),
+             configurable: true,
+             required: false,
+             type: :integer,
+             unit: :bytes,
+             validation: %{greater_than: 0}
+           },
+           max_attachments_per_message: %{value: 2, configurable: false, required: true}
+         }
+       })}
+    end
+
+    def sync_runtime(_, _), do: :ok
+  end
+
   setup %{conn: conn} do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :channels@localhost end)
     user = admin_fixture(%{must_change_password: false})
     %{conn: init_test_session(conn, %{user_id: user.id})}
+  end
+
+  test "widget rejected saves reveal current file controls without replacing drafts", %{
+    conn: conn
+  } do
+    configure_adapter(Adapter)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/web_widget")
+    render_click(view, "new_connector")
+    refute has_element?(view, "#widget-file-delivery-max_attachment_mb")
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.update!(channels, :web_widget, &Map.put(&1, :bridge, DeclaredFileBridge))
+    )
+
+    params = %{
+      "name" => "Recovered widget",
+      "file_delivery" => %{"max_attachment_mb" => "3", "send_on_file_failure" => "false"}
+    }
+
+    render_submit(view, "save", %{"widget" => params})
+    assert has_element?(view, "#widget-file-delivery-max_attachment_mb[max='2'][value='3']")
+    assert has_element?(view, "input[name='widget[name]'][value='Recovered widget']")
+    refute has_element?(view, "#widget-file-delivery-send_on_file_failure[checked]")
+    refute Repo.get_by(ChannelConfig, name: "Recovered widget")
+
+    render_submit(view, "save", %{
+      "widget" => put_in(params, ["file_delivery", "max_attachment_mb"], "1")
+    })
+
+    assert Repo.get_by!(ChannelConfig, name: "Recovered widget").settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_000,
+             "send_on_file_failure" => false
+           }
+  end
+
+  test "declared widget files share Advanced controls and save/reload through Engine", %{
+    conn: conn
+  } do
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(channels, :web_widget, %{bridge: DeclaredFileBridge, adapter: Adapter})
+    )
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/web_widget")
+    render_click(view, "new_connector")
+    assert has_element?(view, "#widget-settings-panel-advanced[hidden] #widget-file-delivery")
+
+    params = %{
+      "name" => "Files widget",
+      "file_delivery" => %{"max_attachment_mb" => "1.000001", "send_on_file_failure" => "false"}
+    }
+
+    observe_capability_lookups()
+    render_change(view, "validate", %{"widget" => params})
+    assert capability_lookup_count() == 0
+    render_click(view, "switch_settings_tab", %{"tab" => "advanced"})
+    render_click(view, "switch_settings_tab", %{"tab" => "main"})
+    assert has_element?(view, "#widget-file-delivery-max_attachment_mb[value='1.000001']")
+    render_submit(view, "save", %{"widget" => params})
+    config = Repo.get_by!(ChannelConfig, name: "Files widget")
+
+    assert config.settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_001,
+             "send_on_file_failure" => false
+           }
+
+    invalid = put_in(params, ["file_delivery", "max_attachment_mb"], "3")
+    render_submit(view, "save", %{"widget" => invalid})
+    assert has_element?(view, "#widget-settings-panel-advanced:not([hidden])")
+    assert render(view) =~ "Must not exceed the transport limit"
+    assert Repo.reload!(config).settings == config.settings
+
+    render_submit(view, "save", %{
+      "widget" => put_in(params, ["file_delivery", "max_attachment_mb"], "")
+    })
+
+    assert Repo.reload!(config).settings["file_delivery"] == %{"send_on_file_failure" => false}
+    {:ok, reloaded, _} = live(conn, "/bo/channels/retrieval/web_widget")
+    render_click(reloaded, "select_connector", %{"id" => to_string(config.id)})
+    refute has_element?(reloaded, "#widget-file-delivery-send_on_file_failure[checked]")
+
+    render_change(reloaded, "validate", %{
+      "widget" => %{"file_delivery" => %{"max_attachment_mb" => "1.2"}}
+    })
+
+    render_change(reloaded, "validate", %{
+      "widget" => %{"file_delivery" => %{"send_on_file_failure" => "true"}}
+    })
+
+    assert has_element?(reloaded, "#widget-file-delivery-max_attachment_mb[value='1.2']")
+
+    before_invalid_policy = Repo.reload!(config)
+
+    render_submit(reloaded, "save", %{
+      "widget" => %{"name" => "Rejected policy"},
+      "live_updates" => %{"min_interval_ms" => "0"}
+    })
+
+    assert has_element?(reloaded, "#widget-settings-panel-advanced:not([hidden])")
+    assert Repo.reload!(config).settings == before_invalid_policy.settings
+    assert Repo.reload!(config).name == before_invalid_policy.name
+  end
+
+  test "widget capability inspection and recovery stay on the selected connection", %{conn: conn} do
+    channels = Application.fetch_env!(:zaq, :channels)
+    configured = Map.put(channels, :web_widget, %{bridge: DeclaredFileBridge, adapter: Adapter})
+    Application.put_env(:zaq, :channels, configured)
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+
+    configs =
+      for {name, ceiling} <- [{"Larger widget", 2_000_000}, {"Selected widget", 1_000_000}] do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: name,
+          provider: "web_widget",
+          kind: "retrieval",
+          enabled: false,
+          settings: %{"declared_limit" => ceiling}
+        })
+        |> Repo.insert!()
+      end
+
+    selected = List.last(configs)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/web_widget")
+    Application.put_env(:zaq, :channels, Map.put(configured, :web_widget, %{adapter: Adapter}))
+    render_click(view, "select_connector", %{"id" => to_string(selected.id)})
+    assert has_element?(view, "#widget-file-delivery-unavailable")
+    render_change(view, "validate", %{"widget" => %{"name" => "Selected draft"}})
+    Application.put_env(:zaq, :channels, configured)
+    view |> element("#widget-file-delivery button", "Retry capabilities") |> render_click()
+    assert has_element?(view, "#widget-file-delivery-max_attachment_mb[max='1']")
+    assert has_element?(view, "#widget_name[value='Selected draft']")
+    refute has_element?(view, "#widget-file-delivery-unavailable")
+    assert Repo.reload!(selected).name == "Selected widget"
   end
 
   for connector_count <- [0, 2] do

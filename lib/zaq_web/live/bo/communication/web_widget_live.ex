@@ -6,13 +6,14 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.ProviderCatalog, as: ChannelProvider
-  alias Zaq.ConnectorConfig.WidgetSettings
+  alias Zaq.ConnectorConfig.{FileSettings, WidgetSettings}
   alias Zaq.Event
   alias Zaq.NodeRouter
-  alias ZaqWeb.Components.LiveUpdateSettings
+  alias ZaqWeb.Components.{ConnectionSettings, FileDeliverySettings, LiveUpdateSettings}
   alias ZaqWeb.Helpers.DateFormat
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
   @health_refresh_ms 15_000
@@ -36,6 +37,8 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       |> assign(:snippet, {:error, :selection_required})
       |> assign(:authentication_key, nil)
       |> assign(:errors, %{})
+      |> assign(:file_errors, %{})
+      |> assign(:settings_tab, :main)
       |> assign(:recovery_message, nil)
       |> assign(:ingress_statuses, %{})
       |> assign(:changed_settings, MapSet.new())
@@ -69,15 +72,18 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   @impl true
   def handle_event("open_capabilities", _params, socket) do
+    request =
+      case {socket.assigns[:modal_open], socket.assigns[:selected]} do
+        {true, %{id: id}} -> %{provider: "web_widget", scope: :configuration, config_id: id}
+        _ -> %{provider: "web_widget", scope: :provider}
+      end
+
     socket =
       if socket.assigns[:capabilities_error] do
         capabilities =
-          dispatch(socket, :channels, :channel_capability_snapshot, %{
-            provider: "web_widget",
-            scope: :provider
-          })
+          dispatch(socket, :channels, :channel_capability_snapshot, request)
 
-        apply_capabilities(socket, capabilities)
+        CapabilitySnapshot.apply_result(socket, capabilities)
       else
         socket
       end
@@ -87,6 +93,9 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   def handle_event("close_capabilities", _params, socket),
     do: {:noreply, assign(socket, :capability_modal_open, false)}
+
+  def handle_event("switch_settings_tab", params, socket),
+    do: ConnectionSettings.switch_settings_tab(params, socket)
 
   def handle_event("new_connector", _params, socket),
     do: {:noreply, socket |> reload(:new) |> assign(:modal_open, true)}
@@ -112,6 +121,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   def handle_event("validate", %{"widget" => params} = event, socket) do
     socket = update_live_update_draft(socket, event)
+    params = FileDeliverySettings.form_params(params, ["file_delivery"])
 
     changed =
       case Map.get(event, "_target") do
@@ -122,21 +132,27 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
           socket.assigns.changed_settings
       end
 
-    params = Map.merge(socket.assigns.form.params, params)
+    params = merge_draft_params(socket.assigns.form.params, params)
     target = event |> Map.get("_target", []) |> List.last()
     socket = assign(socket, :changed_settings, changed)
 
     {:noreply,
      socket
+     |> assign(:file_errors, file_draft_errors(params, socket))
      |> assign(:errors, update_validation_errors(socket.assigns.errors, target, params, socket))
      |> assign(:form, to_form(params, as: :widget))}
   end
 
   def handle_event("save", %{"widget" => params} = event, socket) do
     socket = update_live_update_draft(socket, event)
+    params = FileDeliverySettings.form_params(params, ["file_delivery"])
 
     socket =
-      assign(socket, :form, to_form(Map.merge(socket.assigns.form.params, params), as: :widget))
+      assign(
+        socket,
+        :form,
+        to_form(merge_draft_params(socket.assigns.form.params, params), as: :widget)
+      )
 
     case widget_routing_params(params, socket) do
       {:ok, params} ->
@@ -268,7 +284,31 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
         saved(socket, result, message)
 
       {:error, {:validation, errors}} ->
-        socket |> clear_key() |> assign(:errors, errors)
+        socket = CapabilitySnapshot.recover(socket, errors)
+        file_errors = Map.get(errors, :file_delivery, %{})
+
+        errors =
+          errors
+          |> Map.drop([:file_delivery, :capabilities])
+          |> Map.drop(Map.keys(socket.assigns.live_update_errors))
+
+        advanced? =
+          FileSettings.visible?(socket.assigns.capabilities_snapshot) ||
+            socket.assigns.capabilities_error
+
+        policy_errors? = socket.assigns.live_update_errors != %{}
+
+        socket
+        |> clear_key()
+        |> assign(:errors, errors)
+        |> assign(:file_errors, file_errors)
+        |> assign(
+          :settings_tab,
+          ConnectionSettings.tab_for_errors(socket.assigns.settings_tab, %{
+            main: errors != %{} || (!advanced? && policy_errors?),
+            advanced: file_errors != %{} || (advanced? && policy_errors?)
+          })
+        )
 
       {:error, reason} ->
         failure(socket, reason)
@@ -278,7 +318,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   defp apply_snapshot(socket, snapshot) do
     socket
     |> clear_key()
-    |> apply_capabilities(snapshot.capabilities)
+    |> CapabilitySnapshot.apply_result(snapshot.capabilities)
     |> assign(:configs, snapshot.configs)
     |> assign(:selected, snapshot.selected)
     |> assign(:live_update_policy, snapshot.selected && snapshot.selected.live_updates)
@@ -286,6 +326,8 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     |> assign(:base_url, snapshot.base_url)
     |> assign(:adapter, snapshot.adapter)
     |> assign(:errors, %{})
+    |> assign(:file_errors, %{})
+    |> assign(:settings_tab, :main)
     |> assign(:recovery_message, nil)
     |> assign(:form, to_form(form_params(snapshot.selected), as: :widget))
     |> assign(:installation_config, nil)
@@ -420,8 +462,22 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       "enabled" => selected.enabled,
       "identity_issuer" => selected.identity_issuer || "",
       "identity_audience" => selected.identity_audience || "",
-      "same_site" => selected.same_site || ""
+      "same_site" => selected.same_site || "",
+      "file_delivery" => FileSettings.form_values(selected.file_delivery)
     }
+  end
+
+  defp merge_draft_params(existing, params) do
+    params =
+      case {Map.get(existing, "file_delivery"), Map.get(params, "file_delivery")} do
+        {current, submitted} when is_map(current) and is_map(submitted) ->
+          Map.put(params, "file_delivery", Map.merge(current, submitted))
+
+        _ ->
+          params
+      end
+
+    Map.merge(existing, params)
   end
 
   defp split_origins(value) when is_binary(value),
@@ -440,6 +496,20 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     |> Map.take(["allowed_domains", "identity_issuer", "identity_audience", "same_site"])
     |> Map.update("allowed_domains", [], &split_origins/1)
     |> WidgetSettings.validation_errors()
+  end
+
+  defp file_draft_errors(params, socket) do
+    if FileSettings.visible?(socket.assigns.capabilities_snapshot) or
+         Map.has_key?(params, "file_delivery") do
+      with {:ok, settings} <- FileSettings.normalize_form(Map.get(params, "file_delivery", %{})),
+           :ok <- FileSettings.validate(settings, socket.assigns.capabilities_snapshot) do
+        %{}
+      else
+        {:error, errors} -> errors
+      end
+    else
+      %{}
+    end
   end
 
   defp update_validation_errors(errors, field, params, socket) when is_binary(field) do
@@ -528,13 +598,6 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   defp settings(socket, request),
     do: dispatch(socket, :engine, :widget_connector_settings, request)
-
-  defp apply_capabilities(socket, {:ok, snapshot}) when is_map(snapshot) do
-    assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
-  end
-
-  defp apply_capabilities(socket, {:error, _reason}),
-    do: assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
 
   defp dispatch(socket, role, action, request) do
     dispatch_user(socket.assigns.current_user, role, action, request)

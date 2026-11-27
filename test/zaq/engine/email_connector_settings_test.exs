@@ -4,9 +4,11 @@ defmodule Zaq.Engine.EmailConnectorSettingsTest do
 
   import StreamData
 
+  alias Zaq.ConnectorConfig.FileSettings
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.EmailConnectorSettings
   alias Zaq.Event
+  alias Zaq.System.EmailConfig
   alias Zaq.Types.EncryptedString
 
   defmodule RuntimeStub do
@@ -342,6 +344,104 @@ defmodule Zaq.Engine.EmailConnectorSettingsTest do
 
     assert get_in(Repo.get!(ChannelConfig, id).settings, ["imap", "smtp_config_id"]) == first.id
     assert_received {:runtime_sync, %Event{request: %{config: %{id: ^id, token: "secret"}}}}
+  end
+
+  test "SMTP file settings use shared units and preserve unrelated settings" do
+    channel = insert_config("email:smtp", "File sender")
+
+    channel
+    |> Ecto.Changeset.change(settings: %{"custom" => %{"retained" => true}})
+    |> Zaq.Repo.update!()
+
+    params =
+      Map.put(smtp_params("File sender"), "file_delivery", %{
+        "max_encoded_message_mb" => "10.000001",
+        "max_attachments_per_message" => "2",
+        "send_on_file_failure" => "false"
+      })
+
+    assert {:ok, result} =
+             EmailConnectorSettings.save(
+               %{
+                 provider: "email:smtp",
+                 selected_config_id: channel.id,
+                 params: params
+               },
+               node_router: RuntimeStub
+             )
+
+    saved = ChannelConfig.get(channel.id)
+    assert saved.settings["custom"] == %{"retained" => true}
+    assert saved.settings["file_delivery"]["max_encoded_message_bytes"] == 10_000_001
+    assert saved.settings["file_delivery"]["send_on_file_failure"] == false
+    assert result.snapshot.form_config.file_delivery == saved.settings["file_delivery"]
+
+    cleared = Map.put(params, "file_delivery", %{"max_encoded_message_mb" => ""})
+
+    assert {:ok, _} =
+             EmailConnectorSettings.save(
+               %{
+                 provider: "email:smtp",
+                 selected_config_id: channel.id,
+                 params: cleared
+               },
+               node_router: RuntimeStub
+             )
+
+    settings = ChannelConfig.get(channel.id).settings
+    refute Map.has_key?(settings["file_delivery"], "max_encoded_message_bytes")
+    assert settings["file_delivery"]["max_attachments_per_message"] == 2
+    assert settings["custom"] == %{"retained" => true}
+
+    invalid = Map.put(params, "file_delivery", %{"max_upload_request_bytes" => 1000})
+
+    assert {:error, %Ecto.Changeset{data: %EmailConfig{}} = errors} =
+             EmailConnectorSettings.save(
+               %{
+                 provider: "email:smtp",
+                 selected_config_id: channel.id,
+                 params: invalid
+               },
+               node_router: RuntimeStub
+             )
+
+    assert FileSettings.errors(errors)["max_upload_request_bytes"]
+    assert ChannelConfig.get(channel.id).settings == settings
+  end
+
+  test "SMTP persistence name errors retain the form schema and every submitted draft" do
+    for selection <- [:new, insert_config("email:smtp", "Original name").id] do
+      params =
+        smtp_params("")
+        |> Map.put("relay", "draft.example.com")
+        |> Map.put("file_delivery", %{
+          "max_attachment_mb" => "1.000001",
+          "send_on_file_failure" => "false"
+        })
+
+      assert {:error, changeset} =
+               EmailConnectorSettings.save(
+                 %{provider: "email:smtp", selected_config_id: selection, params: params},
+                 node_router: RuntimeStub
+               )
+
+      assert %EmailConfig{} = changeset.data
+      assert changeset.params["connector_name"] == ""
+      assert changeset.params["password"] == "secret"
+      assert Ecto.Changeset.get_field(changeset, :relay) == "draft.example.com"
+
+      assert Ecto.Changeset.get_field(changeset, :file_delivery) == %{
+               "max_attachment_bytes" => 1_000_001,
+               "send_on_file_failure" => false
+             }
+
+      assert {"can't be blank", _} = Keyword.fetch!(changeset.errors, :connector_name)
+
+      if selection != :new,
+        do: assert(Repo.get!(ChannelConfig, selection).name == "Original name")
+
+      refute_received {:runtime_sync, _}
+    end
   end
 
   defp smtp_params(name) do

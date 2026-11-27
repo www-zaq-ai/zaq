@@ -128,6 +128,24 @@ Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
 overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
 normalization remains provider-local in Channels.
 
+Communication-channel file configuration is stored under `settings["file_delivery"]`, independently of
+derived requirements. Byte overrides are positive integers; form MB values use
+1,000,000 bytes with at most six decimal places and no rounding. Counts are positive
+integers. The boolean `send_on_file_failure` defaults to true (`:continue`); explicit
+false selects `:abort`. Forms and persistence share `Zaq.ConnectorConfig.FileSettings`.
+SMTP saves retain unrelated settings. Every retrieval save checks capabilities
+for its effective proposed configuration during write preparation, including
+enablement and changed transport settings with unchanged file overrides. The
+existing Channels snapshot event carries the proposal confidentially; BO cached
+facts provide feedback only. FileSettings uses Ecto for effective type, required
+and numeric checks, retaining domain checks for fixed/inapplicable overrides and
+known ceilings. Unsupported SMTP accepts blank settings. Invalid grouped saves
+roll back details and policy; field-local errors survive the boundary. SMTP
+persistence errors project onto the submitted EmailConfig form, retaining
+credentials, connection-name drafts and Advanced values. See
+[Channels file metadata](channels.md#file-configuration-and-transport-requirements)
+for required, optional, fixed and unresolved limit semantics.
+
 `Zaq.Engine.LiveUpdateSettings` owns the `settings["live_updates"]` subtree for
 retrieval connectors. The confidential `:manage_live_update_settings` Engine event
 runs `ManageLiveUpdateSettings` through validated Action execution and authenticates
@@ -142,8 +160,12 @@ checks. Invalid fields or policy roll back the whole edit; changed revisions rej
 with `:stale_connector`. An unchanged absent policy is not materialized merely by
 saving other fields. The BO holds all drafts until the modal's overall Save/Update;
 Cancel writes nothing.
-Widget settings snapshots include the normalized capability result beside adapter
-availability, both derived from one provider lookup. Capability lookup failures
+Widget saves accept and project `file_delivery` through their existing allowlist,
+persistence guard and field-error mapping. Omitted values retain overrides,
+optional blanks clear them, and explicit false policy survives save/reload.
+Identity, routing, keys and lifecycle revisions retain their existing boundaries.
+Widget settings snapshots include the selected connector's normalized capability
+result beside adapter availability, both derived from one lookup. Capability lookup failures
 remain distinct from successful results and do not prevent settings from loading.
 Ordinary `ChannelConfig.changeset/2` updates preserve the current policy under a
 row lock in write preparation, even if a form submits an old settings snapshot.
