@@ -45,6 +45,7 @@ npm-debug.log
 !/priv/python/crawler-ingest.revision
 /.venv/
 # Playwright E2E artifacts
+/test-results/
 /test/e2e/node_modules/
 /test/e2e/.auth/
 /test/e2e/test-results/

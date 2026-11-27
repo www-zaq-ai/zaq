@@ -9,7 +9,7 @@ For the Docker installer or a server deployment, use the [deployment guide](oper
 - Elixir and Erlang/OTP: use the versions in [`.tool-versions`](../.tool-versions); the supported Elixir constraint is in [`mix.exs`](../mix.exs).
 - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) 0.7.0+ (embeddings use `halfvec`) and a local `psql` client.
 - Python 3.10+ for the document conversion pipeline.
-- Node.js 20+ if running Playwright browser tests.
+- Node.js 20+ if running the JS browser tests in `test/e2e` (not needed for the E2E journeys).
 
 ### Bootstrap and start
 
@@ -98,27 +98,28 @@ isolated tests, failure handling and final approval; commands here are setup ref
 
 ### E2E Tests (Playwright)
 
-E2E tests run against a dedicated Phoenix server on port `4002` with `MIX_ENV=test E2E=1`.
+E2E journeys are ExUnit tests on playwright_ex in `test/e2e_pw/`, tagged `:e2e` and excluded
+from plain `mix test`. The Phoenix server runs inside the test VM on port `4002` with
+`MIX_ENV=test E2E=1`. See [E2E testing](e2e-testing.md).
 
 ```bash
-cd test/e2e
-npm run test              # bootstrap + full suite
-npm run test:journeys     # bootstrap + specs only
-npm run test:headed       # bootstrap + headed browser (visual debugging)
+mix e2e                                  # bootstrap + full suite
+mix e2e test/e2e_pw/agents_test.exs      # bootstrap + one module
+SLOW=1 mix e2e test/e2e_pw/agents_test.exs  # headed browser, 1 s slow-mo (visual debugging)
 ```
 
-`npm run bootstrap` runs automatically before each test command. It:
+`mix e2e` bootstraps before running the tests. It:
 - Builds assets for the E2E environment
 - Creates and migrates the E2E database
 - Seeds it via `test/support/e2e/bootstrap.exs`
 
-#### E2E Spec Coverage
+#### E2E Test Coverage
 
-| Spec | What it covers |
+| Test module | What it covers |
 |---|---|
-| `ingestion.spec.js` | File upload, processing pipeline, job status |
-| `system_config.spec.js` | LLM, embedding, SMTP config via BO |
-| `knowledge_ops_lead.spec.js` | Knowledge base operations |
+| `ingestion_test.exs` | File upload, processing pipeline, job status |
+| `system_config_test.exs` | LLM, embedding, SMTP config via BO |
+| `knowledge_ops_lead_test.exs` | Knowledge base operations |
 
 #### ProcessorState — Controlled Failure Injection
 
@@ -130,12 +131,14 @@ Zaq.E2E.ProcessorState.set_fail(3)  # fail next 3 processing attempts
 Zaq.E2E.ProcessorState.reset()      # restore normal behavior
 ```
 
-Use it in `test/support/e2e/bootstrap.exs` or via the E2E controller from Playwright
-`beforeEach` hooks to simulate failure scenarios without touching production code.
+Use it in `test/support/e2e/bootstrap.exs` or via the E2E controller from a test's
+`setup` to simulate failure scenarios without touching production code.
 
 #### Prerequisites
-- Node.js 20+
-- Playwright browsers installed: `cd test/e2e && npx playwright install`
+- Playwright driver and browser installed: `mix playwright.install chromium` (`firefox`,
+  `webkit` likewise)
+- For the JS browser tests in `test/e2e` (Storybook, `:real_browser` runners, `node --test`
+  units): Node.js 20+, `npm --prefix test/e2e install` and `npx --prefix test/e2e playwright install`
 
 ---
 

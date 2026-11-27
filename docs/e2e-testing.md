@@ -2,7 +2,7 @@
 
 ## Overview
 
-E2E tests use [Playwright](https://playwright.dev/) and live in `test/e2e/`. The server runs on port `4002` with `MIX_ENV=test E2E=1`, which enables special `/e2e/*` endpoints for direct DB seeding.
+E2E journeys are ExUnit tests on [playwright_ex](https://hex.pm/packages/playwright_ex) (`Playwright.*`), tagged `:e2e`, and live in `test/e2e_pw/`. Plain `mix test` excludes them. The server runs on port `4002` with `MIX_ENV=test E2E=1`, which enables special `/e2e/*` endpoints for direct DB seeding.
 
 For **when to author tests**, follow the authoritative
 [feature E2E approval gate](testing-approach.md#feature-e2e-approval-gate): track
@@ -17,7 +17,7 @@ uses ExUnit and the production `agent-browser` CLI, not the Playwright journey s
 Storybook checks use the dev server on port `4000`. In dev, `mix assets.build`
 builds both the production `app.css` and the separate `app.dev.css` preview bundle;
 the dev server watches both. Storybook loads `app.dev.css`, so the production
-asset build performed by `npm test` cannot overwrite its sandbox/theme styles.
+asset build performed by `mix e2e` cannot overwrite its sandbox/theme styles.
 Keep those output paths separate when changing asset profiles.
 
 The dev-only Storybook entry also guards PhoenixStorybook 1.3's delayed iframe
@@ -27,18 +27,27 @@ JavaScript errors are not suppressed. Its lifecycle checks use a controlled
 scheduler in `test/e2e/support/storybook-iframes.test.cjs`.
 
 ```
-test/e2e/
-├── playwright.config.js     # Playwright config (port, timeout, browser)
-├── support/
-│   ├── bo.js                # Shared page helpers — add ALL reusable functions here
-│   └── global-setup.js      # One-time startup: asset check + /e2e/health
-└── specs/
-    ├── agents.spec.js
-    ├── ingestion.spec.js
-    ├── people.spec.js
-    ├── system_config.spec.js
-    └── ...
+test/
+├── test_helper.exs          # E2E=1: runs the global setup, then ExUnit.start(timeout: 30_000)
+├── support/e2e_pw/
+│   ├── case.ex              # Zaq.E2EPw.Case: page, context, browser, browser_name, request
+│   ├── bo.ex                # Shared page helpers — add ALL reusable functions here
+│   └── global_setup.ex      # One-time startup: asset check + /e2e/health + admin login
+├── e2e_pw/
+│   ├── agents_test.exs
+│   ├── ingestion_test.exs
+│   ├── people_test.exs
+│   ├── system_config_test.exs
+│   └── ...
+└── e2e/                     # JS: Storybook project, :real_browser runners, node --test units
+    ├── playwright.config.js
+    ├── storybook-specs/
+    └── support/
 ```
+
+Browser config (base URL, storage state, artifacts, `SLOW`, expect timeout) is the `if e2e?`
+block of `config/test.exs`; the project (`journeys-<browser>`, its device) comes from
+`E2E_AUTH_BROWSER` (`chromium`, `firefox` or `webkit`) in `Zaq.E2EPw.Case.project/0`.
 
 ---
 
@@ -474,72 +483,72 @@ MIX_ENV=test mix coveralls.json \
 
 1. **PostgreSQL** reachable at `localhost:5432` (same as CI and `docker compose` in this repo). With `E2E=1`, the app re-applies DB settings **after** `config/test.secret.exs`, so a worktree-specific repo port in that file does not apply to the E2E server. Override only when intentional: `E2E_DB_HOST`, `E2E_DB_PORT`, `E2E_DB_USER`, `E2E_DB_PASSWORD`.
 
-2. Build assets (first time or after asset changes):
+2. Build assets (first time or after asset changes; `mix e2e` does this on every run):
    ```bash
    mix assets.setup && mix assets.build
    ```
 
-3. Install Playwright dependencies (first time):
+3. Install the Playwright driver and browser for the journeys (first time; `firefox` and
+   `webkit` likewise):
    ```bash
-   cd test/e2e && npm install
+   mix playwright.install chromium
    ```
+
+   The JS parts of `test/e2e` (Storybook, the `:real_browser` runners, `node --test` units)
+   still need `npm --prefix test/e2e install`; the journeys do not.
 
 ### Run all tests
 
 ```bash
-cd test/e2e
-npx playwright test
+mix e2e
 ```
 
-### Run a single spec (standard)
+### Run a single module (standard)
 
 ```bash
-cd test/e2e
-npx playwright test specs/agents.spec.js
+mix e2e test/e2e_pw/agents_test.exs
 ```
 
-### Debug a failing spec
+### Debug a failing test
 
-Use `--reporter=line` for compact, readable failure output:
+Run it by line and read its `error-context.md` (see [Viewing Failure Artifacts](#viewing-failure-artifacts)):
 
 ```bash
-cd test/e2e
-npx playwright test specs/agents.spec.js --reporter=line
+mix e2e test/e2e_pw/agents_test.exs:42
 ```
 
 ### Watch with headed browser (slow motion)
 
 ```bash
-cd test/e2e
-SLOW=1 npx playwright test specs/agents.spec.js --reporter=line
+SLOW=1 mix e2e test/e2e_pw/agents_test.exs
 ```
 
 Set `SLOW=500` (ms) to control the slow-mo delay.
 
 ### Run a single test by title
 
+Pass the full ExUnit test name:
+
 ```bash
-cd test/e2e
-npx playwright test specs/agents.spec.js --reporter=line -g "add tools and MCP endpoint"
+mix e2e test/e2e_pw/agents_test.exs --only test:"test add tools and MCP endpoint for a tool-capable model"
 ```
 
 ### CI mode
 
-In CI, the server is always started fresh (`reuseExistingServer: false`). Locally, Playwright reuses an already-running server on port 4002.
+CI (`.github/workflows/e2e.yml`) runs one browser per matrix leg (`E2E_AUTH_BROWSER`), installs
+it with `mix playwright.install <browser> --with-deps`, bootstraps the database and runs
+`mix test test/e2e_pw`.
 
 ---
 
 ## How the Server Boots
 
-`playwright.config.js` starts the Phoenix server automatically:
-
-```js
-webServer: {
-  command: "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix phx.server'",
-  url: "http://localhost:4002/bo/login",
-  reuseExistingServer: !process.env.CI,
-}
-```
+There is no separate `mix phx.server`: the app server runs in the test VM. `mix e2e [mix test
+args]` (`defp e2e/1` in `mix.exs`) builds the assets, bootstraps the E2E database, then runs
+`mix test` on `test/e2e_pw` (or on the `test/` paths given), passing the other args on, with
+`PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e`. With `E2E=1`,
+`test/test_helper.exs` runs `Zaq.E2EPw.GlobalSetup` (asset check, `/e2e/health`, admin login)
+and then starts ExUnit with the 30 s test timeout.
 
 The `E2E=1` flag enables the `/e2e/*` API routes used for DB seeding. Without it, those endpoints return 404 and tests fail.
 
@@ -547,35 +556,39 @@ The `E2E=1` flag enables the `/e2e/*` API routes used for DB seeding. Without it
 
 ## Test Philosophy: Seed via API, Not via UI
 
-**Each spec tests one page.** It must not navigate to other pages to set up prerequisites.
+**Each test module tests one page.** It must not navigate to other pages to set up prerequisites.
 
 ### Wrong — navigating to System Config to create a credential before testing the Agent page
 
-```js
-// DON'T DO THIS
-await page.goto("/bo/system-config")
-await page.click('[phx-value-tab="ai_credentials"]')
-await page.click('[phx-click="new_ai_credential"]')
-// ... fill form, save ...
-await page.goto("/bo/agents")
-// now finally test the agent page
+```elixir
+# DON'T DO THIS
+Page.goto!(page, "/bo/system-config")
+page |> Page.locator(~s|[phx-value-tab="ai_credentials"]|) |> Locator.click!()
+page |> Page.locator(~s|[phx-click="new_ai_credential"]|) |> Locator.click!()
+# ... fill form, save ...
+Page.goto!(page, "/bo/agents")
+# now finally test the agent page
 ```
 
-This is slow, fragile, and tests the wrong thing. If System Config is broken, the Agent spec fails for unrelated reasons.
+This is slow, fragile, and tests the wrong thing. If System Config is broken, the Agent tests fail for unrelated reasons.
 
 ### Right — seed the DB directly via the E2E API, then go straight to the page under test
 
-```js
-// DO THIS
-await loginToBackOffice(page)
-const credential = await createE2EAiCredential(page, {
-  name: `E2E Cred ${Date.now()}`,
-  provider: "OpenRouter",
-  endpoint: "https://openrouter.ai/api/v1",
-  api_key: `e2e-key-${Date.now()}`,
-  description: "Seeded for agents spec",
-})
-// Now test the Agent page directly
+```elixir
+# DO THIS
+login_to_back_office(page)
+now = System.system_time(:millisecond)
+
+credential =
+  create_e2e_ai_credential(page, %{
+    name: "E2E Cred #{now}",
+    provider: "OpenRouter",
+    endpoint: "https://openrouter.ai/api/v1",
+    api_key: "e2e-key-#{now}",
+    description: "Seeded for agents test"
+  })
+
+# Now test the Agent page directly
 ```
 
 The `/e2e/*` endpoints insert records directly into the test DB via Ecto — no page navigation, no form fills, no flakiness from unrelated UI.
@@ -583,170 +596,189 @@ The `/e2e/*` endpoints insert records directly into the test DB via Ecto — no 
 ### Benefits
 
 - **Speed** — seeding via API takes milliseconds vs. seconds of UI interaction
-- **Isolation** — a bug in System Config UI does not break the Agent spec
-- **Clarity** — each spec tests exactly one page's behaviour
+- **Isolation** — a bug in System Config UI does not break the Agent tests
+- **Clarity** — each module tests exactly one page's behaviour
 - **Stability** — fewer moving parts = fewer race conditions
 
 ---
 
 ## DB Seeding API
 
-These functions are in `test/e2e/support/bo.js` and hit the `/e2e/*` endpoints:
+These functions are in `test/support/e2e_pw/bo.ex` (`Zaq.E2EPw.BO`) and hit the `/e2e/*` endpoints:
 
 | Function | What it does |
 |---|---|
-| `resetE2EState(request)` | Truncates test tables and resets to baseline. Call in `beforeAll`. |
-| `setE2ESystemConfig(request, key, value)` | Sets a system config key directly in DB. |
-| `createE2EAiCredential(page, attrs)` | Inserts an AI provider credential through the authenticated BO session. Returns `{ id, name, provider }`. |
-| `createE2EConversation(request, attrs)` | Inserts a conversation for the E2E admin user. Body: required `channel_type`; optional `title`, `channel_user_id`, `status` (`active` / `archived`), `user_id`. Returns `{ ok, id, title, channel_type, status }`. |
-| `createE2EMcpEndpoint(request, attrs)` | Inserts an MCP endpoint record. Returns the created record. |
+| `reset_e2e_state(request)` | Truncates test tables and resets to baseline. Call in `setup_all` or `setup`. |
+| `set_e2e_system_config(request, key, value)` | Sets a system config key directly in DB. |
+| `create_e2e_ai_credential(page, attrs)` | Inserts an AI provider credential through the authenticated BO session. Returns the decoded JSON (`%{"id" => ..., "name" => ..., "provider" => ...}`). |
+| `create_e2e_conversation(request, attrs)` | Inserts a conversation for the E2E admin user. Body: required `channel_type`; optional `title`, `channel_user_id`, `status` (`active` / `archived`), `user_id`. Returns `%{"ok", "id", "title", "channel_type", "status"}`. |
+| `create_e2e_mcp_endpoint(request, attrs)` | Inserts an MCP endpoint record. Returns the created record. |
 
-`loginToBackOffice` uses the authenticated browser state created in global setup.
-`createE2EAiCredential` must receive a logged-in page; it reads the CSRF token from
-that page and posts with `page.request` so the token and BO session cookie stay in
+`login_to_back_office` uses the authenticated browser state created in global setup.
+`create_e2e_ai_credential` must receive a logged-in page; it reads the CSRF token from
+that page and posts with `Page.request(page)` so the token and BO session cookie stay in
 the same browser context. See [Logging In](#logging-in).
 
-### Pattern: reset in `beforeAll`, log in, then seed once
+### Pattern: reset in `setup_all`, log in, then seed once
 
-```js
-const { createE2EAiCredential, resetE2EState, loginToBackOffice } = require("../support/bo")
+The `request` fixture is per test, so `setup_all` opens its own API request context.
 
-test.describe("Agent page", () => {
-  let credential
+```elixir
+defmodule Zaq.E2EPw.AgentsTest do
+  use Zaq.E2EPw.Case
 
-  test.beforeAll(async ({ playwright }) => {
-    const request = await playwright.request.newContext()
-    await resetE2EState(request)                    // clean slate
-    await request.dispose()
-  })
+  import Zaq.E2EPw.BO
 
-  test.beforeEach(async ({ page }) => {
-    await loginToBackOffice(page)
+  setup_all %{browser: browser} do
+    request = APIRequest.new_context!(Playwright.request(BrowserPool.playwright(browser)))
+    reset_e2e_state(request)                        # clean slate
+    APIRequestContext.dispose!(request)
+    :ok
+  end
 
-    credential ||= await createE2EAiCredential(page, {
-      name: "E2E Credential",
-      provider: "OpenRouter",
-      endpoint: "https://openrouter.ai/api/v1",
-      api_key: "e2e-key",
-      description: "Seeded",
-    })
-  })
+  setup %{page: page} do
+    login_to_back_office(page)
 
-  test("creates an agent", async ({ page }) => {
-    // test the agent page directly
-  })
-})
+    credential =
+      create_e2e_ai_credential(page, %{
+        name: "E2E Credential #{System.system_time(:millisecond)}",
+        provider: "OpenRouter",
+        endpoint: "https://openrouter.ai/api/v1",
+        api_key: "e2e-key",
+        description: "Seeded"
+      })
+
+    %{credential: credential}
+  end
+
+  test "creates an agent", %{page: page, credential: credential} do
+    # test the agent page directly
+  end
+end
 ```
+
+Tests run in random order, so a test must not rely on state another test left behind. When
+tests mutate shared records, reset in `setup` instead (`setup %{request: request}`).
 
 ---
 
 ## Logging In
 
-Global setup signs in once through the regular BO login form, saves the resulting
-Phoenix session cookie to Playwright storage state at
-`test/e2e/.auth/bo-admin.json`. Journey projects load that state for every page,
-so `loginToBackOffice(page)` normally just navigates to the target BO route.
-Authenticated E2E setup requests should use `page.request` after `loginToBackOffice`
+Global setup (`test/support/e2e_pw/global_setup.ex`) signs in once through the regular
+BO login form, saves the resulting Phoenix session cookie to Playwright storage state at
+`test/e2e/.auth/bo-admin.json`. Every test's `context` and `page` (and the `request`
+fixture) start from that state (`storage_state` in `config/test.exs`), so
+`login_to_back_office(page)` normally just navigates to the target BO route.
+Authenticated E2E setup requests should use `Page.request(page)` after `login_to_back_office`
 so they reuse that page's current session cookie and CSRF token without repeating
 the login flow.
 
-```js
-await loginToBackOffice(page)                              // cached regular-login session
-await loginToBackOffice(page, { returnTo: "/bo/people" })  // land straight on the page
+```elixir
+login_to_back_office(page)                           # cached regular-login session
+login_to_back_office(page, return_to: "/bo/people")  # land straight on the page
 ```
 
-If a destructive flow invalidates the cached session, `loginToBackOffice` falls
+If a destructive flow invalidates the cached session, `login_to_back_office` falls
 back to the regular login form for the default E2E admin and refreshes the saved
 storage state.
 
-The real login form is used when you pass a `password` — **passing one means you
-want it verified** — or set `realLogin: true` explicitly:
+The real login form is used when you pass a `:password` — **passing one means you
+want it verified** — or set `real_login: true` explicitly:
 
-```js
-// onboarding.spec.js — the login journey IS the subject here
-await loginToBackOffice(page, { username: user.username, password: user.password })
+```elixir
+# onboarding_test.exs — the login journey IS the subject here
+login_to_back_office(page, username: user["username"], password: user["password"])
 ```
 
-Do not remove the explicit form path from those specs: password verification and
+Do not remove the explicit form path from those tests: password verification and
 the `must_change_password` redirect are part of what they cover.
 
 ---
 
-## Shared Helpers: `support/bo.js`
+## Shared Helpers: `test/support/e2e_pw/bo.ex`
 
-**Any function used across more than one spec must live in `test/e2e/support/bo.js`.**
+**Any function used by more than one test module must live in `Zaq.E2EPw.BO` (`test/support/e2e_pw/bo.ex`).**
 
-Do not define helpers inline inside a spec file if they could be reused. Move them to `bo.js` and export them.
+Do not define private helpers inside a test module if they could be reused. Move them to `bo.ex` as public functions.
 
 ### Adding a new helper
 
-1. Write the function in `bo.js`
-2. Add it to the `module.exports` block at the bottom of `bo.js`
-3. Import it in the spec: `const { myHelper } = require("../support/bo")`
+1. Write a public function in `bo.ex`
+2. Use it in the module, which already has `import Zaq.E2EPw.BO`
 
-### Current exports
+### Current helpers
 
-Use `expectFlashDuringAction(page, text, action)` for positive success-notification
+Use `expect_flash_during_action(page, text, action)` for positive success-notification
 assertions. It observes rendered flashes in the browser before the action and
 retains their appearance after auto-dismissal, including across navigation. Stale
 notifications are excluded by recording their existing DOM identity/text before observation starts. Keep durable reload/state
 assertions; use the clock-controlled test for auto-dismissal itself. Negative
 validation and security assertions are not replaced by this helper.
 
-```js
-module.exports = {
-  loginToBackOffice,
-  gotoBackOfficeLive,
-  waitForLiveViewConnected,
-  waitForLiveViewSettled,
-  waitForServerRoundTrip,
-  dismissFlash,
-  expectFlashDuringAction,
-  pickSearchableSelect,
-  pickFirstSearchableSelectOption,
-  createAiCredential,       // UI-based (legacy) — prefer createE2EAiCredential
-  resetE2EState,            // POST /e2e/reset
-  setE2ESystemConfig,       // POST /e2e/system-config
-  createE2EAiCredential,    // POST /e2e/ai-credential
-  createE2EConversation,    // POST /e2e/conversations
-  createE2EMcpEndpoint,     // POST /e2e/mcp-endpoint
-}
+```elixir
+# Page and LiveView
+login_to_back_office(page, opts)            login_via_form(page, opts)
+goto_back_office_live(page, path, opts)     wait_for_live_view_connected(page, opts)
+wait_for_live_view_settled(page, opts)      wait_for_server_round_trip(page)
+dismiss_flash(page)                         expect_flash_during_action(page, text, action, opts)
+pick_searchable_select(page, container_sel, option_label, opts)
+select_person_channel_connector(page, platform, connector_id)
+open_prompt_template(page, slug)
+create_ai_credential(page, overrides)       # UI-based (legacy) — prefer create_e2e_ai_credential
+
+# /e2e/* seeding
+reset_e2e_state(request)                    # POST /e2e/reset
+set_e2e_system_config(request, key, value)  # POST /e2e/system-config
+create_e2e_ai_credential(page, attrs)       # POST /e2e/ai-credentials
+create_e2e_conversation(request, attrs)     # POST /e2e/conversations
+create_e2e_mcp_endpoint(request, attrs)     # POST /e2e/mcp-endpoints
+create_e2e_agent(request, attrs)            create_e2e_answering_agent(page)
+select_e2e_chat_agent(page, agent)          create_e2e_addon_package(request, attrs)
+seed_e2e_people_connectors(request)         seed_e2e_llm_performance(request, mode)
+seed_e2e_channel_history(request)           touch_e2e_file(request, relative_path)
+write_e2e_file(request, relative_path, content)
+create_e2e_bootstrap_admin(request)         create_e2e_onboarding_user(request, attrs)
+create_e2e_declined_portal_user(request, attrs)
+register_e2e_portal_conflict(request, attrs)
+set_e2e_portal_offline(request, offline)    get_e2e_zaq_router_credential(request, opts)
+seed_e2e_prompt_template_defaults(request)  publish_e2e_prompt_template_defaults(request, body)
 ```
 
-> `createAiCredential` (no `E2E` prefix) drives the UI form on System Config — it exists for legacy reasons. Prefer `createE2EAiCredential` (API-based) in all new tests.
+> `create_ai_credential` (no `e2e` prefix) drives the UI form on System Config — it exists for legacy reasons. Prefer `create_e2e_ai_credential` (API-based) in all new tests.
 
 ---
 
-## What Each Spec Tests
+## What Each Test Module Tests
 
-| Spec file | Page under test |
+| Test module | Page under test |
 |---|---|
-| `agents.spec.js` | `/bo/agents` — Agent creation, credential selection, model picker, tools, MCP endpoints |
-| `ingestion.spec.js` | `/bo/ingestion` — File ingestion pipeline |
-| `multilingual_ingestion.spec.js` | `/bo/ingestion` — details modal, extracted Markdown and partial/recovered language-neutral progress display. The E2E-only `/e2e/ingestion/multilingual_summary` fixture updates the fake processor's persisted summary; real detection, indexing and retry behavior are verified by `test/zaq/ingestion/multilingual_real_ingestion_test.exs`, not by this browser fixture. |
-| `people.spec.js` | `/bo/people` — User/team management |
-| `system_config.spec.js` | `/bo/system-config` — AI credentials, MCP config, system settings |
-| `knowledge_ops_lead.spec.js` | Knowledge operations lead flow |
-| `history.spec.js` | `/bo/history` — tabs, filters, bulk selection, conversation table |
-| `version_badge.spec.js` | Version badge display |
+| `agents_test.exs` | `/bo/agents` — Agent creation, credential selection, model picker, tools, MCP endpoints |
+| `ingestion_test.exs` | `/bo/ingestion` — File ingestion pipeline |
+| `multilingual_ingestion_test.exs` | `/bo/ingestion` — details modal, extracted Markdown and partial/recovered language-neutral progress display. The E2E-only `/e2e/ingestion/multilingual_summary` fixture updates the fake processor's persisted summary; real detection, indexing and retry behavior are verified by `test/zaq/ingestion/multilingual_real_ingestion_test.exs`, not by this browser fixture. |
+| `people_test.exs` | `/bo/people` — User/team management |
+| `system_config_test.exs` | `/bo/system-config` — AI credentials, MCP config, system settings |
+| `knowledge_ops_lead_test.exs` | Knowledge operations lead flow |
+| `history_test.exs` | `/bo/history` — tabs, filters, bulk selection, conversation table |
+| `version_badge_test.exs` | Version badge display |
 
 ---
 
 ## Flakiness Rules
 
-- **Retries are set to 0.** Do not bump retries to hide a flaky test — fix the race.
-- Use `waitForLiveViewSettled(page)` after any Phoenix LiveView event.
-- Use `waitForServerRoundTrip(page)` when you need to confirm a phx event was processed.
-- Never use hard `page.waitForTimeout(ms)` — use explicit element assertions instead.
+- **Retries are 0** (ExUnit has none). Do not add retries or `--failed` reruns to hide a flaky test — fix the race.
+- Tests and modules run in random order (`--seed`): set up each test's state in `setup_all`/`setup`.
+- Use `wait_for_live_view_settled(page)` after any Phoenix LiveView event.
+- Use `wait_for_server_round_trip(page)` when you need to confirm a phx event was processed.
+- Never use hard `Page.wait_for_timeout!(page, ms)` — use explicit element assertions instead.
 - Traces, screenshots, and videos are captured on failure (`retain-on-failure`).
 
 ---
 
 ## Viewing Failure Artifacts
 
-After a failure, Playwright saves traces in `test/e2e/test-results/`. Open with:
+After a failure, each failed test gets `test-results/<test>/` at the repo root with
+`error-context.md` (read it first), `trace.zip`, a screenshot and a video. Open the trace with:
 
 ```bash
-cd test/e2e
-npx playwright show-trace test-results/<test-name>/trace.zip
+mix playwright.cli show-trace test-results/<test>/trace.zip
 ```

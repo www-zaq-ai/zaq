@@ -184,23 +184,23 @@ After `mix q` passes (includes formatting), run specific isolated tests and a ta
    - `lib/zaq_web/live/bo/agents_live.ex` → slug: `agents`
    - Pattern: take the filename, strip `_live.ex`, use the base name as the slug.
 
-3. **Check whether a spec file exists for each slug:**
+3. **Check whether a test module exists for each slug:**
    ```bash
-   ls test/e2e/specs/<slug>.spec.js
+   ls test/e2e_pw/<slug>_test.exs
    ```
 
-4. **Run the matching spec(s) only:**
+4. **Run the matching module(s) only:**
    ```bash
-   cd test/e2e && npx playwright test specs/<slug>.spec.js
+   mix e2e test/e2e_pw/<slug>_test.exs
    ```
    Report pass/fail. If any test fails, do not proceed to Step 5 — report the failure and wait for instructions.
 
 **Special cases:**
-- **`bo_layout.ex` or any component used by all BO pages:** Run `agents.spec.js` as the representative smoke test only.
+- **`bo_layout.ex` or any component used by all BO pages:** Run `agents_test.exs` as the representative smoke test only.
    ```bash
-   cd test/e2e && npx playwright test specs/agents.spec.js
+   mix e2e test/e2e_pw/agents_test.exs
    ```
-- **No matching spec found:** Say: "No matching e2e spec found for this change. Visual verification in the running app is sufficient." Skip e2e and proceed to Step 5.
+- **No matching test module found:** Say: "No matching e2e test found for this change. Visual verification in the running app is sufficient." Skip e2e and proceed to Step 5.
 
 Mark this target file as `approved` in your in-conversation ledger.
 

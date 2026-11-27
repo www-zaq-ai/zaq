@@ -172,15 +172,21 @@ jobs:
       - name: Install E2E dependencies
         run: npm ci --prefix test/e2e
 
-      - name: Cache Playwright browsers
+      # mix playwright.install puts the driver in ~/.cache/playwright and the browsers in
+      # ~/.cache/ms-playwright (~/Library/Caches/... on macOS), next to Playwright Test's.
+      - name: Cache Playwright driver and browsers
         id: pw-cache
         uses: actions/cache@v4
         with:
-          path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ matrix.browser }}-${{ hashFiles('test/e2e/package-lock.json') }}
+          path: |
+            ${{ runner.os == 'macOS' && '~/Library/Caches/playwright' || '~/.cache/playwright' }}
+            ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ matrix.browser }}-${{ hashFiles('mix.lock', 'test/e2e/package-lock.json') }}
 
       - name: Install Playwright browser
-        run: npx --prefix test/e2e playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          mix playwright.install ${{ matrix.browser }} --with-deps
+          npx --prefix test/e2e playwright install ${{ matrix.browser }}
 
       - name: Verify browser navigation lifecycle
         run: node --test --test-name-pattern='^${{ matrix.browser }}:' test/e2e/support/bo-navigation.test.cjs
@@ -188,19 +194,23 @@ jobs:
       - name: Provision E2E database extensions as DBA
         run: mix run --no-start .github/scripts/provision-test-database.exs postgres
 
-      # test:ci seeds the DB only — assets are built by the steps above. The
-      # developer-facing `test:journeys` still runs the full bootstrap.
+      # Seeds the DB only: assets are built by the steps above.
+      - name: Bootstrap E2E database
+        run: |
+          mix ecto.create --quiet
+          mix db.extensions --quiet
+          mix ecto.migrate --quiet
+          mix run test/support/e2e/bootstrap.exs
+
       - name: Run E2E suite (${{ matrix.browser }})
-        run: npm --prefix test/e2e run test:ci -- --project=journeys-${{ matrix.browser }}
+        run: mix test test/e2e_pw
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-artifacts-${{ matrix.browser }}
-          path: |
-            test/e2e/playwright-report
-            test/e2e/test-results
+          path: test-results
           if-no-files-found: ignore
 
       - name: Stop native PostgreSQL

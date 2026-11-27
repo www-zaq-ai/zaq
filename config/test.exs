@@ -153,6 +153,28 @@ if e2e? do
   config :zaq, Zaq.Storage, base_path: "tmp/e2e_documents"
   config :zaq, :storage_volume_import, volumes: %{"default" => "."}
   config :zaq, e2e_routes: true
+
+  # The browser suite (test/e2e_pw). test/test_helper.exs logs the admin in once and saves the
+  # storage state that every test's context starts from. SLOW=1 (or SLOW=<ms> from 100) runs
+  # headed with a delay of 1 s (or <ms>) per action.
+  slow = System.get_env("SLOW", "")
+
+  slow_mo =
+    case Integer.parse(slow) do
+      _ when slow == "" -> 0
+      {ms, _} when ms >= 100 -> ms
+      _ -> 1000
+    end
+
+  config :playwright, :test,
+    base_url: "http://localhost:4002",
+    storage_state: "test/e2e/.auth/bo-admin.json",
+    trace: :retain_on_failure,
+    screenshot: :only_on_failure,
+    video: :retain_on_failure,
+    headless: slow == "",
+    launch_options: [slow_mo: slow_mo],
+    expect: [timeout: if(System.get_env("CI"), do: 20_000, else: 15_000)]
 end
 
 if File.exists?("config/test.secret.exs"), do: import_config("test.secret.exs")

@@ -1,16 +1,11 @@
-const { chromium, firefox, request, webkit } = require("@playwright/test");
+const { request } = require("@playwright/test");
 const fs = require("fs");
 const path = require("path");
 
-const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
-const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
-const DEFAULT_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || "StrongPass1!";
-const AUTH_BROWSER = process.env.E2E_AUTH_BROWSER || "chromium";
 const STORYBOOK_URL = "http://localhost:4000";
 const REQUIRED_ASSET_PATHS = ["/assets/js/app.js", "/assets/css/app.css"];
 const STORYBOOK_DIR = path.join(__dirname, "..", "..", "..", "storybook");
 const STORY_URLS_PATH = path.join(__dirname, "story-urls.json");
-const AUTH_STATE_PATH = path.join(__dirname, "..", ".auth", "bo-admin.json");
 
 function discoverStoryFiles(dir) {
   const results = [];
@@ -31,28 +26,14 @@ function fileToUrl(filePath) {
   return "/storybook/" + withoutExt.split(path.sep).join("/");
 }
 
-function authBrowserType() {
-  switch (AUTH_BROWSER) {
-    case "chromium":
-      return chromium;
-    case "firefox":
-      return firefox;
-    case "webkit":
-      return webkit;
-    default:
-      throw new Error(`Unsupported E2E_AUTH_BROWSER=${AUTH_BROWSER}`);
-  }
-}
-
 // Runs exactly once before the whole suite. Used to:
-//   1) Verify compiled assets are available (was previously repeated on every login).
-//   2) Hit /e2e/health to confirm the server booted with E2E=1.
+//   1) Verify compiled assets are available.
+//   2) Discover the stories for the storybook smoke specs.
 //
-// Everything needed for per-describe isolation (DB reset, processor state) is
-// owned by the suites via POST /e2e/reset — see step 2 of the flakiness plan.
+// The browser journeys (test/e2e_pw) have their own global setup:
+// test/support/e2e_pw/global_setup.ex.
 module.exports = async () => {
-  const assetBase = process.env.STORYBOOK_ONLY ? STORYBOOK_URL : BASE_URL;
-  const ctx = await request.newContext({ baseURL: assetBase });
+  const ctx = await request.newContext({ baseURL: STORYBOOK_URL });
 
   for (const path of REQUIRED_ASSET_PATHS) {
     const res = await ctx.get(path);
@@ -64,36 +45,7 @@ module.exports = async () => {
     }
   }
 
-  if (!process.env.STORYBOOK_ONLY) {
-    const health = await ctx.get("/e2e/health");
-    if (!health.ok()) {
-      throw new Error(
-        `/e2e/health returned ${health.status()}. Server must boot with E2E=1.`
-      );
-    }
-  }
-
   await ctx.dispose();
-
-  if (!process.env.STORYBOOK_ONLY) {
-    const browser = await authBrowserType().launch();
-
-    try {
-      const page = await browser.newPage({ baseURL: BASE_URL });
-
-      await page.goto("/bo/login");
-      await page.waitForSelector("[data-phx-main].phx-connected", { timeout: 15_000 });
-      await page.locator('input[name="username"]').fill(DEFAULT_ADMIN_USERNAME);
-      await page.locator('input[name="password"]').fill(DEFAULT_ADMIN_PASSWORD);
-      await page.getByRole("button", { name: "Sign In to Dashboard" }).click();
-      await page.waitForURL(/\/bo\/(dashboard|change-password)/, { timeout: 15_000 });
-
-      fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });
-      await page.context().storageState({ path: AUTH_STATE_PATH });
-    } finally {
-      await browser.close();
-    }
-  }
 
   const storyFiles = discoverStoryFiles(STORYBOOK_DIR);
   const urls = storyFiles.map(fileToUrl).sort();

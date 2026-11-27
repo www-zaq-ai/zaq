@@ -1,16 +1,20 @@
 # ZAQ E2E (Playwright)
 
-This suite covers synthetic-user journeys for UI regression protection.
+This suite covers synthetic-user journeys for UI regression protection. The journeys are
+ExUnit tests on playwright_ex in `test/e2e_pw/`; this directory keeps the JS parts (the
+Storybook project, the `support/*.cjs` runners and `support/bo.js` used by the `:real_browser`
+tests, and the `node --test` units in `support/*.test.cjs`). See `docs/e2e-testing.md`.
 
 ## Scope
 
 - Persona: `Knowledge Ops Lead`
-- Spec: `test/e2e/specs/knowledge_ops_lead.spec.js`
+- Test: `test/e2e_pw/knowledge_ops_lead_test.exs`
 - Environment: `MIX_ENV=test` with `E2E=1` (uses isolated DB `zaq_test_e2e`)
 
 ## Shared BO Helper
 
-Use `test/e2e/support/bo.js` in BO journeys to keep setup consistent across specs:
+Use `Zaq.E2EPw.BO` (`test/support/e2e_pw/bo.ex`) in BO journeys to keep setup consistent
+across modules. With the global setup (`test/support/e2e_pw/global_setup.ex`) it:
 
 - checks required frontend assets are served (`/assets/js/app.js`, `/assets/css/app.css`)
 - logs into BO with the E2E admin user
@@ -21,14 +25,15 @@ This prevents false failures where selectors never appear because LiveView JS wa
 ## Local Run
 
 ```bash
-npm --prefix test/e2e install
-npx --prefix test/e2e playwright install chromium
-npm --prefix test/e2e run test
+mix playwright.install chromium
+mix e2e
 ```
+
+`npm --prefix test/e2e install` is only needed for the JS parts above.
 
 ## What Bootstrap Does
 
-`npm --prefix test/e2e run test` runs a bootstrap step that:
+`mix e2e` runs a bootstrap step that:
 
 - migrates the isolated E2E test database (`zaq_test_e2e`)
 - creates an E2E admin user (`e2e_admin` / `StrongPass1!` by default)

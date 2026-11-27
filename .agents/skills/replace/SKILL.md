@@ -95,12 +95,12 @@ Also note **other occurrences** repo-wide if the same inline pattern appears els
 
 ### 2. E2E coverage cross-check (required — before the replacement report)
 
-For each candidate, map to hosting LiveView(s) / routes and stable test hooks (`data-testid`, `role`, ids referenced in specs).
+For each candidate, map to hosting LiveView(s) / routes and stable test hooks (`data-testid`, `role`, ids referenced in tests).
 
-Using `docs/e2e-testing.md` and `test/e2e/specs/`:
+Using `docs/e2e-testing.md` and `test/e2e_pw/`:
 
-- **Spec file:** e.g. `…/live/bo/agents_live.ex` → `test/e2e/specs/agents.spec.js`, or **`—`**.
-- **Search specs** for selectors or flows tied to **this UI region**.
+- **Test module:** e.g. `…/live/bo/agents_live.ex` → `test/e2e_pw/agents_test.exs`, or **`—`**.
+- **Search tests** for selectors or flows tied to **this UI region**.
 - **Tests raw UI** — **`yes`** / **`no`** / **`partial`** (e2e-only).
 - **Coverage** — **`covered`**, **`partial`**, or **`none`**.
 
@@ -115,7 +115,7 @@ Approval of replacement rows is not final human approval of the completed featur
 
 **Stop** and output a **Replacement report**. **Do not start step 4** until the human approves rows (by #).
 
-| # | Call site | Inline role | Target component | Confidence | Other occurrences | Tests raw UI | E2E spec(s) | E2E coverage | E2E notes |
+| # | Call site | Inline role | Target component | Confidence | Other occurrences | Tests raw UI | E2E test(s) | E2E coverage | E2E notes |
 |---|-----------|-------------|------------------|------------|-------------------|--------------|--------------|----------------|------------|
 | 1 | … | … | `Module.function/1` | high / medium / low | … | yes / no / partial | … | covered / partial / none | … |
 
@@ -139,15 +139,15 @@ For each **approved** row:
 
 - Run **`mix q`** before opening the PR.
 
-**E2E (when specs exist)**
+**E2E (when test modules exist)**
 
 - Minimal repairs when spotted are allowed only if assertions and original intent
   are preserved. Never weaken assertions or skip tests to hide regressions. New or
   substantially rewritten feature journeys wait for the handbook's approval gate.
-- Derive slug from the consuming LiveView path (`…/live/bo/agents_live.ex` → `agents`) and run `test/e2e/specs/<slug>.spec.js` **if the file exists**.
-- If **`ZaqWeb.Components.BOLayout`** or another **BO-wide layout** changed, also run `test/e2e/specs/agents.spec.js` as representative smoke.
+- Derive slug from the consuming LiveView path (`…/live/bo/agents_live.ex` → `agents`) and run `mix e2e test/e2e_pw/<slug>_test.exs` **if the file exists**.
+- If **`ZaqWeb.Components.BOLayout`** or another **BO-wide layout** changed, also run `mix e2e test/e2e_pw/agents_test.exs` as representative smoke.
 
-**When no e2e spec exists**
+**When no e2e test module exists**
 
 - Extend **LiveView / component ExUnit** for critical paths, **or** document **manual smoke** steps in the PR.
 
