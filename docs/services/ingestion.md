@@ -112,16 +112,20 @@ trusted actor for a current Back Office super admin. A signed source Record
 identifies the document; a read handle or an actorless workflow does not grant
 indexing access.
 
-Start with a new UUID as `attempt_id`, the canonical source `record`, converted
-`markdown`, and up to 16 `items`. Each item pairs a `chunk` from `ChunkContent`
+Acquire a fresh source Record with `GetDocument` and `include_permissions: true`.
+Keep this Record for storage and pass its handle to `DownloadDocument` for conversion.
+Start with a new UUID as `attempt_id`, the source `record`, converted `markdown`,
+and up to 16 `items`. Each item pairs a `chunk` from `ChunkContent`
 with its successful `embedding` result. Set `embedding.chunk_index` to the
 original chunk index after mapping the embedding result's batch `index` back
 to the submitted chunk. Keep the model, dimension, and vector in the embedding.
 
-Setup fetches current source permissions and clears the document's previous
-chunks once. Disk keeps the effective grants managed in its sharing UI.
-Externally managed documents receive the latest provider permissions. If the
-source permission lookup fails, setup leaves the existing index untouched.
+Setup uses the Record's verified permission projection without contacting the
+source again, then clears the previous chunks once. For Disk the projection
+contains effective grants managed through its sharing UI. For external documents
+it comes from the provider. An explicitly empty projection removes existing
+indexed grants; missing permissions leave the index untouched and return
+`missing_permission_projection`.
 
 Send later batches or retry failed indices with the same `attempt_id` and
 `items` alone. A committed index returns `already_stored` on replay. Errors on

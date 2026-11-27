@@ -53,11 +53,6 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunksTest do
 
     expect_role()
 
-    expect(NodeRouterMock, :dispatch, fn event ->
-      assert event.opts[:action] == :data_source_get_file
-      %{event | response: {:ok, %{record: record}}}
-    end)
-
     assert {:ok,
             %{
               document_id: document_id,
@@ -136,10 +131,6 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunksTest do
 
     expect_role()
 
-    expect(NodeRouterMock, :dispatch, fn event ->
-      %{event | response: {:ok, %{record: record}}}
-    end)
-
     assert {:ok, %{document_id: id, results: results}} =
              execute(
                %{
@@ -176,6 +167,7 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunksTest do
   defp expect_role do
     expect(NodeRouterMock, :dispatch, fn %Event{} = event ->
       assert event.opts[:confidential]
+      assert event.opts[:action] == :store_embedded_chunks
       Api.handle_event(event, :store_embedded_chunks, %{node_router: NodeRouterMock})
     end)
   end

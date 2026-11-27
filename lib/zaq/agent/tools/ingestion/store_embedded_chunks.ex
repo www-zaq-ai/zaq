@@ -2,9 +2,10 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunks do
   @moduledoc """
   Indexes a verified source document using supplied chunks and vectors.
 
-  A current Back Office super admin starts with a new UUID, source `record` and
-  converted `markdown`. Resume with the same `attempt_id` and only the remaining
-  items. Each vector is explicitly labelled with its source `chunk_index`.
+  A current Back Office super admin starts with a new UUID, a fresh source
+  `record` with signed permissions, and converted `markdown`. Resume with the
+  same `attempt_id` and only the remaining items. Each vector is explicitly
+  labelled with its source `chunk_index`.
   """
 
   alias Jido.Action.Tool

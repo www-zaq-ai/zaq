@@ -33,7 +33,8 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
       %{
         attempt_id: Zoi.string(description: "Stable UUID for the refresh"),
         record:
-          Record.zoi_type(description: "Source Record; required on start") |> Zoi.optional(),
+          Record.zoi_type(description: "Source Record with signed permissions; required on start")
+          |> Zoi.optional(),
         markdown:
           Zoi.string(description: "Converted content; required on start") |> Zoi.optional(),
         items:

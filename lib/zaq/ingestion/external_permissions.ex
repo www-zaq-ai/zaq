@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
   alias Zaq.Permissions
+  alias Zaq.Permissions.ResourcePermission
 
   require Logger
 
@@ -28,15 +29,16 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   end
 
   @doc """
-  Atomically replaces the indexed permission projection for a trusted, fresh
-  source snapshot. Disk's snapshot comes from its UI-managed source grants;
-  externally managed snapshots come from their provider.
+  Replaces indexed grants using only entries from verified Record provenance.
+  Disk entries name ZAQ people and teams; external entries identify principals
+  from the provider. Unsigned owners and raw provider fields are not grants.
   """
-  @spec replace_projection(Record.t(), struct()) :: {:ok, list()} | {:error, term()}
-  def replace_projection(%Record{permissions: permissions} = record, document)
-      when is_list(permissions) do
+  @spec replace_projection(Record.t(), struct(), [map()]) :: {:ok, list()} | {:error, term()}
+  def replace_projection(%Record{} = record, document, entries) do
+    principals = Enum.map(entries, &signed_principal(&1, provider(record)))
+
     grants =
-      Enum.map(desired_permissions(record), fn
+      Enum.map(desired_permissions(record, principals), fn
         {:person, id, rights} -> %{person_id: id, access_rights: rights}
         {:team, id, rights} -> %{team_id: id, access_rights: rights}
       end)
@@ -44,9 +46,37 @@ defmodule Zaq.Ingestion.ExternalPermissions do
     Permissions.replace(document, grants)
   end
 
-  defp desired_permissions(%Record{} = record) do
-    record
-    |> principals()
+  defp signed_principal(entry, "disk") do
+    principal = entry["principal"] || %{}
+
+    %{
+      "type" => principal["type"],
+      "target_id" => principal["key"],
+      "access_rights" => signed_rights(entry)
+    }
+  end
+
+  defp signed_principal(entry, _provider) do
+    principal = entry["principal"] || %{}
+
+    %{
+      "type" => principal["type"],
+      "id" => entry["permission_id"],
+      "email" => principal["key"],
+      "access_rights" => signed_rights(entry)
+    }
+  end
+
+  defp signed_rights(entry) do
+    supported = ResourcePermission.valid_rights()
+    Enum.filter(entry["rights"] || [], &(&1 in supported))
+  end
+
+  defp desired_permissions(%Record{} = record),
+    do: desired_permissions(record, principals(record))
+
+  defp desired_permissions(record, principals) do
+    principals
     |> Enum.flat_map(fn principal ->
       with {:ok, target_type, target_id} <- ensure_target(record, principal),
            rights when rights != [] <- rights_for(principal) do

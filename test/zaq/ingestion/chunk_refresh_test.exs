@@ -1,17 +1,12 @@
 defmodule Zaq.Ingestion.ChunkRefreshTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Accounts.People
   alias Zaq.AccountsFixtures
-  alias Zaq.Contracts.{Record, RecordPage}
+  alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
-  alias Zaq.Event
   alias Zaq.Ingestion.{Chunk, ChunkRefresh, Document}
-  alias Zaq.NodeRouterMock
   alias Zaq.Permissions
-
-  import Mox
-
-  setup :verify_on_exit!
 
   setup do
     :ok = Chunk.create_table(1536)
@@ -24,7 +19,6 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     first = Ecto.UUID.generate()
     second = Ecto.UUID.generate()
 
-    expect_source(source)
     assert {:ok, doc} = ChunkRefresh.start(first, source, "First", context)
     assert {:ok, :stored} = ChunkRefresh.insert(first, 1, context, &insert(&1, 1, "first"))
     assert {:ok, :stored} = ChunkRefresh.insert(first, 2, context, &insert(&1, 2, "second"))
@@ -36,7 +30,6 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     assert id == doc.id
     assert Enum.map(Chunk.list_by_document(id), & &1.content) == ["first", "second"]
 
-    expect_source(source)
     assert {:ok, %{id: ^id}} = ChunkRefresh.start(second, source, "Replacement", context)
     assert {:ok, :stored} = ChunkRefresh.insert(second, 1, context, &insert(&1, 1, "new"))
     assert {:error, :stale_refresh} = ChunkRefresh.start(first, source, "Old", context)
@@ -50,7 +43,6 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     context = context(user)
     id = Ecto.UUID.generate()
 
-    expect_source(source)
     assert {:ok, doc} = ChunkRefresh.start(id, source, "Markdown", context)
     assert {:ok, :stored} = ChunkRefresh.insert(id, 1, context, &insert(&1, 1, "kept"))
 
@@ -83,52 +75,98 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     refute Repo.exists?(Document)
   end
 
-  test "does not write when the provider cannot return a fresh permission projection" do
+  test "missing permissions leave the existing document, chunks and grants untouched" do
     user = super_admin()
     source = source_record(nil)
-    expect_source(source)
+    {:ok, doc} = Document.create(%{source: "data_source/google_drive/7/file", content: "Old"})
+    assert {:ok, _} = Permissions.grant_public(doc)
+    assert {:ok, chunk} = insert(doc, 1, "Old")
 
-    assert {:error, :source_unavailable} =
-             ChunkRefresh.start(Ecto.UUID.generate(), source, "text", context(user))
+    assert {:error, :missing_permission_projection} =
+             ChunkRefresh.start(Ecto.UUID.generate(), source, "Replacement", context(user))
 
-    refute Repo.exists?(Document)
+    assert Document.get(doc.id).content == "Old"
+    assert Chunk.list_by_document(doc.id) == [chunk]
+    assert Permissions.public?(doc)
   end
 
-  test "uses fresh provider permissions for existing external documents" do
+  test "an explicitly empty provider projection removes obsolete indexed grants" do
     user = super_admin()
-    old_projection = source_record([public_grant()])
     fresh_projection = source_record([])
     {:ok, document} = Document.create(%{source: "data_source/google_drive/7/file"})
     assert {:ok, _} = Permissions.grant_public(document)
 
-    expect_source(fresh_projection)
-
     assert {:ok, refreshed} =
-             ChunkRefresh.start(Ecto.UUID.generate(), old_projection, "text", context(user))
+             ChunkRefresh.start(Ecto.UUID.generate(), fresh_projection, "text", context(user))
 
     assert refreshed.id == document.id
     refute Permissions.public?(refreshed)
   end
 
-  test "uses the UI-managed Disk permission projection rather than the passed Record" do
+  test "imports the signed Disk grants without treating unsigned fields as ACLs" do
     user = super_admin()
-    source = source_record(nil, "disk")
-    expect_source(source)
 
-    expect(NodeRouterMock, :dispatch, fn event ->
-      assert event.opts[:action] == :data_source_list_permissions
-      assert event.request.provider == "disk"
+    {:ok, person} =
+      People.create_person(%{full_name: "Disk reader", email: "disk-reader@example.org"})
 
-      %{
-        event
-        | response: {:ok, %RecordPage{resource_type: :permission, records: [public_grant()]}}
+    permission = %Record{
+      id: "disk-person",
+      kind: :permission,
+      attributes: %{
+        "type" => "person",
+        "target_id" => to_string(person.id),
+        "access_rights" => ["read"]
       }
-    end)
+    }
+
+    source = source_record([permission], "disk")
+
+    modified = %{
+      source
+      | permissions: [%{permission | raw: %{"type" => "public", "access_rights" => ["write"]}}],
+        owners: [%{"type" => "public"}]
+    }
 
     assert {:ok, document} =
-             ChunkRefresh.start(Ecto.UUID.generate(), source, "text", context(user))
+             ChunkRefresh.start(Ecto.UUID.generate(), modified, "text", context(user))
 
-    assert Permissions.public?(document)
+    assert [%{person_id: person_id, access_rights: ["read"]}] = Permissions.list(document)
+    assert person_id == person.id
+    refute Permissions.public?(document)
+  end
+
+  test "preserves a signed provider reader after the Record crosses a JSON boundary" do
+    user = super_admin()
+    email = "provider-reader@example.org"
+
+    permission = %Record{
+      id: "provider-user",
+      kind: :permission,
+      attributes: %{
+        "principal_type" => "user",
+        "principal_key" => email,
+        "role" => "reader",
+        "access_rights" => ["read"]
+      },
+      raw: %{"emailAddress" => email}
+    }
+
+    source = source_record([permission])
+    {:ok, restored} = source |> Jason.encode!() |> Jason.decode!() |> Record.from_map()
+    assert {:ok, doc} = ChunkRefresh.start(Ecto.UUID.generate(), restored, "text", context(user))
+    assert [%{person_id: person_id, access_rights: ["read"]}] = Permissions.list(doc)
+    assert People.get_person(person_id).email == email
+  end
+
+  test "rejects a modified signed permission projection before changing the index" do
+    user = super_admin()
+    source = source_record([])
+    forged = %{source | permissions: [public_grant()]}
+
+    assert {:error, :invalid_source_record} =
+             ChunkRefresh.start(Ecto.UUID.generate(), forged, "text", context(user))
+
+    refute Repo.exists?(Document)
   end
 
   test "a new storage refresh fences old chunk writes and a new full legacy refresh supersedes it" do
@@ -136,7 +174,6 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     source = source_record()
     id = Ecto.UUID.generate()
     old_request = DateTime.utc_now()
-    expect_source(source)
     assert {:ok, doc} = ChunkRefresh.start(id, source, "text", context(user))
 
     assert {:error, :stale_refresh} =
@@ -156,13 +193,12 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     id = Ecto.UUID.generate()
     ctx = Map.put(context(user), :embedding_configuration, %{model: "first", dimension: 16})
 
-    expect_source(source)
     assert {:ok, _doc} = ChunkRefresh.start(id, source, "text", ctx)
     changed = %{ctx | embedding_configuration: %{model: "second", dimension: 16}}
     assert {:error, :embedding_configuration_changed} = ChunkRefresh.resume(id, changed)
   end
 
-  defp context(user), do: %{actor: %{user_id: user.id}, node_router: NodeRouterMock}
+  defp context(user), do: %{actor: %{user_id: user.id}}
 
   defp super_admin, do: AccountsFixtures.super_admin_fixture(%{must_change_password: false})
 
@@ -185,14 +221,6 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
       kind: :permission,
       attributes: %{"type" => "public", "access_rights" => ["read"]}
     }
-  end
-
-  defp expect_source(record) do
-    expect(NodeRouterMock, :dispatch, fn %Event{} = event ->
-      assert event.opts[:action] == :data_source_get_file
-      assert event.request.params["include_permissions"]
-      %{event | response: {:ok, %{record: record}}}
-    end)
   end
 
   defp insert(document, index, content) do

@@ -2,17 +2,13 @@ defmodule Zaq.Ingestion.ChunkRefreshConcurrencyTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
-  import Mox
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.AccountsFixtures
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Ingestion.{Chunk, ChunkRefresh, Document}
-  alias Zaq.NodeRouterMock
   alias Zaq.Repo
-
-  setup :verify_on_exit!
 
   test "a committed overlapping insert is cleared by the next refresh and cannot replay" do
     unless independently(&Chunk.table_exists?/0) do
@@ -30,7 +26,7 @@ defmodule Zaq.Ingestion.ChunkRefreshConcurrencyTest do
     test_process = self()
     source = source_record(first)
     source_key = "data_source/google_drive/7/#{source.id}"
-    ctx = %{actor: %{user_id: user.id}, node_router: NodeRouterMock}
+    ctx = %{actor: %{user_id: user.id}}
 
     on_exit(fn ->
       independently(fn ->
@@ -43,12 +39,6 @@ defmodule Zaq.Ingestion.ChunkRefreshConcurrencyTest do
 
         Repo.delete!(user)
       end)
-    end)
-
-    expect(NodeRouterMock, :dispatch, 2, fn event ->
-      assert event.opts[:action] == :data_source_get_file
-      if self() != test_process, do: send(test_process, :next_refresh_fetched)
-      %{event | response: {:ok, %{record: source}}}
     end)
 
     assert {:ok, doc} =
@@ -69,10 +59,13 @@ defmodule Zaq.Ingestion.ChunkRefreshConcurrencyTest do
 
     refresh =
       Task.async(fn ->
-        independently(fn -> ChunkRefresh.start(second, source, "Replacement", ctx) end)
+        independently(fn ->
+          send(test_process, :next_refresh_started)
+          ChunkRefresh.start(second, source, "Replacement", ctx)
+        end)
       end)
 
-    assert_receive :next_refresh_fetched, 5_000
+    assert_receive :next_refresh_started, 5_000
     send(old_insert.pid, :finish_old_insert)
     assert {:ok, :stored} = Task.await(old_insert)
     assert {:ok, %{id: id}} = Task.await(refresh)

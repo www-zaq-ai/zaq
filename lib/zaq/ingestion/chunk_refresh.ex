@@ -24,7 +24,8 @@ defmodule Zaq.Ingestion.ChunkRefresh do
   @max_markdown_bytes 5 * 1024 * 1024
 
   @doc """
-  Sets up a refresh from an authenticated source Record and converted Markdown.
+  Sets up a refresh from an authenticated source Record with loaded permissions
+  and converted Markdown.
   Reusing the same ID resumes the current attempt rather than clearing chunks.
   """
   @spec start(String.t(), Zaq.Contracts.Record.t(), String.t(), map()) ::
@@ -35,7 +36,7 @@ defmodule Zaq.Ingestion.ChunkRefresh do
          {:ok, identity} <- ChunkRefreshSource.identity(record),
          :ok <- validate_markdown(markdown) do
       case Repo.get(__MODULE__, id) do
-        nil -> start_new(id, identity, markdown, user, context)
+        nil -> start_new(id, identity, record, markdown, user, context)
         %__MODULE__{} -> resume(id, identity, user, configuration(context))
       end
     end
@@ -105,32 +106,48 @@ defmodule Zaq.Ingestion.ChunkRefresh do
 
   defp obsolete_legacy_write?(_document, _requested_at), do: false
 
-  defp start_new(id, identity, markdown, user, context) do
-    with :ok <- ensure_index(),
-         {:ok, record} <- ChunkRefreshSource.fetch(identity, user, context) do
+  defp start_new(
+         id,
+         %{permission_projection: %{"state" => "loaded"}} = identity,
+         record,
+         markdown,
+         user,
+         context
+       ) do
+    with :ok <- ensure_index() do
       config = configuration(context)
 
       Repo.transaction(fn ->
-        initialize_once(id, identity.source, record, markdown, user, config)
+        initialize_once(id, identity, record, markdown, user, config)
       end)
     end
   end
+
+  defp start_new(_id, _identity, _record, _markdown, _user, _context),
+    do: {:error, :missing_permission_projection}
 
   defp ensure_index do
     if Chunk.table_exists?(), do: :ok, else: {:error, :index_not_configured}
   end
 
-  defp initialize_once(id, source, record, markdown, user, config) do
+  defp initialize_once(
+         id,
+         %{source: source, permission_projection: projection},
+         record,
+         markdown,
+         user,
+         config
+       ) do
     existing = unwrap(Document.insert_new(%{source: source}), :invalid_document)
     document = lock_document(existing.id) || Repo.rollback(:stale_refresh)
 
     case Repo.get(__MODULE__, id) do
-      nil -> initialize(id, document, record, markdown, user, config)
+      nil -> initialize(id, document, record, markdown, user, config, projection)
       %__MODULE__{} -> unwrap(current_document(id, user.id, source, config))
     end
   end
 
-  defp initialize(id, document, record, markdown, user, config) do
+  defp initialize(id, document, record, markdown, user, config, %{"entries" => entries}) do
     fields = %{
       id: id,
       document_id: document.id,
@@ -146,7 +163,10 @@ defmodule Zaq.Ingestion.ChunkRefresh do
     |> Repo.insert()
     |> unwrap(:attempt_conflict)
 
-    metadata = record |> ExternalSource.metadata() |> Map.delete("materialization_handle")
+    # Only the direct parent is authenticated and may influence watch scope.
+    metadata =
+      %{record | parent_ids: List.wrap(record.parent_id), materialization_handle: nil}
+      |> ExternalSource.metadata()
 
     document =
       document
@@ -161,7 +181,11 @@ defmodule Zaq.Ingestion.ChunkRefresh do
       |> Repo.update()
       |> unwrap(:invalid_document)
 
-    unwrap(ExternalPermissions.replace_projection(record, document), :permission_sync_failed)
+    unwrap(
+      ExternalPermissions.replace_projection(record, document, entries),
+      :permission_sync_failed
+    )
+
     Chunk.delete_by_document(document.id)
     document
   end

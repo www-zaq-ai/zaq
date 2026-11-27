@@ -148,15 +148,27 @@ defmodule Zaq.Channels.DiskBridge do
     end
   end
 
-  @doc "Returns one document as an unmaterialized record — metadata only, no content."
+  @doc "Returns an unmaterialized document, with its effective grants when requested."
   @impl true
   def get_file(config, params, context \\ %{})
       when is_map(config) and is_map(params) and is_map(context) do
     file_id = params |> scoped_params() |> fetch("file_id") |> to_string()
 
     with {:ok, %Entry{} = entry} <-
-           dispatch(:describe_document, %{file_id: file_id}, config, context) do
-      {:ok, %{record: map_entry(entry, config)}}
+           dispatch(:describe_document, %{file_id: file_id}, config, context),
+         {:ok, permissions} <- describe_permissions(entry, params, config, context) do
+      {:ok, %{record: map_entry(entry, permissions, config)}}
+    end
+  end
+
+  defp describe_permissions(entry, params, config, context) do
+    if fetch(params, "include_permissions") == true do
+      with {:ok, %RecordPage{records: records}} <-
+             list_permissions(config, %{"file_id" => entry.id}, context) do
+        {:ok, records}
+      end
+    else
+      {:ok, nil}
     end
   end
 

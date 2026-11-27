@@ -2,9 +2,26 @@ defmodule Zaq.Agent.Tools.DataSource.GetDocumentTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Tools.DataSource.GetDocument
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Event
 
   defmodule StubNodeRouter do
+    def dispatch(
+          %Event{
+            request: %{
+              provider: "google_drive",
+              params: %{"include_permissions" => true} = params
+            },
+            opts: opts
+          } = event
+        ) do
+      send(self(), {:dispatch, opts[:action], params})
+      record = %Record{id: params["file_id"], kind: :file, permissions: []}
+      {:ok, record} = Provenance.seal(record, %{"provider" => "google_drive", "config_id" => 12})
+      %{event | response: {:ok, %{record: record}}}
+    end
+
     def dispatch(%Event{request: %{provider: "google_drive", params: params}, opts: opts}) do
       send(self(), {:dispatch, opts[:action], params})
       %{Event.new(%{}, :channels) | response: {:ok, %{record: %{"id" => params["file_id"]}}}}
@@ -42,6 +59,22 @@ defmodule Zaq.Agent.Tools.DataSource.GetDocumentTest do
              )
 
     assert_received {:dispatch, :data_source_get_file, %{"file_id" => "f1", "config_id" => "12"}}
+  end
+
+  test "accepts an explicit permission projection request through the validated Action" do
+    assert {:ok, %{record: %Record{permissions: []} = record}} =
+             Jido.Exec.run(
+               GetDocument,
+               %{provider: "google_drive", document_id: "f1", include_permissions: true},
+               %{node_router: StubNodeRouter},
+               timeout: 0
+             )
+
+    assert_received {:dispatch, :data_source_get_file,
+                     %{"file_id" => "f1", "include_permissions" => true}}
+
+    assert {:ok, %{"permissions" => %{"state" => "loaded", "entries" => []}}} =
+             Provenance.verify(record)
   end
 
   test "formats error response" do

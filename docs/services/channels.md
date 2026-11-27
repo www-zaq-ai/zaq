@@ -744,7 +744,7 @@ Channels action after locator and actor validation.
 - `:data_source_download_resource`
 - `:data_source_list_files`
 - `:data_source_create_file`
-- `:data_source_get_file`
+- `:data_source_get_file` — returns a signed metadata Record. Request `include_permissions: true` (also available on `GetDocument`) to load the permission projection for indexing. Disk uses effective Storage grants; external providers supply their own projection. `nil` means not loaded; `[]` means loaded with no grants.
 - `:data_source_update_file` — accepts `%{record: %Zaq.Contracts.Record{}, params: map()}`; Channels verifies record provenance, derives provider/config/file identity from signed claims, and forwards only update fields to the provider bridge. The agent-facing `update_document` tool requires mutations under `changes` (`name`, `content`, `path`, `parent_id`, `mime_type`); `path` means destination parent path and must be omitted for content-only edits and renames.
 - `:data_source_delete_file` — accepts `%{record: %Zaq.Contracts.Record{}}`; Channels translates the record to provider parameters at the data-source bridge boundary.
 - `:data_source_search_files`
