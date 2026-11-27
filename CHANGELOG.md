@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.20.0](https://github.com/www-zaq-ai/zaq/compare/v0.19.2...v0.20.0) (2026-11-27)
+
+
+### Features
+
+* **channels:** expose email and web widget capabilities in back office ([#956](https://github.com/www-zaq-ai/zaq/issues/956)) ([f736652](https://github.com/www-zaq-ai/zaq/commit/f736652a1a982bf08e2ac8773f24921329d59d26))
+* http action raw response ([#942](https://github.com/www-zaq-ai/zaq/issues/942)) ([bf0b55a](https://github.com/www-zaq-ai/zaq/commit/bf0b55a997f515c75edc3f0bad68a00d690f8067))
+* **ingestion:** add chunking and embedding actions ([#966](https://github.com/www-zaq-ai/zaq/issues/966)) ([f30bab9](https://github.com/www-zaq-ai/zaq/commit/f30bab97cd4a1d14c0120f7c1b7e55a69ce2b0a3))
+* **ingestion:** convert downloaded documents to Markdown ([#965](https://github.com/www-zaq-ai/zaq/issues/965)) ([e5a075b](https://github.com/www-zaq-ai/zaq/commit/e5a075b311eacb1e54f433d6e5a91273135cfd82))
+* issue 960 agent tools execution actor ([#961](https://github.com/www-zaq-ai/zaq/issues/961)) ([6e910e4](https://github.com/www-zaq-ai/zaq/commit/6e910e4ed2c64f8be3159951e631854e101ccdd3))
+* **portal:** show username and live password guidance during connect ([#963](https://github.com/www-zaq-ai/zaq/issues/963)) ([8389c00](https://github.com/www-zaq-ai/zaq/commit/8389c00d94c718fc073a1f4d0917e35a644c3be4))
+* **workflows:** support workflow context window ([#958](https://github.com/www-zaq-ai/zaq/issues/958)) ([ea75357](https://github.com/www-zaq-ai/zaq/commit/ea753571a793e6a9d70174655d6756fb20f943ae))
+
+
+### Bug Fixes
+
+* **workflows:** preserve settled approval snapshots ([#952](https://github.com/www-zaq-ai/zaq/issues/952)) ([c4261c2](https://github.com/www-zaq-ai/zaq/commit/c4261c2e667e14445e144a04edc467bb01f55008))
+
 ## [0.19.2](https://github.com/www-zaq-ai/zaq/compare/v0.19.1...v0.19.2) (2026-11-18)
 
 
