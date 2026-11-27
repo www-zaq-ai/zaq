@@ -286,8 +286,8 @@
             </:main>
             <:advanced
               :if={
-                is_nil(@file_capabilities_snapshot) ||
-                  Zaq.ConnectorConfig.FileSettings.visible?(@file_capabilities_snapshot)
+                @capabilities_error ||
+                  Zaq.ConnectorConfig.FileSettings.visible?(@capabilities_snapshot)
               }
               id="smtp-files-section"
               label="File delivery"
@@ -296,8 +296,8 @@
                 id="smtp-file-delivery"
                 name="email_config[file_delivery]"
                 heading={false}
-                snapshot={@file_capabilities_snapshot}
-                unavailable={is_nil(@file_capabilities_snapshot)}
+                snapshot={@capabilities_snapshot}
+                unavailable={@capabilities_error}
                 settings={@form[:file_delivery].value || %{}}
                 errors={ZaqWeb.Components.FileDeliverySettings.errors(@form.source)}
               />

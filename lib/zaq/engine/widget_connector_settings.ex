@@ -161,9 +161,8 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
       |> put_setting(params, "same_site")
       |> put_setting(params, "file_delivery")
 
-    attrs = params |> Map.take(["name", "enabled"]) |> Map.put("settings", settings)
-
-    with :ok <- validate_settings(settings),
+    with {:ok, settings} <- initial_live_updates(config, settings, params),
+         :ok <- validate_settings(settings),
          :ok <-
            enablement(
              Map.put(params, "enabled", Map.get(params, "enabled", config.enabled)),
@@ -171,12 +170,23 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
            ),
          {:ok, saved} <-
            persist_changeset(
-             ChannelConfig.changeset(config, attrs, defer_file_validation: policy_changed?)
+             ChannelConfig.changeset(
+               config,
+               params |> Map.take(["name", "enabled"]) |> Map.put("settings", settings),
+               defer_file_validation: not is_nil(config.id) and policy_changed?
+             )
            ),
          :ok <- persist_routing(saved.id, params) do
       persist_live_updates(saved, params)
     end
   end
+
+  defp initial_live_updates(%ChannelConfig{id: nil}, settings, %{"live_updates" => policy}) do
+    with {:ok, normalized} <- normalize_live_updates(policy),
+         do: {:ok, Map.put(settings, "live_updates", normalized)}
+  end
+
+  defp initial_live_updates(_config, settings, _params), do: {:ok, settings}
 
   defp persist_live_updates(config, %{"live_updates" => policy}) do
     with {:ok, normalized} <- normalize_live_updates(policy) do
@@ -257,6 +267,12 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
 
     errors =
       if file_errors == %{}, do: errors, else: Map.put(errors, :file_delivery, file_errors)
+
+    errors =
+      case FileSettings.validation_capabilities(invalid) do
+        nil -> errors
+        result -> Map.put(errors, :capabilities, result)
+      end
 
     {:error, {:validation, errors}}
   end

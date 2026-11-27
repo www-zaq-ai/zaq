@@ -26,6 +26,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias ZaqWeb.Helpers.Timezone
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
@@ -339,6 +340,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       end
 
     draft = configuration_draft(socket, params, raw_token)
+    socket = refresh_save_capabilities(socket)
     socket = socket |> assign(:changeset, draft) |> assign(:form, to_form(draft, as: :form))
     result = persist_modal_configuration(socket, params)
 
@@ -1325,7 +1327,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> ChannelConfig.changeset(params)
     |> validate_file_settings(Map.get(socket.assigns, :capabilities_snapshot, %{}))
     |> maybe_validate_connect_credential_provider(socket.assigns.provider)
-    |> maybe_validate_global_base_url_requirement(socket.assigns.kind, socket.assigns.provider)
+    |> maybe_validate_global_base_url_requirement(socket)
     |> with_visible_token(raw_token)
   end
 
@@ -1344,6 +1346,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     changeset = changeset |> Map.put(:action, :validate) |> with_visible_token(raw_token)
 
     socket
+    |> CapabilitySnapshot.recover(changeset)
     |> assign(:changeset, changeset)
     |> assign(:form, to_form(changeset, as: :form))
     |> assign(:modal_errors, format_errors(changeset))
@@ -1352,7 +1355,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp configuration_save_error(socket, {:validation, errors}, _token),
     do: assign(socket, :live_update_errors, errors)
 
-  defp configuration_save_error(socket, {:configuration, %{file_delivery: errors}}, token) do
+  defp configuration_save_error(
+         socket,
+         {:configuration, %{file_delivery: errors} = validation},
+         token
+       ) do
+    socket = CapabilitySnapshot.recover(socket, validation)
+
     changeset =
       socket.assigns.changeset
       |> FileSettings.add_errors(:settings, errors)
@@ -1418,7 +1427,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     validate = fn changeset, provider ->
       changeset
       |> maybe_validate_connect_credential_provider(provider)
-      |> maybe_validate_global_base_url_requirement(socket.assigns.kind, provider)
+      |> maybe_validate_global_base_url_requirement(socket)
     end
 
     if socket.assigns.modal == :edit and socket.assigns.kind == :retrieval do
@@ -1610,30 +1619,38 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     end
   end
 
-  defp maybe_validate_global_base_url_requirement(changeset, kind, provider) do
-    if provider_requires_global_base_url?(kind, provider) and
-         is_nil(Zaq.System.get_global_base_url()) do
-      Ecto.Changeset.add_error(
-        changeset,
-        :settings,
-        "Global base URL is required for webhook/watch capable providers. Configure it in System Configuration > Global."
-      )
-    else
-      changeset
+  defp maybe_validate_global_base_url_requirement(changeset, socket) do
+    cond do
+      not is_nil(Zaq.System.get_global_base_url()) ->
+        changeset
+
+      socket.assigns.kind == :data_source and socket.assigns[:capabilities_error] != false ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :settings,
+          "Capabilities unavailable. Retry capabilities before saving."
+        )
+
+      provider_requires_global_base_url?(socket) ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :settings,
+          "Global base URL is required for webhook/watch capable providers. Configure it in System Configuration > Global."
+        )
+
+      true ->
+        changeset
     end
   end
 
-  defp provider_requires_global_base_url?(:data_source, provider) do
-    case Bridge.capability_snapshot(provider) do
-      {:ok, %{resolved: resolved}} when is_map(resolved) ->
-        Bridge.webhook_capability_declared?(resolved)
-
-      _ ->
-        false
-    end
+  defp provider_requires_global_base_url?(%{assigns: %{kind: :data_source}} = socket) do
+    socket.assigns
+    |> Map.get(:capabilities_snapshot, %{})
+    |> Map.get(:resolved, %{})
+    |> Bridge.webhook_capability_declared?()
   end
 
-  defp provider_requires_global_base_url?(_kind, provider) do
+  defp provider_requires_global_base_url?(%{assigns: %{provider: provider}}) do
     Application.get_env(:zaq, :channels, %{})
     |> Enum.find_value(false, fn {key, cfg} ->
       if to_string(key) == to_string(provider) do
@@ -1643,6 +1660,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       end
     end)
   end
+
+  defp refresh_save_capabilities(%{assigns: %{kind: :data_source}} = socket) do
+    if is_nil(Zaq.System.get_global_base_url()),
+      do: load_capabilities(socket, socket.assigns.changeset.data.id),
+      else: socket
+  end
+
+  defp refresh_save_capabilities(socket), do: socket
 
   defp ensure_global_base_url_for_oauth2("oauth2") do
     if is_nil(Zaq.System.get_global_base_url()) do
@@ -1663,20 +1688,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         id -> %{provider: socket.assigns.provider, scope: :configuration, config_id: id}
       end
 
-    event =
-      Event.new(request, :channels, opts: [action: :channel_capability_snapshot])
-
-    case NodeRouter.dispatch(event).response do
-      {:ok, snapshot} when is_map(snapshot) ->
-        assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
-
-      _ ->
-        assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
-    end
-  rescue
-    _error -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
-  catch
-    _kind, _reason -> assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
+    CapabilitySnapshot.load(socket, request)
   end
 
   defp validate_file_settings(changeset, snapshot) do

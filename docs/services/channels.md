@@ -1493,6 +1493,12 @@ stay successful. Validate handlers use cached assigns only. Engine checks the
 effective proposed configuration at Save, so cached facts cannot veto a valid
 proposal or authorize an invalid one.
 
+The capability dialog and file controls share the current editor's snapshot.
+Existing connectors use exact selected-connector scope; new or unselected
+connectors use provider scope. A rejected file save returns the evaluated
+normalized facts beside field errors, retaining drafts and reflecting the final
+proposed settings and policy. Lookup failures retain the retry presentation.
+
 `Zaq.Channels.TransportRequirements.resolve(snapshot, selected_connection)`
 is the sole requirements derivation operation. It returns the existing struct or
 `:unsupported`, `:capabilities_unavailable`, `{:invalid_configuration, field_errors}`,

@@ -5,6 +5,24 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
 
   alias ZaqWeb.Components.FileDeliverySettings
 
+  test "policy and root errors use shared field messages without editable metadata" do
+    html =
+      render_settings(%{resolved: %{file: :native}},
+        id: "files",
+        errors: %{"send_on_file_failure" => "Invalid policy", "file_delivery" => "Invalid files"}
+      )
+
+    tree = LazyHTML.from_fragment(html)
+
+    assert LazyHTML.query(tree, "#files-error.zaq-field-error")
+           |> LazyHTML.text()
+           |> String.trim() ==
+             "Invalid files"
+
+    assert LazyHTML.query(tree, ".zaq-field-error") |> LazyHTML.text() =~ "Invalid policy"
+    refute html =~ "type=\"number\""
+  end
+
   test "declared bounds and effective requirements drive all file controls" do
     definition = %{
       value: :unresolved,
@@ -20,12 +38,7 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
       file_delivery: %{limits: %{max_attachment_bytes: definition}}
     }
 
-    html =
-      render_component(&FileDeliverySettings.section/1,
-        id: "typed",
-        name: "files",
-        snapshot: snapshot
-      )
+    html = render_settings(snapshot, id: "typed")
 
     assert html =~ ~s(min="0.000011")
     assert html =~ ~s(max="0.001")
@@ -38,26 +51,15 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
           put_in(snapshot, [:resolved, :file], :unsupported),
           put_in(snapshot, [:file_delivery, :limits, :max_attachment_bytes, :value], 500)
         ] do
-      html =
-        render_component(&FileDeliverySettings.section/1,
-          id: "optional",
-          name: "files",
-          snapshot: optional
-        )
+      html = render_settings(optional, id: "optional")
 
       refute html =~ "Required for file delivery"
       assert html =~ "Optional override"
     end
   end
 
-  test "failed lookup offers recovery while a successful unsupported snapshot stays empty" do
-    html =
-      render_component(&FileDeliverySettings.section/1,
-        id: "failed",
-        name: "files",
-        snapshot: nil,
-        unavailable: true
-      )
+  test "capability states distinguish failure, unsupported and supported controls without metadata" do
+    html = render_settings(nil, id: "failed", unavailable: true)
 
     assert html =~ "Capabilities unavailable"
     assert html =~ ~s(phx-click="open_capabilities")
@@ -65,11 +67,12 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
     refute html =~ ~s(type="number")
     refute html =~ "send_on_file_failure"
 
-    assert render_component(&FileDeliverySettings.section/1,
-             id: "empty",
-             name: "files",
-             snapshot: %{}
-           ) == ""
+    assert render_settings(%{}, id: "empty") == ""
+
+    html = render_settings(%{resolved: %{file: :native}}, id: "embedded-files", heading: false)
+
+    refute html =~ "<h3"
+    assert html =~ "Send message if files fail"
   end
 
   test "form params strip only known LiveView usage markers without creating omitted file settings" do
@@ -97,19 +100,6 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
     end
   end
 
-  test "embedded file controls retain fields while their container supplies the heading" do
-    html =
-      render_component(&FileDeliverySettings.section/1,
-        id: "embedded-files",
-        name: "files",
-        snapshot: %{resolved: %{file: :native}},
-        heading: false
-      )
-
-    refute html =~ "<h3"
-    assert html =~ "Send message if files fail"
-  end
-
   test "channel and SMTP forms share fixed, configurable, required and unresolved presentations" do
     snapshot = %{
       resolved: %{file: :fallback},
@@ -130,10 +120,8 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
 
     for name <- ["form[settings][file_delivery]", "email_config[file_delivery]"] do
       html =
-        render_component(&FileDeliverySettings.section/1,
-          id: "file-settings",
+        render_settings(snapshot,
           name: name,
-          snapshot: snapshot,
           settings: %{"max_encoded_message_bytes" => 1_000_001},
           errors: %{"max_encoded_message_mb" => "Enter a positive size"}
         )
@@ -142,9 +130,26 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
       assert html =~ "5 MB"
       assert html =~ "8 MB"
       assert html =~ "Fixed transport limit"
-      assert html =~ "Required for file delivery"
-      assert html =~ "body, headers and encoded attachments"
       assert html =~ "Enter a positive size"
+      refute html =~ "Required for file delivery"
+      refute html =~ "body, headers and encoded attachments"
+      tree = LazyHTML.from_fragment(html)
+
+      assert Enum.count(
+               LazyHTML.query(
+                 tree,
+                 "#file-settings-max_encoded_message_mb.zaq-border-danger[aria-invalid=true][aria-describedby=file-settings-max_encoded_message_mb-error]"
+               )
+             ) == 1
+
+      assert Enum.count(
+               LazyHTML.query(tree, "#file-settings-max_encoded_message_mb-error.zaq-field-error")
+             ) == 1
+
+      valid_html = render_settings(snapshot, name: name)
+
+      assert valid_html =~ "Required for file delivery"
+      assert valid_html =~ "body, headers and encoded attachments"
       assert html =~ "1.000001"
       assert html =~ name <> "[max_encoded_message_mb]"
       assert html =~ name <> "[max_attachment_total_mb]"
@@ -165,28 +170,25 @@ defmodule ZaqWeb.Components.FileDeliverySettingsTest do
             }
           }
         ] do
-      html =
-        render_component(&FileDeliverySettings.section/1,
-          id: "files",
-          name: "files",
-          snapshot: snapshot
-        )
+      html = render_settings(snapshot, id: "files")
 
       refute html =~ "File delivery"
       refute html =~ "type=\"number\""
     end
 
     for support <- [:native, :fallback] do
-      html =
-        render_component(&FileDeliverySettings.section/1,
-          id: "files",
-          name: "files",
-          snapshot: %{resolved: %{file: support}}
-        )
+      html = render_settings(%{resolved: %{file: support}}, id: "files")
 
       assert html =~ "Unresolved"
       assert html =~ "Send message if files fail"
       refute html =~ "type=\"number\""
     end
+  end
+
+  defp render_settings(snapshot, opts) do
+    render_component(
+      &FileDeliverySettings.section/1,
+      Keyword.merge([id: "file-settings", name: "files", snapshot: snapshot], opts)
+    )
   end
 end

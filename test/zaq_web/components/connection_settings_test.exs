@@ -12,7 +12,10 @@ defmodule ZaqWeb.Components.ConnectionSettingsTest do
         ~H"""
         <ConnectionSettings.editor id="settings" active_tab={:main} errors={%{advanced: true}}>
           <:main><input name="name" value="Draft" /></:main>
-          <:advanced id="files" label="File delivery">File controls</:advanced>
+          <:advanced id="files" label="File delivery">
+            File controls <input name="file_limit" value="1.000001" />
+            <input type="hidden" name="failure_policy" value="false" />
+          </:advanced>
         </ConnectionSettings.editor>
         """
       end)
@@ -39,29 +42,15 @@ defmodule ZaqWeb.Components.ConnectionSettingsTest do
 
     assert LazyHTML.text(LazyHTML.query(tree, "button[phx-value-tab=advanced]")) =~ "Errors"
     assert Enum.empty?(LazyHTML.query(tree, "[role=tab], [role=tablist], [phx-hook]"))
-  end
 
-  test "shared sections retain inactive controls while the container owns headings" do
-    html =
-      render_component(fn assigns ->
-        ~H"""
-        <ConnectionSettings.editor id="editor" active_tab={:main} errors={%{advanced: true}}>
-          <:main><input name="name" value="Draft" /></:main>
-          <:advanced id="files" label="File delivery">
-            <input name="file_limit" value="1.000001" />
-            <input type="hidden" name="failure_policy" value="false" />
-          </:advanced>
-        </ConnectionSettings.editor>
-        """
-      end)
-
-    tree = LazyHTML.from_fragment(html)
-    refute Enum.empty?(LazyHTML.query(tree, "#editor-panel-main:not([hidden]) input[name=name]"))
+    refute Enum.empty?(
+             LazyHTML.query(tree, "#settings-panel-main:not([hidden]) input[name=name]")
+           )
 
     refute Enum.empty?(
              LazyHTML.query(
                tree,
-               "#editor-panel-advanced[hidden] input[name=file_limit][value='1.000001']"
+               "#settings-panel-advanced[hidden] input[name=file_limit][value='1.000001']"
              )
            )
 

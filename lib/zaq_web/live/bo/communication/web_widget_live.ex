@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   alias ZaqWeb.Helpers.DateFormat
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
   @health_refresh_ms 15_000
@@ -82,7 +83,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
         capabilities =
           dispatch(socket, :channels, :channel_capability_snapshot, request)
 
-        apply_capabilities(socket, capabilities)
+        CapabilitySnapshot.apply_result(socket, capabilities)
       else
         socket
       end
@@ -283,11 +284,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
         saved(socket, result, message)
 
       {:error, {:validation, errors}} ->
+        socket = CapabilitySnapshot.recover(socket, errors)
         file_errors = Map.get(errors, :file_delivery, %{})
 
         errors =
           errors
-          |> Map.delete(:file_delivery)
+          |> Map.drop([:file_delivery, :capabilities])
           |> Map.drop(Map.keys(socket.assigns.live_update_errors))
 
         advanced? =
@@ -316,7 +318,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   defp apply_snapshot(socket, snapshot) do
     socket
     |> clear_key()
-    |> apply_capabilities(snapshot.capabilities)
+    |> CapabilitySnapshot.apply_result(snapshot.capabilities)
     |> assign(:configs, snapshot.configs)
     |> assign(:selected, snapshot.selected)
     |> assign(:live_update_policy, snapshot.selected && snapshot.selected.live_updates)
@@ -596,13 +598,6 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   defp settings(socket, request),
     do: dispatch(socket, :engine, :widget_connector_settings, request)
-
-  defp apply_capabilities(socket, {:ok, snapshot}) when is_map(snapshot) do
-    assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
-  end
-
-  defp apply_capabilities(socket, {:error, _reason}),
-    do: assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
 
   defp dispatch(socket, role, action, request) do
     dispatch_user(socket.assigns.current_user, role, action, request)

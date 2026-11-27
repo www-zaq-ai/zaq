@@ -2423,26 +2423,6 @@ defmodule Zaq.Channels.ApiTest do
       end
     end
 
-    test "SMTP file configuration metadata does not advertise completed file sending" do
-      assert {:ok, snapshot} = email_capability_snapshot("email:smtp")
-      assert :file in snapshot.unsupported
-      assert snapshot.file_delivery.transfer_mode == :unresolved
-
-      assert snapshot.file_delivery.limits.max_encoded_message_bytes == %{
-               value: :unresolved,
-               configurable: true,
-               required: true,
-               type: :integer,
-               unit: :bytes,
-               validation: %{greater_than: 0}
-             }
-
-      assert snapshot.file_delivery.limits.max_attachments_per_message.required
-      refute Map.has_key?(snapshot.resolved, :file)
-      assert {:ok, imap} = email_capability_snapshot("email:imap")
-      refute Map.has_key?(imap, :file_delivery)
-    end
-
     test "configuration inspection includes a disabled exact connector without changing runtime lookup" do
       config =
         %ChannelConfig{}
@@ -2500,6 +2480,26 @@ defmodule Zaq.Channels.ApiTest do
         assert snapshot.resolved.mode == unquote(mode)
         assert snapshot.labels.text == "Text"
         assert snapshot.labels.threads == "Threads"
+        refute Map.has_key?(snapshot.resolved, :file)
+
+        if unquote(provider) == "email:smtp" do
+          assert :file in snapshot.unsupported
+          assert snapshot.file_delivery.transfer_mode == :unresolved
+
+          assert snapshot.file_delivery.limits.max_encoded_message_bytes == %{
+                   value: :unresolved,
+                   configurable: true,
+                   required: true,
+                   type: :integer,
+                   unit: :bytes,
+                   validation: %{greater_than: 0}
+                 }
+
+          assert snapshot.file_delivery.limits.max_attachments_per_message.required
+        else
+          refute Map.has_key?(snapshot, :file_delivery)
+        end
+
         refute Map.has_key?(snapshot, :settings)
         refute Map.has_key?(snapshot, :token)
       end

@@ -78,6 +78,42 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     %{conn: init_test_session(conn, %{user_id: user.id})}
   end
 
+  test "widget rejected saves reveal current file controls without replacing drafts", %{
+    conn: conn
+  } do
+    configure_adapter(Adapter)
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/web_widget")
+    render_click(view, "new_connector")
+    refute has_element?(view, "#widget-file-delivery-max_attachment_mb")
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.update!(channels, :web_widget, &Map.put(&1, :bridge, DeclaredFileBridge))
+    )
+
+    params = %{
+      "name" => "Recovered widget",
+      "file_delivery" => %{"max_attachment_mb" => "3", "send_on_file_failure" => "false"}
+    }
+
+    render_submit(view, "save", %{"widget" => params})
+    assert has_element?(view, "#widget-file-delivery-max_attachment_mb[max='2'][value='3']")
+    assert has_element?(view, "input[name='widget[name]'][value='Recovered widget']")
+    refute has_element?(view, "#widget-file-delivery-send_on_file_failure[checked]")
+    refute Repo.get_by(ChannelConfig, name: "Recovered widget")
+
+    render_submit(view, "save", %{
+      "widget" => put_in(params, ["file_delivery", "max_attachment_mb"], "1")
+    })
+
+    assert Repo.get_by!(ChannelConfig, name: "Recovered widget").settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_000,
+             "send_on_file_failure" => false
+           }
+  end
+
   test "declared widget files share Advanced controls and save/reload through Engine", %{
     conn: conn
   } do

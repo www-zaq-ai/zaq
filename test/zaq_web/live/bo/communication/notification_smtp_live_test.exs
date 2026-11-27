@@ -6,6 +6,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   import Zaq.ChannelCapabilityFixtures
   import Zaq.AccountsFixtures
 
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
+
+  test "missing capability responses fail while errors without new facts retain the cache" do
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{__changed__: %{}, capabilities_snapshot: %{}, capabilities_error: false}
+    }
+
+    assert CapabilitySnapshot.recover(socket, %{}) == socket
+    failed = CapabilitySnapshot.apply_result(socket, nil)
+    assert failed.assigns.capabilities_error
+  end
+
   test "successful empty capability snapshots are cached on every settings page" do
     observe_capability_lookups()
 
@@ -48,12 +60,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
     assert has_element?(view, "#capabilities-modal li", "Mode: none")
     refute has_element?(view, "#capabilities-modal", "Capabilities unavailable")
-    assert capability_lookup_count() == 5
+    assert capability_lookup_count() == 4
 
     view |> element("[data-testid='channel-capabilities-close']") |> render_click()
     view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
     assert has_element?(view, "#capabilities-modal li", "Mode: none")
-    assert capability_lookup_count() == 5
+    assert capability_lookup_count() == 4
   end
 
   alias Zaq.Accounts
@@ -253,6 +265,36 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     }
   end
 
+  test "SMTP rejected saves refresh controls and retain connection and credential drafts", %{
+    conn: conn
+  } do
+    config = insert_smtp_channel(%{})
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/email/smtp")
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.update!(channels, :email, &Map.put(&1, :bridge, DeclaredSmtpBridge))
+    )
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+    params = put_in(tabbed_smtp_params(), ["file_delivery", "max_attachment_mb"], "3")
+    render_submit(view, "save", %{"email_config" => params})
+    assert has_element?(view, "#smtp-file-delivery-max_attachment_mb[max='2'][value='3']")
+    assert has_element?(view, "input[name='email_config[relay]'][value='draft.example.com']")
+    assert has_element?(view, "input[name='email_config[password]'][value='draft-password']")
+    refute has_element?(view, "#smtp-file-delivery-send_on_file_failure[checked]")
+    assert Repo.reload!(config).settings == config.settings
+
+    render_submit(view, "save", %{
+      "email_config" => put_in(params, ["file_delivery", "max_attachment_mb"], "1.5")
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    assert Repo.reload!(config).settings["file_delivery"]["max_attachment_bytes"] == 1_500_000
+  end
+
   test "SMTP capability recovery retains drafts and validate does not perform lookups", %{
     conn: conn
   } do
@@ -398,22 +440,27 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     end
 
     for {transport, mode} <- [{"smtp", "none"}, {"imap", "imap_idle"}] do
-      test "#{transport} uses the shared modal and provider-scoped Channels endpoint", %{
+      test "#{transport} uses the shared modal and appropriately scoped Channels endpoint", %{
         conn: conn
       } do
         :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
         transport = unquote(transport)
         provider = "email:" <> transport
+        scope = if transport == "smtp", do: :configuration, else: :provider
         {:ok, view, _html} = live(conn, "/bo/channels/retrieval/email/" <> transport)
 
         assert_receive {:node_router_event,
                         %Event{
-                          request: %{provider: ^provider, scope: :provider},
+                          request: %{provider: ^provider, scope: ^scope} = request,
                           next_hop: %{destination: :channels},
                           opts: opts
                         }}
 
         assert opts[:action] == :channel_capability_snapshot
+
+        if transport == "smtp",
+          do: assert(request.config_id == ChannelConfig.get_any_by_provider(provider).id)
+
         assert has_element?(view, "[data-testid='channel-capabilities-trigger']")
         refute has_element?(view, "#capabilities-modal")
 
@@ -463,6 +510,35 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
       view |> element("[data-testid='channel-capabilities-trigger']") |> render_click()
       assert has_element?(view, "#capabilities-modal li", "Mode: none")
       refute has_element?(view, "#smtp-config-form")
+
+      :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+      observe_capability_lookups()
+
+      for {config, index} <- Enum.with_index(ChannelConfig.list_by_provider("email:smtp"), 1) do
+        render_click(view, "select_connector", %{"id" => to_string(config.id)})
+        config_id = config.id
+
+        assert_receive {:node_router_event,
+                        %Event{request: %{scope: :configuration, config_id: ^config_id}}}
+
+        assert capability_lookup_count() == index
+
+        render_change(view, "validate", %{
+          "email_config" => %{"connector_name" => config.name <> " draft"}
+        })
+
+        render_click(view, "switch_settings_tab", %{"tab" => "advanced"})
+        render_click(view, "open_capabilities")
+        assert has_element?(view, "#capabilities-modal li", "Mode: none")
+
+        assert has_element?(
+                 view,
+                 "input[name='email_config[connector_name]'][value='#{config.name} draft']"
+               )
+
+        assert capability_lookup_count() == index
+        render_click(view, "close_capabilities")
+      end
     end
 
     test "capability event handlers use only socket state" do

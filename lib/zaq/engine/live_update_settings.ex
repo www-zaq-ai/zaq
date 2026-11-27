@@ -97,6 +97,12 @@ defmodule Zaq.Engine.LiveUpdateSettings do
         do: Map.put(errors, :file_delivery, file_errors),
         else: errors
 
+    errors =
+      case FileSettings.validation_capabilities(changeset) do
+        nil -> errors
+        result -> Map.put(errors, :capabilities, result)
+      end
+
     {:error, {:configuration, errors}}
   end
 

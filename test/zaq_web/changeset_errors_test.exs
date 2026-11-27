@@ -3,6 +3,16 @@ defmodule ZaqWeb.ChangesetErrorsTest do
 
   alias ZaqWeb.ChangesetErrors
 
+  test "non-interpolated validation metadata does not enter messages" do
+    changeset =
+      Ecto.Changeset.change({%{}, %{files: :map}})
+      |> Ecto.Changeset.add_error(:files, "Required for file delivery",
+        capabilities: {:ok, %{resolved: %{file: :native}}}
+      )
+
+    assert ChangesetErrors.format(changeset) == "files: Required for file delivery"
+  end
+
   defmodule SampleSchema do
     use Ecto.Schema
 

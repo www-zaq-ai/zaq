@@ -313,7 +313,10 @@ defmodule Zaq.Engine.EmailConnectorSettings do
   defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
 
   defp smtp_persistence_result({:error, %Ecto.Changeset{} = persisted}, form) do
-    form = FileSettings.add_errors(form, :file_delivery, FileSettings.errors(persisted))
+    form =
+      FileSettings.add_errors(form, :file_delivery, FileSettings.errors(persisted),
+        capabilities: FileSettings.validation_capabilities(persisted)
+      )
 
     form =
       persisted.errors

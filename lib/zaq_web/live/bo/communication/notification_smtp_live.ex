@@ -15,6 +15,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   alias ZaqWeb.Components.DesignSystem.Input
   alias ZaqWeb.Components.FileDeliverySettings
   alias ZaqWeb.Live.BO.AI.BOActor
+  alias ZaqWeb.Live.BO.Communication.CapabilitySnapshot
   alias ZaqWeb.Live.BO.Communication.EmailConnectorSelection, as: ConnectorSelection
 
   @smtp_provider "email:smtp"
@@ -51,10 +52,9 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   @impl true
   def handle_event("open_capabilities", _params, socket) do
     socket =
-      if socket.assigns[:capabilities_error] == true or
-           is_nil(Map.get(socket.assigns, :file_capabilities_snapshot, %{})),
-         do: load_capabilities(socket),
-         else: socket
+      if socket.assigns[:capabilities_error] == true,
+        do: load_capabilities(socket),
+        else: socket
 
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
@@ -78,7 +78,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
         {:noreply,
          socket
-         |> assign(:file_capabilities_snapshot, capability_snapshot(selected.id))
+         |> load_capabilities()
          |> assign(:settings_tab, :main)
          |> assign(:form, to_form(changeset))
          |> assign(:email_enabled, config.enabled)
@@ -94,10 +94,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
     {:noreply,
      socket
-     |> assign(
-       :file_capabilities_snapshot,
-       if(socket.assigns.capabilities_error, do: nil, else: socket.assigns.capabilities_snapshot)
-     )
+     |> load_capabilities()
      |> assign(:settings_tab, :main)
      |> assign(:form, to_form(changeset))
      |> assign(:email_enabled, false)
@@ -128,7 +125,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
       |> EmailConfig.changeset(params)
       |> FileSettings.validate_changeset(
         :file_delivery,
-        socket.assigns.file_capabilities_snapshot
+        socket.assigns.capabilities_snapshot
       )
       |> Map.put(:action, :validate)
 
@@ -159,6 +156,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
         {:noreply,
          socket
+         |> load_capabilities()
          |> assign(:save_status, :ok)
          |> assign(:email_enabled, fresh_config.enabled)
          |> assign(:form, to_form(fresh_changeset))
@@ -167,6 +165,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
       {:error, %Ecto.Changeset{} = changeset} ->
         changeset = Map.put(changeset, :action, :validate)
+        socket = CapabilitySnapshot.recover(socket, changeset)
 
         {:noreply,
          socket
@@ -456,65 +455,16 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   end
 
   defp load_capabilities(socket) do
-    event =
-      Event.new(%{provider: @smtp_provider, scope: :provider}, :channels,
-        opts: [action: :channel_capability_snapshot]
-      )
-
-    socket =
-      case NodeRouter.dispatch(event).response do
-        {:ok, snapshot} when is_map(snapshot) ->
-          assign(socket, capabilities_snapshot: snapshot, capabilities_error: false)
+    request =
+      case socket.assigns.selected_config_id do
+        id when is_integer(id) ->
+          %{provider: @smtp_provider, scope: :configuration, config_id: id}
 
         _ ->
-          assign(socket, capabilities_snapshot: %{}, capabilities_error: true)
+          %{provider: @smtp_provider, scope: :provider}
       end
 
-    file_snapshot =
-      cond do
-        socket.assigns.capabilities_error ->
-          nil
-
-        is_integer(socket.assigns.selected_config_id) ->
-          capability_snapshot(socket.assigns.selected_config_id)
-
-        true ->
-          socket.assigns.capabilities_snapshot
-      end
-
-    assign(socket, :file_capabilities_snapshot, file_snapshot)
-  rescue
-    _error ->
-      assign(socket,
-        capabilities_snapshot: %{},
-        file_capabilities_snapshot: nil,
-        capabilities_error: true
-      )
-  catch
-    _kind, _reason ->
-      assign(socket,
-        capabilities_snapshot: %{},
-        file_capabilities_snapshot: nil,
-        capabilities_error: true
-      )
-  end
-
-  defp capability_snapshot(config_id) do
-    event =
-      Event.new(
-        %{provider: @smtp_provider, scope: :configuration, config_id: config_id},
-        :channels,
-        opts: [action: :channel_capability_snapshot]
-      )
-
-    case NodeRouter.dispatch(event).response do
-      {:ok, snapshot} when is_map(snapshot) -> snapshot
-      _ -> nil
-    end
-  rescue
-    _error -> nil
-  catch
-    _kind, _reason -> nil
+    CapabilitySnapshot.load(socket, request)
   end
 
   defp email_settings(socket, op, request) do

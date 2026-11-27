@@ -5,6 +5,18 @@ defmodule ZaqWeb.Components.DesignSystem.FieldHintTest do
 
   alias ZaqWeb.Components.DesignSystem.FieldHint
 
+  test "error ids are optional and unique for multiple messages" do
+    html =
+      render_component(&FieldHint.field_messages/1,
+        errors: ["First", "Second"],
+        error_id: "field-error"
+      )
+
+    tree = LazyHTML.from_fragment(html)
+    assert Enum.count(LazyHTML.query(tree, "#field-error.zaq-field-error")) == 1
+    assert Enum.count(LazyHTML.query(tree, "#field-error-1.zaq-field-error")) == 1
+  end
+
   test "field_messages/1 renders errors and hides hint" do
     html =
       render_component(&FieldHint.field_messages/1,

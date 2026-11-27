@@ -38,12 +38,19 @@ defmodule Zaq.ConnectorConfig.FileSettings do
   def from_connection(_), do: %{}
 
   @doc "Attaches shared validation errors to the owning schema field with file-local keys."
-  @spec add_errors(Ecto.Changeset.t(), atom(), map()) :: Ecto.Changeset.t()
-  def add_errors(changeset, field, errors) do
+  @spec add_errors(Ecto.Changeset.t(), atom(), map(), keyword()) :: Ecto.Changeset.t()
+  def add_errors(changeset, field, errors, opts \\ []) do
     Enum.reduce(errors, changeset, fn {key, message}, changeset ->
-      Ecto.Changeset.add_error(changeset, field, message, file_field: key)
+      Ecto.Changeset.add_error(changeset, field, message, Keyword.put(opts, :file_field, key))
     end)
   end
+
+  @doc "Reads normalized capability facts retained by authoritative file validation."
+  def validation_capabilities(%Changeset{errors: errors}) do
+    Enum.find_value(errors, fn {_field, {_message, opts}} -> opts[:capabilities] end)
+  end
+
+  def validation_capabilities(errors) when is_map(errors), do: Map.get(errors, :capabilities)
 
   @doc "Projects file-local errors across persistence and presentation boundaries."
   @spec errors(Ecto.Changeset.t()) :: map()

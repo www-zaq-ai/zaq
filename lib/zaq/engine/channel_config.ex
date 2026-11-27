@@ -152,9 +152,12 @@ defmodule Zaq.Engine.ChannelConfig do
           changeset
 
         _ ->
-          FileSettings.add_errors(changeset, :settings, %{
-            "file_delivery" => "File capabilities are unavailable"
-          })
+          FileSettings.add_errors(
+            changeset,
+            :settings,
+            %{"file_delivery" => "File capabilities are unavailable"},
+            capabilities: {:error, :unavailable}
+          )
       end
     else
       validate_current_file_settings(changeset, file_settings, %{kind: :data_source})
@@ -163,8 +166,11 @@ defmodule Zaq.Engine.ChannelConfig do
 
   defp validate_current_file_settings(changeset, settings, snapshot) do
     case FileSettings.validate(settings, snapshot) do
-      :ok -> changeset
-      {:error, errors} -> FileSettings.add_errors(changeset, :settings, errors)
+      :ok ->
+        changeset
+
+      {:error, errors} ->
+        FileSettings.add_errors(changeset, :settings, errors, capabilities: {:ok, snapshot})
     end
   end
 

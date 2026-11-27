@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
+  import Zaq.ChannelCapabilityFixtures
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Channels.AgentRouting
@@ -543,6 +544,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute has_element?(view, "#channel-file-delivery-max_attachment_mb-error")
     render_submit(view, "save", params)
     assert has_element?(view, "#channel-file-delivery-max_attachment_mb-error")
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[max='2'][value='4']")
     assert ChannelConfig.get(config.id).settings == config.settings
 
     params =
@@ -553,6 +555,154 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     saved = ChannelConfig.get(config.id)
     assert saved.settings["file_delivery"]["max_attachment_bytes"] == 1_000_001
     assert saved.settings["jido_chat"]["bot_name"] == "retained"
+  end
+
+  test "a rejected save replaces fixed file controls with current required controls", %{
+    conn: conn
+  } do
+    fixed = %{value: 5_000_000, configurable: false, required: false}
+
+    snapshot = %{
+      resolved: %{file: :native},
+      file_delivery: %{limits: %{max_attachment_bytes: fixed}}
+    }
+
+    BridgeFake.put(:capability_snapshot, {:ok, snapshot})
+    config = insert_channel_config(%{}) |> Repo.reload!()
+    {:ok, view, _} = live(conn, "/bo/channels/retrieval/mattermost")
+    render_click(view, "open_modal", %{"action" => "edit", "id" => to_string(config.id)})
+    refute has_element?(view, "#channel-file-delivery-max_attachment_mb")
+
+    required = %{value: :unresolved, configurable: true, required: true}
+
+    BridgeFake.put(
+      :capability_snapshot,
+      {:ok, put_in(snapshot.file_delivery.limits.max_attachment_bytes, required)}
+    )
+
+    params = %{
+      "form" => %{
+        "name" => "Retained draft",
+        "token" => "retained-token",
+        "settings" => %{"file_delivery" => %{"send_on_file_failure" => "false"}}
+      },
+      "live_updates" => %{"enabled" => "false"}
+    }
+
+    render_submit(view, "save", params)
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[aria-required=true]")
+
+    assert has_element?(
+             view,
+             "#channel-file-delivery-max_attachment_mb-error",
+             "Required for file delivery"
+           )
+
+    assert has_element?(view, "input[name='form[name]'][value='Retained draft']")
+    assert has_element?(view, "input[name='form[token]'][value='retained-token']")
+    refute has_element?(view, "#channel-file-delivery-send_on_file_failure[checked]")
+    assert Repo.reload!(config) == config
+    render_click(view, "open_capabilities")
+    assert has_element?(view, "#channel-file-delivery-max_attachment_mb[aria-required=true]")
+    render_click(view, "close_capabilities")
+
+    render_submit(
+      view,
+      "save",
+      put_in(params, ["form", "settings", "file_delivery", "max_attachment_mb"], "1")
+    )
+
+    refute has_element?(view, "#config-form")
+    saved = Repo.reload!(config)
+    assert saved.name == "Retained draft"
+
+    assert saved.settings["file_delivery"] == %{
+             "max_attachment_bytes" => 1_000_000,
+             "send_on_file_failure" => false
+           }
+
+    assert saved.settings["live_updates"]["enabled"] == false
+  end
+
+  test "data source drafts cache routed facts while saves recheck requirements and recover failures",
+       %{user: user} do
+    :ok = ZaqSystem.set_global_base_url(nil)
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(channels, :google_drive, %{bridge: BridgeFake, integration: :google_drive})
+    )
+
+    config =
+      insert_channel_config(%{provider: "google_drive", kind: "data_source"}) |> Repo.reload!()
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        service_available: true,
+        live_action: :data_source,
+        current_user: user,
+        flash: %{}
+      }
+    }
+
+    {:ok, socket} = ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+
+    {:noreply, socket} =
+      ChannelsLive.handle_event(
+        "open_modal",
+        %{"action" => "edit", "id" => to_string(config.id)},
+        socket
+      )
+
+    observe_capability_lookups()
+    params = %{"form" => %{"name" => "Retained Drive"}}
+    {:noreply, socket} = ChannelsLive.handle_event("validate", params, socket)
+
+    {:noreply, socket} =
+      ChannelsLive.handle_event("switch_settings_tab", %{"tab" => "main"}, socket)
+
+    {:noreply, socket} = ChannelsLive.handle_event("open_capabilities", %{}, socket)
+    {:noreply, socket} = ChannelsLive.handle_event("close_capabilities", %{}, socket)
+    assert capability_lookup_count() == 0
+
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{watch_changes_webhook: %{}}}})
+    :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+    {:noreply, socket} = ChannelsLive.handle_event("save", params, socket)
+    assert capability_lookup_count() == 1
+
+    assert Enum.any?(
+             socket.assigns.modal_errors,
+             &String.contains?(&1, "Global base URL is required")
+           )
+
+    assert Repo.reload!(config) == config
+    config_id = config.id
+
+    assert_receive {:node_router_event,
+                    %Zaq.Event{request: %{scope: :configuration, config_id: ^config_id}}}
+
+    configured = remove_capability_bridge(:google_drive)
+    {:noreply, socket} = ChannelsLive.handle_event("save", params, socket)
+    assert socket.assigns.capabilities_error
+
+    assert Enum.any?(
+             socket.assigns.modal_errors,
+             &String.contains?(&1, "Capabilities unavailable")
+           )
+
+    assert socket.assigns.form[:name].value == "Retained Drive"
+    assert Repo.reload!(config) == config
+    Application.put_env(:zaq, :channels, configured)
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{}}})
+    {:noreply, socket} = ChannelsLive.handle_event("open_capabilities", %{}, socket)
+    refute socket.assigns.capabilities_error
+    {:noreply, socket} = ChannelsLive.handle_event("close_capabilities", %{}, socket)
+    {:noreply, socket} = ChannelsLive.handle_event("save", params, socket)
+    assert socket.assigns.modal == nil
+    assert Repo.reload!(config).name == "Retained Drive"
   end
 
   test "shows empty state and modal controls", %{conn: conn} do
@@ -2702,52 +2852,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       Application.put_env(:zaq, :channels, existing_channels)
     end)
 
-    changeset =
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        "provider" => "google_drive",
-        "kind" => "data_source",
-        "name" => "Webhook Drive"
-      })
-
     socket = %Phoenix.LiveView.Socket{
-      assigns: %{
-        __changed__: %{},
-        flash: %{},
-        modal: :new,
-        provider: "google_drive",
-        kind: :data_source,
-        changeset: changeset,
-        configs: [],
-        provider_default_agent_id: nil,
-        retrieval_channels: [],
-        form: Phoenix.Component.to_form(changeset, as: :form),
-        modal_errors: [],
-        credential_modal: false,
-        credential_changeset: nil,
-        credential_form: nil,
-        credential_errors: [],
-        oauth_claim_modal: false,
-        oauth_claim_url: nil,
-        confirm_delete: nil,
-        confirm_clear: false,
-        clear_channel_id: "",
-        clear_status: :idle,
-        test_config: nil,
-        test_status: :idle,
-        test_channel_id: "",
-        send_channel_id: "",
-        send_message: "",
-        send_status: :idle,
-        posts_channel_id: "",
-        posts: [],
-        posts_status: :idle,
-        posts_next_id: nil,
-        posts_prev_id: nil,
-        connect_credentials: [],
-        grants_by_config: %{}
-      }
+      assigns: %{__changed__: %{}, provider: "google_drive", kind: :data_source}
     }
+
+    :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+
+    assert {:noreply, socket} =
+             ChannelsLive.handle_event("open_modal", %{"action" => "new"}, socket)
+
+    assert_receive {:node_router_event,
+                    %Zaq.Event{request: %{provider: "google_drive", scope: :provider}, opts: opts}}
+
+    assert opts[:action] == :channel_capability_snapshot
+    observe_capability_lookups()
 
     assert {:noreply, result_socket} =
              ChannelsLive.handle_event(
@@ -2773,6 +2891,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert String.contains?(err_msg, "Global base URL"),
            "Expected settings error to mention 'Global base URL', got: #{inspect(err_msg)}"
+
+    assert capability_lookup_count() == 0
   end
 
   # ---------------------------------------------------------------------------

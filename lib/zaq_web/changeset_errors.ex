@@ -31,10 +31,16 @@ defmodule ZaqWeb.ChangesetErrors do
   """
   def traverse(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
+      Enum.reduce(opts, msg, &interpolate_option/2)
     end)
+  end
+
+  defp interpolate_option({key, value}, message) do
+    placeholder = "%{#{key}}"
+
+    if String.contains?(message, placeholder),
+      do: String.replace(message, placeholder, to_string(value)),
+      else: message
   end
 
   defp flatten(errors_map, opts) do

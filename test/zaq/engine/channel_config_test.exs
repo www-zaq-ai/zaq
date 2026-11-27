@@ -78,6 +78,30 @@ defmodule Zaq.Engine.ChannelConfigTest do
     end
   end
 
+  defmodule IndependentPolicyFileBridge do
+    alias Ecto.Adapters.SQL.Sandbox
+
+    def capability_snapshot(config) do
+      if Process.delete(:inspect_independent_proposal) do
+        send(self(), {:evaluated_proposal, config})
+
+        Task.async(fn -> independent_snapshot(config) end)
+        |> Task.await()
+      else
+        PolicyFileBridge.capability_snapshot(config)
+      end
+    end
+
+    defp independent_snapshot(config) do
+      Sandbox.unboxed_run(Zaq.Repo, fn ->
+        Bridge.capability_snapshot(config.provider, %{
+          scope: :proposal,
+          proposed_config: config
+        })
+      end)
+    end
+  end
+
   describe "file settings persistence" do
     setup context do
       original = Application.fetch_env!(:zaq, :channels)
@@ -85,6 +109,50 @@ defmodule Zaq.Engine.ChannelConfigTest do
       Application.put_env(:zaq, :channels, Map.put(original, :mattermost, %{bridge: bridge}))
       on_exit(fn -> Application.put_env(:zaq, :channels, original) end)
       :ok
+    end
+
+    test "widget creation validates final policy before insertion on an independent connection" do
+      channels = Application.fetch_env!(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :web_widget, %{bridge: IndependentPolicyFileBridge})
+      )
+
+      params = %{
+        "name" => "Independent widget",
+        "enabled" => false,
+        "agent_id" => "__none__",
+        "live_updates" => %{"enabled" => true, "min_interval_ms" => 250},
+        "file_delivery" => %{"max_attachment_mb" => "4"}
+      }
+
+      count = Repo.aggregate(ChannelConfig, :count)
+      Process.put(:inspect_independent_proposal, true)
+
+      assert {:error, {:validation, errors}} =
+               WidgetConnectorSettings.execute(%{op: :save, id: :new, params: params})
+
+      assert errors.file_delivery["max_attachment_bytes"] == "Must not exceed the transport limit"
+      assert_received {:evaluated_proposal, %{__meta__: %{state: :built}} = proposal}
+      assert proposal.settings["live_updates"]["enabled"] == true
+      assert proposal.settings["live_updates"]["min_interval_ms"] == 250
+      assert Repo.aggregate(ChannelConfig, :count) == count
+      refute Repo.get_by(ChannelConfig, name: params["name"])
+
+      Process.put(:inspect_independent_proposal, true)
+      params = put_in(params, ["file_delivery", "max_attachment_mb"], "0.5")
+
+      assert {:ok, result} =
+               WidgetConnectorSettings.execute(%{op: :save, id: :new, params: params})
+
+      assert_received {:evaluated_proposal, %{__meta__: %{state: :built}}}
+      saved = Repo.get!(ChannelConfig, result.snapshot.selected.id)
+      assert saved.settings["live_updates"]["enabled"] == true
+      assert saved.settings["live_updates"]["min_interval_ms"] == 250
+      assert saved.settings["file_delivery"]["max_attachment_bytes"] == 500_000
+      assert IncomingMessageRouting.get_rule(%{channel_config_id: saved.id}).routing_mode == :none
     end
 
     @tag bridge: PolicyFileBridge
@@ -279,6 +347,10 @@ defmodule Zaq.Engine.ChannelConfigTest do
 
       assert {:error, {:validation, errors}} = WidgetConnectorSettings.execute(request)
       assert errors.file_delivery["max_attachment_bytes"] == "Must not exceed the transport limit"
+      assert {:ok, capabilities} = errors.capabilities
+      assert capabilities.file_delivery.limits.max_attachment_bytes.value == 1_000_000
+      refute Map.has_key?(capabilities, :settings)
+      refute Map.has_key?(capabilities, :token)
       assert Repo.reload!(config) == config
       assert IncomingMessageRouting.get_rule(%{channel_config_id: config.id}) == nil
 

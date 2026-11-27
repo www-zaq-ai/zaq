@@ -3,7 +3,7 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
   use ZaqWeb, :html
 
   alias Zaq.ConnectorConfig.FileSettings
-  alias ZaqWeb.Components.DesignSystem.{Button, FeedbackBanner, Input, Switch}
+  alias ZaqWeb.Components.DesignSystem.{Button, FeedbackBanner, FieldHint, Input, Switch}
 
   @fields [
     %{
@@ -113,8 +113,10 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
               step={if field.bytes?, do: "0.000001", else: "1"}
               max={bounds.max}
               hint={hint(field, required?)}
+              errors={List.wrap(error)}
+              error_id={@id <> "-" <> field.input <> "-error"}
               aria-required={to_string(required?)}
-              aria-invalid={not is_nil(error)}
+              aria-invalid={to_string(not is_nil(error))}
               aria-describedby={if error, do: @id <> "-" <> field.input <> "-error"}
             />
           <% else %>
@@ -123,14 +125,11 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
             </p>
             <p :if={is_integer(definition.value)} class="zaq-text-caption">Fixed transport limit</p>
           <% end %>
-          <p
-            :if={error}
-            id={@id <> "-" <> field.input <> "-error"}
-            class="zaq-text-body-sm"
-            style="color: var(--zaq-text-color-body-danger)"
-          >
-            {error}
-          </p>
+          <FieldHint.field_messages
+            :if={!definition.configurable || definition.value == :not_applicable}
+            errors={List.wrap(error)}
+            error_id={@id <> "-" <> field.input <> "-error"}
+          />
         </div>
         <Switch.switch
           id={@id <> "-send_on_file_failure"}
@@ -140,21 +139,11 @@ defmodule ZaqWeb.Components.FileDeliverySettings do
           layout={:setting_row}
           checked={@values["send_on_file_failure"] in [true, "true"]}
         />
-        <p
-          :if={@errors["send_on_file_failure"]}
-          class="zaq-text-body-sm"
-          style="color: var(--zaq-text-color-body-danger)"
-        >
-          {@errors["send_on_file_failure"]}
-        </p>
-        <p
-          :if={@errors["file_delivery"]}
-          id={@id <> "-error"}
-          class="zaq-text-body-sm"
-          style="color: var(--zaq-text-color-body-danger)"
-        >
-          {@errors["file_delivery"]}
-        </p>
+        <FieldHint.field_messages errors={List.wrap(@errors["send_on_file_failure"])} />
+        <FieldHint.field_messages
+          errors={List.wrap(@errors["file_delivery"])}
+          error_id={@id <> "-error"}
+        />
       <% end %>
     </section>
     """
