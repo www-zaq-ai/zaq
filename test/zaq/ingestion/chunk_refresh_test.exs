@@ -12,6 +12,151 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     :ok = Chunk.create_table(1536)
   end
 
+  test "rejecting a stale pipeline write leaves the caller's transaction usable" do
+    source = source_record()
+    context = context(super_admin())
+    requested_at = DateTime.utc_now()
+    assert {:ok, doc} = ChunkRefresh.start(Ecto.UUID.generate(), source, "Original", context)
+
+    assert {:ok, _document} =
+             Zaq.Repo.transaction(fn ->
+               assert {:error, :stale_refresh} =
+                        ChunkRefresh.pipeline_write(
+                          doc.id,
+                          fn -> flunk("stale write ran") end,
+                          requested_at
+                        )
+
+               Zaq.Repo.get!(Document, doc.id)
+             end)
+  end
+
+  test "early reservations fence older work without changing the searchable document" do
+    source = source_record([public_grant()])
+    context = context(super_admin())
+    indexed = Ecto.UUID.generate()
+    older = Ecto.UUID.generate()
+    newer = Ecto.UUID.generate()
+
+    assert {:ok, doc} = ChunkRefresh.start(indexed, source, "Original", context)
+    assert {:ok, :stored} = ChunkRefresh.insert(indexed, 1, context, &insert(&1, 1, "old"))
+
+    assert {:ok, ^older} = ChunkRefresh.reserve(older, source, context)
+    assert {:ok, ^newer} = ChunkRefresh.reserve(newer, source, context)
+    assert {:error, :stale_refresh} = ChunkRefresh.reserve(older, source, context)
+    assert {:error, :stale_refresh} = ChunkRefresh.start(older, source, "Late", context, older)
+    assert {:error, :stale_refresh} = ChunkRefresh.insert(indexed, 2, context, &never_insert/1)
+    assert [%{content: "old"}] = Chunk.list_by_document(doc.id)
+    assert Permissions.public?(doc)
+
+    assert {:error, :reservation_required} = ChunkRefresh.start(newer, source, "New", context)
+    assert {:ok, ^newer} = ChunkRefresh.reserve(newer, source, context)
+    assert {:ok, %{id: id}} = ChunkRefresh.start(newer, source, "New", context, newer)
+    assert doc.id == id
+    assert Chunk.list_by_document(id) == []
+    assert {:ok, :stored} = ChunkRefresh.insert(newer, 1, context, &insert(&1, 1, "new"))
+    assert {:ok, %{id: ^id}} = ChunkRefresh.start(newer, source, "Replay", context, newer)
+    assert {:ok, %{id: ^id}} = ChunkRefresh.resume(newer, context, newer)
+    assert [%{content: "new"}] = Chunk.list_by_document(id)
+  end
+
+  test "a supplied reservation must exist and match the source, actor and attempt" do
+    source = source_record()
+    context = context(super_admin())
+    other_context = context(super_admin())
+    other_source = source_record([], "disk")
+    id = Ecto.UUID.generate()
+    unknown = Ecto.UUID.generate()
+
+    assert {:error, :invalid_refresh_reservation} =
+             ChunkRefresh.start(unknown, source, "Unknown", context, unknown)
+
+    assert {:ok, ^id} = ChunkRefresh.reserve(id, source, context)
+    refute Document.get_by_source("data_source/google_drive/7/file")
+
+    assert {:error, :invalid_refresh_reservation} =
+             ChunkRefresh.start(id, source, "Wrong attempt", context, unknown)
+
+    assert {:error, :invalid_refresh_reservation} =
+             ChunkRefresh.start(id, source, "Wrong actor", other_context, id)
+
+    assert {:error, :invalid_refresh_reservation} =
+             ChunkRefresh.start(id, other_source, "Wrong source", context, id)
+
+    assert {:ok, _doc} = ChunkRefresh.start(id, source, "Valid", context, id)
+  end
+
+  test "reserves from signed identity before the source snapshot is available" do
+    source = source_record()
+    context = context(super_admin())
+    id = Ecto.UUID.generate()
+
+    assert {:ok, locator} =
+             Provenance.seal(%{source | permissions: nil}, %{
+               "provider" => "google_drive",
+               "config_id" => 7
+             })
+
+    assert {:ok, ^id} = ChunkRefresh.reserve(id, locator, context)
+    assert {:error, :invalid_source_record} = ChunkRefresh.start(id, locator, "Text", context, id)
+    assert {:ok, _doc} = ChunkRefresh.start(id, source, "Text", context, id)
+  end
+
+  test "a pending reservation cannot recreate a deleted indexed document" do
+    source = source_record()
+    context = context(super_admin())
+    id = Ecto.UUID.generate()
+
+    assert {:ok, doc} = ChunkRefresh.start(Ecto.UUID.generate(), source, "Original", context)
+    assert {:ok, ^id} = ChunkRefresh.reserve(id, source, context)
+    Zaq.Repo.delete!(doc)
+
+    assert {:error, :stale_refresh} = ChunkRefresh.start(id, source, "Deleted", context, id)
+    refute Document.get_by_source(doc.source)
+  end
+
+  test "a standalone start supersedes a pending reservation for the same source" do
+    source = source_record()
+    context = context(super_admin())
+    id = Ecto.UUID.generate()
+
+    assert {:ok, ^id} = ChunkRefresh.reserve(id, source, context)
+    assert {:ok, doc} = ChunkRefresh.start(Ecto.UUID.generate(), source, "Standalone", context)
+
+    assert {:error, :stale_refresh} = ChunkRefresh.start(id, source, "Delayed", context, id)
+    assert %{content: "Standalone"} = Document.get_by_source(doc.source)
+  end
+
+  test "imports all effective rights for a principal with overlapping Disk grants" do
+    {:ok, person} =
+      People.create_person(%{full_name: "Disk editor", email: "disk-editor@example.org"})
+
+    permissions =
+      Enum.map([{"direct", false, "read"}, {"parent", true, "write"}], fn {id, inherited?, right} ->
+        %Record{
+          id: id,
+          kind: :permission,
+          attributes: %{
+            "type" => "person",
+            "target_id" => to_string(person.id),
+            "access_rights" => [right],
+            "inherited" => inherited?
+          }
+        }
+      end)
+
+    assert {:ok, doc} =
+             ChunkRefresh.start(
+               Ecto.UUID.generate(),
+               source_record(permissions, "disk"),
+               "Text",
+               context(super_admin())
+             )
+
+    assert [%{person_id: id, access_rights: ["read", "write"]}] = Permissions.list(doc)
+    assert id == person.id
+  end
+
   test "replaying setup and an acknowledged-or-not insert retains successes until a newer refresh" do
     user = super_admin()
     source = source_record()
@@ -176,7 +321,11 @@ defmodule Zaq.Ingestion.ChunkRefreshTest do
     assert {:ok, doc} = ChunkRefresh.start(id, source, "text", context(user))
 
     assert {:error, :stale_refresh} =
-             ChunkRefresh.legacy_write(doc.id, fn -> flunk("old writes must be fenced") end)
+             ChunkRefresh.pipeline_write(
+               doc.id,
+               fn -> flunk("old writes must be fenced") end,
+               old_request
+             )
 
     assert {:error, :stale_refresh} =
              Document.upsert(%{source: doc.source, content: "outdated"}, old_request)

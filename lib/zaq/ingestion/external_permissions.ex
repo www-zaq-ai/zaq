@@ -95,7 +95,13 @@ defmodule Zaq.Ingestion.ExternalPermissions do
           []
       end
     end)
-    |> Enum.uniq_by(fn {target_type, target_id, _rights} -> {target_type, target_id} end)
+    |> Enum.group_by(
+      fn {target_type, target_id, _rights} -> {target_type, target_id} end,
+      fn {_target_type, _target_id, rights} -> rights end
+    )
+    |> Enum.map(fn {{target_type, target_id}, rights} ->
+      {target_type, target_id, rights |> Enum.concat() |> Enum.uniq() |> Enum.sort()}
+    end)
   end
 
   defp complete_snapshot?(%Record{permissions: permissions}) when is_list(permissions), do: true

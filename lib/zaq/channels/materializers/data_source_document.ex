@@ -26,7 +26,8 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   end
 
   @impl true
-  def materialization_options, do: Zaq.Materialization.document_mime_options()
+  def materialization_options,
+    do: ["required_record_fields" | Zaq.Materialization.document_mime_options()]
 
   @impl true
   def materialize(locator, context, options \\ %{})
@@ -40,13 +41,14 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   def do_materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do
     with {:ok, provider, params} <- validate_locator(locator) do
+      {fields, options} = Map.pop(options, "required_record_fields", [])
       params = merge_options(params, options)
 
       provider
       |> Events.build_and_dispatch_data_source_download_document_event(
         params,
         TrustedContext.event_builder_opts(context,
-          event_opts: data_source_event_opts(context)
+          event_opts: data_source_event_opts(context, fields)
         )
       )
       |> Map.fetch!(:response)
@@ -81,8 +83,8 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
     params |> Map.merge(options) |> drop_blank_values()
   end
 
-  defp data_source_event_opts(context) do
-    opts = if context[:include_source_snapshot], do: [include_source_snapshot: true], else: []
+  defp data_source_event_opts(context, fields) do
+    opts = if fields == [], do: [], else: [required_record_fields: fields]
 
     case context[:data_source_bridge_module] do
       nil -> opts

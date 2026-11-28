@@ -318,11 +318,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     requested_at = Keyword.get(opts, :refresh_requested_at)
 
     if reset_chunks do
-      ChunkRefresh.legacy_write(
-        document_id,
-        fn -> Chunk.delete_by_document(document_id) end,
-        requested_at
-      )
+      delete_pipeline_chunks(document_id, requested_at, fn ->
+        Chunk.delete_by_document(document_id, invalidate?: false)
+      end)
     end
 
     sections = DocumentChunker.parse_layout(content, format: :markdown)
@@ -395,11 +393,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp maybe_delete_chunk_before_store(true, _document_id, _index, _requested_at), do: :ok
 
   defp maybe_delete_chunk_before_store(false, document_id, index, requested_at) do
-    ChunkRefresh.legacy_write(
-      document_id,
-      fn -> Chunk.delete_by_document_and_index(document_id, index) end,
-      requested_at
-    )
+    delete_pipeline_chunks(document_id, requested_at, fn ->
+      Chunk.delete_by_document_and_index(document_id, index)
+    end)
+  end
+
+  defp delete_pipeline_chunks(document_id, requested_at, delete) do
+    case ChunkRefresh.pipeline_write(document_id, delete, requested_at) do
+      {:ok, {count, _}} when count > 0 -> ChunkLanguages.invalidate()
+      _ -> :ok
+    end
 
     :ok
   end
@@ -449,7 +452,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
           {:error, :dimension_mismatch}
         else
-          insert_legacy_chunk(chunk, document_id, index, embedding, requested_at)
+          insert_pipeline_chunk(chunk, document_id, index, embedding, requested_at)
         end
 
       {:error, reason} ->
@@ -458,8 +461,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp insert_legacy_chunk(chunk, document_id, index, embedding, requested_at) do
-    ChunkRefresh.legacy_write(
+  defp insert_pipeline_chunk(chunk, document_id, index, embedding, requested_at) do
+    ChunkRefresh.pipeline_write(
       document_id,
       fn ->
         insert_precomputed_chunk(
@@ -474,14 +477,22 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       requested_at
     )
     |> case do
-      {:ok, result} -> result
-      {:error, reason} -> {:error, reason}
+      {:ok, {:ok, _chunk} = result} ->
+        ChunkLanguages.invalidate()
+        result
+
+      {:ok, result} ->
+        result
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   @doc """
   Inserts a chunk with a dimension-checked vector. The caller owns refresh
-  authorization and fencing. The vector must remain nonzero at half precision.
+  authorization, fencing, and post-commit cache invalidation. The vector must
+  remain nonzero at half precision.
   """
   @spec insert_precomputed_chunk(pos_integer(), pos_integer(), String.t(), [String.t()], map(), [
           number()
@@ -527,10 +538,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     %Chunk{}
     |> Chunk.changeset(attrs)
     |> Repo.insert(mode: :savepoint)
-    |> tap(fn
-      {:ok, _record} -> ChunkLanguages.invalidate()
-      _ -> :ok
-    end)
   end
 
   @doc """

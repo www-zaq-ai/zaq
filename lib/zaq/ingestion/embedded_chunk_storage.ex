@@ -8,6 +8,7 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
   alias Zaq.Ingestion.{ChunkRefresh, ChunkRefreshSource, DocumentProcessor}
 
   @max_items 16
+  @max_chunk_index 2_147_483_647
   @metadata_keys ~w(section_id section_type section_level position tokens start end figure_title)
 
   @doc "Defines the shared input contract for the Action and the Ingestion boundary."
@@ -15,7 +16,7 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
   def schema do
     chunk =
       Zoi.object(%{
-        chunk_index: Zoi.integer() |> Zoi.positive(),
+        chunk_index: chunk_index_schema(),
         content: Zoi.string() |> Zoi.min(1) |> Zoi.max(65_536),
         section_path: Zoi.list(Zoi.string()),
         metadata: Zoi.map()
@@ -23,7 +24,7 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
 
     embedding =
       Zoi.object(%{
-        chunk_index: Zoi.integer() |> Zoi.positive(),
+        chunk_index: chunk_index_schema(),
         model: Zoi.string(),
         dimension: Zoi.integer(),
         vector: Zoi.list() |> Zoi.max(4000)
@@ -32,6 +33,9 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
     Zoi.object(
       %{
         attempt_id: Zoi.string(description: "Stable UUID for the refresh"),
+        reservation_id:
+          Zoi.string(description: "Reservation returned by an early refresh request")
+          |> Zoi.optional(),
         record:
           Zoi.object(
             %{provenance_ref: Zoi.string()},
@@ -52,6 +56,8 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
     )
   end
 
+  defp chunk_index_schema, do: Zoi.integer() |> Zoi.positive() |> Zoi.max(@max_chunk_index)
+
   @doc "Starts or resumes a source refresh and returns outcomes in input order."
   @spec store(map(), map()) :: {:ok, map()} | {:error, term()}
   def store(input, context) do
@@ -65,7 +71,7 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
     with :ok <- validate_indices(items),
          {:ok, _user} <- ChunkRefreshSource.authorize(context[:actor]),
          context <- attach_configuration(context),
-         {:ok, document} <- prepare(attempt_id, params[:record], params[:markdown], context) do
+         {:ok, document} <- prepare(params, context) do
       results =
         Enum.map(items, &store_item(&1, attempt_id, context, context.embedding_configuration))
 
@@ -79,12 +85,18 @@ defmodule Zaq.Ingestion.EmbeddedChunkStorage do
     Map.put(context, :embedding_configuration, %{model: config.model, dimension: config.dimension})
   end
 
-  defp prepare(id, nil, nil, context), do: ChunkRefresh.resume(id, context)
+  defp prepare(%{attempt_id: id} = params, context) do
+    case {params[:record], params[:markdown]} do
+      {nil, nil} ->
+        ChunkRefresh.resume(id, context, params[:reservation_id])
 
-  defp prepare(id, record, markdown, context) when is_map(record) and is_binary(markdown),
-    do: ChunkRefresh.start(id, record, markdown, context)
+      {record, markdown} when is_map(record) and is_binary(markdown) ->
+        ChunkRefresh.start(id, record, markdown, context, params[:reservation_id])
 
-  defp prepare(_id, _record, _markdown, _context), do: {:error, :invalid_refresh_input}
+      _ ->
+        {:error, :invalid_refresh_input}
+    end
+  end
 
   defp validate_indices(items) do
     indices = Enum.map(items, & &1.chunk.chunk_index)

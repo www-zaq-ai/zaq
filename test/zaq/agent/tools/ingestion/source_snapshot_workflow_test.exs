@@ -30,32 +30,78 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
 
   @dimension 1536
   @source_mime "application/vnd.google-apps.spreadsheet"
+  @indexing_fields ~w(name url source_mime_type parents permissions)
 
   defmodule Provider do
     @moduledoc false
 
-    def download_document(_config, %{"file_id" => id, "include_permissions" => true}, _context) do
+    def download_document(
+          _config,
+          %{"file_id" => "preloaded" = id, "required_record_fields" => _},
+          _context
+        ) do
+      record = %Record{
+        id: id,
+        kind: :file,
+        content: "a,b\n1,2\n",
+        mime_type: "text/csv",
+        permissions: []
+      }
+
+      source = %{source(id) | url: nil}
+      {:ok, %{record: record, source_record: source, acquired_record_fields: ["url"]}}
+    end
+
+    def download_document(
+          _config,
+          %{"file_id" => "download-acl" = id, "required_record_fields" => _},
+          _context
+        ) do
+      {:ok,
+       %{
+         record: %Record{
+           id: id,
+           kind: :file,
+           content: "a,b\n1,2\n",
+           mime_type: "text/csv",
+           permissions: []
+         }
+       }}
+    end
+
+    def download_document(
+          _config,
+          %{"file_id" => id, "required_record_fields" => fields},
+          _context
+        )
+        when fields != [] do
       send(self(), :downloaded)
 
-      record =
-        if id == "complete" do
-          %{
-            source(id)
-            | content: "Item,Amount\nOrchard,15\n",
-              mime_type: "text/csv",
-              permissions: []
-          }
-        else
-          %Record{
-            id: id,
-            kind: :file,
-            content: Base.encode64("Item,Amount\nOrchard,15\n"),
-            mime_type: "text/csv",
-            attributes: %{"encoding" => "base64"}
-          }
-        end
+      if id == "complete" do
+        source = %{source(id) | permissions: []}
+        record = %{source | content: "Item,Amount\nOrchard,15\n", mime_type: "text/csv"}
+        {:ok, %{record: record, source_record: source}}
+      else
+        record = %Record{
+          id: id,
+          kind: :file,
+          content: Base.encode64("Item,Amount\nOrchard,15\n"),
+          mime_type: "text/csv",
+          attributes: %{"encoding" => "base64"}
+        }
 
-      {:ok, %{record: record}}
+        {:ok, %{record: record}}
+      end
+    end
+
+    def download_document(_config, %{"file_id" => "ordinary" = id} = params, _context) do
+      send(self(), {:ordinary_download, params})
+      {:ok, %{record: %Record{id: id, kind: :file, content: "a,b\n1,2\n", mime_type: "text/csv"}}}
+    end
+
+    def get_file(_config, %{"file_id" => "download-acl" = id} = params, _context) do
+      send(self(), {:metadata_params, params})
+      {:ok, %{record: source(id)}}
     end
 
     def get_file(_config, %{"file_id" => id, "include_permissions" => true}, _context) do
@@ -126,6 +172,55 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
       },
       config: config
     }
+  end
+
+  test "ordinary downloads leave canonical fields unrequested", %{
+    config: config,
+    context: context
+  } do
+    assert {:ok, result} = download_with_fields(config, "ordinary", context, nil)
+    assert %Record{content: "a,b\n1,2\n", permissions: nil} = result.record
+    assert_received {:ordinary_download, params}
+    refute Map.has_key?(params, "required_record_fields")
+    assert {:ok, claims} = Provenance.verify(result.record)
+    refute Map.has_key?(claims, "source_metadata")
+  end
+
+  test "reuses loaded fields, including empty ACLs and an acquired absent URL", %{
+    config: config,
+    context: context
+  } do
+    context = Map.put(context, :include_source_snapshot, true)
+    assert {:ok, complete} = download_with_fields(config, "preloaded", context, @indexing_fields)
+    assert complete.record.mime_type == "text/csv"
+    assert {:ok, claims} = Provenance.verify(complete.record)
+    assert claims["source_metadata"]["mime_type"] == @source_mime
+    assert is_nil(claims["source_metadata"]["url"])
+    assert claims["permissions"] == %{"state" => "loaded", "entries" => []}
+    refute_received :source_metadata_loaded
+    refute_received :source_permissions_loaded
+
+    assert {:ok, partial} =
+             download_with_fields(config, "download-acl", context, @indexing_fields)
+
+    assert_received {:metadata_params,
+                     %{"include_permissions" => false, "required_record_fields" => fields}}
+
+    refute "permissions" in fields
+    refute_received :source_permissions_loaded
+    assert {:ok, claims} = Provenance.verify(partial.record)
+    assert claims["permissions"] == %{"state" => "loaded", "entries" => []}
+  end
+
+  defp download_with_fields(config, id, context, fields) do
+    {:ok, handle} = DataSourceDocument.issue("google_drive", id, %{"config_id" => config.id})
+
+    expect(NodeRouterMock, :dispatch, fn %Event{} = event ->
+      assert event.opts[:required_record_fields] == fields
+      Channels.Api.handle_event(event, :data_source_download_document, %{})
+    end)
+
+    run(DownloadDocument, %{materialization_handle: handle}, context)
   end
 
   test "downloads, converts, chunks, embeds and stores with signed metadata after model aliasing",
@@ -280,7 +375,7 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
     {:ok, handle} = DiskDocument.issue(entry.id, %{"config_id" => config.id})
 
     expect(NodeRouterMock, :dispatch, fn event ->
-      assert event.opts[:include_source_snapshot]
+      assert event.opts[:required_record_fields] == @indexing_fields
       Channels.Api.handle_event(event, :data_source_download_document, %{})
     end)
 
@@ -290,7 +385,7 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
     end)
 
     assert {:ok, %{record: %Record{content: "# Disk notes"} = record}} =
-             run(DownloadDocument, %{materialization_handle: handle}, context)
+             run(DownloadDocument, %{materialization_handle: handle}, indexing_context(context))
 
     assert {:ok, claims} = Provenance.verify(record)
     assert claims["provider"] == "disk"
@@ -299,16 +394,10 @@ defmodule Zaq.Agent.Tools.Ingestion.SourceSnapshotWorkflowTest do
   end
 
   defp download(config, id, context) do
-    assert {:ok, handle} =
-             DataSourceDocument.issue("google_drive", id, %{"config_id" => to_string(config.id)})
-
-    expect(NodeRouterMock, :dispatch, fn %Event{} = event ->
-      assert event.opts[:include_source_snapshot]
-      Channels.Api.handle_event(event, :data_source_download_document, %{})
-    end)
-
-    run(DownloadDocument, %{materialization_handle: handle}, context)
+    download_with_fields(config, id, indexing_context(context), @indexing_fields)
   end
+
+  defp indexing_context(context), do: Map.put(context, :include_source_snapshot, true)
 
   defp stub_embedding(input) do
     Req.Test.expect(Client, fn conn ->

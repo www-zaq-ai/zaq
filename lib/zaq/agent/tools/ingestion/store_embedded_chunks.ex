@@ -4,8 +4,9 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunks do
 
   A current Back Office super admin starts with a new UUID, a fresh source
   `record` with signed permissions, and converted `markdown`. Resume with the
-  same `attempt_id` and only the remaining items. Each vector is explicitly
-  labelled with its source `chunk_index`.
+  same `attempt_id` and only the remaining items. Coordinated callers can pass
+  an early `reservation_id` for that attempt. Each vector is explicitly labelled
+  with its source `chunk_index`.
   """
 
   alias Jido.Action.Tool

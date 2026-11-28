@@ -137,13 +137,43 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def get_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
-    params = maybe_embed_permissions_projection(params, config, :get_item_metadata)
+    {fields, params} = Map.pop(params, "required_record_fields", [])
+    params = select_metadata_fields(config, params, fields)
 
     with {:ok, payload} <- invoke_intent(config, :get_item_metadata, params),
          {:ok, record} <- map_file_from_payload(payload, config, params) do
       {:ok, %{record: record}}
     end
   end
+
+  defp select_metadata_fields(%{provider: "google_drive"}, params, [_ | _] = fields) do
+    with {:ok, action} <- resolve_action("google_drive", :get_item_metadata),
+         true <- action_supports_fields_input?("google_drive", action) do
+      projection =
+        fields
+        |> Enum.flat_map(fn
+          "name" -> ["name"]
+          "url" -> ["webViewLink"]
+          "source_mime_type" -> ["mimeType"]
+          "parents" -> ["parents"]
+          _ -> []
+        end)
+        |> Enum.concat(["id", "mimeType"])
+        |> Enum.uniq()
+        |> Enum.join(",")
+
+      params = Map.put(params, "fields", projection)
+
+      if "permissions" in fields,
+        do: maybe_set_provider_permission_fields("google_drive", params, :get_item_metadata),
+        else: params
+    else
+      _ -> params
+    end
+  end
+
+  defp select_metadata_fields(config, params, _fields),
+    do: maybe_embed_permissions_projection(params, config, :get_item_metadata)
 
   @impl true
   def update_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
@@ -302,12 +332,44 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def download_document(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
+    {fields, params} = Map.pop(params, "required_record_fields", [])
     params = maybe_apply_default_export_mime_type(config, params)
 
     with {:ok, payload} <- invoke_intent(config, :download_items, params),
          {:ok, record} <- map_downloaded_document_record(payload, params) do
-      {:ok, %{record: record}}
+      {:ok, downloaded_result(record, payload, fields)}
     end
+  end
+
+  defp downloaded_result(record, _payload, []), do: %{record: record}
+
+  defp downloaded_result(record, payload, _fields) do
+    case read_any(payload, [:file, "file"]) do
+      %{} = raw ->
+        case map_file_from_payload(raw) do
+          {:ok, %Record{id: id} = source} when id == record.id ->
+            %{
+              record: record,
+              source_record: source,
+              acquired_record_fields: acquired_download_fields(raw)
+            }
+
+          _other ->
+            %{record: record}
+        end
+
+      _other ->
+        %{record: record}
+    end
+  end
+
+  defp acquired_download_fields(raw) do
+    fields = [
+      {"url", ["web_view_link", :web_view_link, "web_url", :web_url]},
+      {"parents", ["parents", :parents, "parent_id", :parent_id, "parent", :parent]}
+    ]
+
+    for {field, keys} <- fields, Enum.any?(keys, &Map.has_key?(raw, &1)), do: field
   end
 
   @impl true
@@ -1910,13 +1972,20 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp permission_entries(payload) do
     case read_any(payload, ["permissions", :permissions]) do
       entries when is_list(entries) ->
-        {valid, invalid} = Enum.split_with(entries, &is_map/1)
+        {valid, invalid} = Enum.split_with(entries, &valid_permission_entry?/1)
         {valid, invalid == []}
 
       _ ->
         {[], false}
     end
   end
+
+  defp valid_permission_entry?(entry) when is_map(entry) do
+    id = read_stringish(entry, ["id", :id, "permission_id", :permission_id])
+    is_binary(id) and id not in ["", "nil"] and String.trim(id) != ""
+  end
+
+  defp valid_permission_entry?(_entry), do: false
 
   defp permission_principal(raw) do
     channel = permission_principal_channel(raw)

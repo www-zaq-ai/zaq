@@ -15,6 +15,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   alias Zaq.Ingestion.{
     Chunk,
+    ChunkLanguages,
     ChunkRefresh,
     DocumentIngestionSummary,
     ExternalPermissions,
@@ -65,21 +66,21 @@ defmodule Zaq.Ingestion.IngestWorker do
   defp finish_preparation(_input, _job, _document, [], _dimensions),
     do: {:error, :no_searchable_content}
 
-  defp finish_preparation(input, job, document, :legacy_completed, dimensions) do
+  defp finish_preparation(input, job, document, :processed_inline, dimensions) do
     requested_at = Map.get(document, :chunk_refresh_started_at) || job.inserted_at
 
     with {:ok, _} <-
-           ChunkRefresh.legacy_write(
+           ChunkRefresh.pipeline_write(
              document.id,
              fn -> import_external_permissions(input, document) end,
              requested_at
            ) do
-      finalize_legacy_job(job, document, dimensions)
+      finalize_inline_job(job, document, dimensions)
     end
   end
 
   defp finish_preparation(input, job, document, payloads, dimensions) do
-    with {:ok, _} <- prepare_legacy_chunk_jobs(input, document, job.inserted_at) do
+    with {:ok, _} <- prepare_chunk_jobs(input, document, job.inserted_at) do
       schedule_chunk_jobs(job, document, payloads, dimensions)
     end
   end
@@ -135,7 +136,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     else
       case proc.process_single_file(file_path, opts) do
         {:ok, document} ->
-          {:ok, document, :legacy_completed}
+          {:ok, document, :processed_inline}
 
         {:error, reason} ->
           {:error, reason}
@@ -190,15 +191,19 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp import_external_permissions(_input, _document), do: :ok
 
-  defp prepare_legacy_chunk_jobs(input, document, requested_at) do
-    ChunkRefresh.legacy_write(
+  defp prepare_chunk_jobs(input, document, requested_at) do
+    ChunkRefresh.pipeline_write(
       document.id,
       fn ->
         import_external_permissions(input, document)
-        Chunk.delete_by_document(document.id)
+        Chunk.delete_by_document(document.id, invalidate?: false)
       end,
       requested_at
     )
+    |> tap(fn
+      {:ok, {count, _}} when count > 0 -> ChunkLanguages.invalidate()
+      _ -> :ok
+    end)
   end
 
   defp schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions) do
@@ -234,7 +239,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     :ok
   end
 
-  defp finalize_legacy_job(job, document, telemetry_dimensions) do
+  defp finalize_inline_job(job, document, telemetry_dimensions) do
     chunks_count = if is_nil(document.id), do: 0, else: Chunk.count_by_document(document.id)
 
     JobLifecycle.mark_completed!(job, %{

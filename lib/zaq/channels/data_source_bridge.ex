@@ -81,6 +81,11 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback delete_file(map(), map(), TrustedContext.t()) :: {:ok, map()} | {:error, term()}
   @callback search_files(map(), map(), TrustedContext.t()) ::
               {:ok, RecordPage.t()} | {:error, term()}
+  @doc """
+  Downloads content. When `required_record_fields` is present, a bridge may
+  return a separate `source_record` and `acquired_record_fields`. The latter
+  names fields already looked up, even if unavailable, so they are not fetched twice.
+  """
   @callback download_document(map(), map(), TrustedContext.t()) ::
               {:ok, map()} | {:error, term()}
   @doc """
@@ -545,42 +550,127 @@ defmodule Zaq.Channels.DataSourceBridge do
           {:ok, map()} | {:error, term()}
   def download_document(provider, params \\ %{}, context \\ %{})
       when is_map(params) and is_map(context) do
-    {snapshot?, params} = Map.pop(params, "include_source_snapshot", false)
+    {fields, params} = Map.pop(params, "required_record_fields", [])
     context = TrustedContext.normalize(context)
 
-    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+    with :ok <- validate_download_fields(fields),
+         {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :download_document, 3) || {:error, :unsupported} do
-      download_with_snapshot(bridge, config, params, context, snapshot?)
+      acquire_download(bridge, config, params, context, Enum.uniq(fields))
     end
   end
 
-  defp download_with_snapshot(bridge, config, params, context, true) do
-    params = Map.put(params, "include_permissions", true)
+  @source_metadata_fields ~w(name url source_mime_type parents)
+  @canonical_download_fields @source_metadata_fields ++ ["permissions"]
 
-    with {:ok, %{record: %Record{} = downloaded} = result} <-
-           bridge.download_document(config, params, context),
-         {:ok, source} <- download_source(bridge, config, params, context, downloaded),
-         source = load_download_permissions(source, bridge, config, params, context),
-         {:ok, record} <- seal_download(source, downloaded, config, params) do
-      {:ok, %{result | record: record}}
-    end
+  defp validate_download_fields(fields) when is_list(fields) do
+    if Enum.all?(fields, &(&1 in @canonical_download_fields)),
+      do: :ok,
+      else: {:error, :invalid_download_fields}
   end
 
-  defp download_with_snapshot(bridge, config, params, context, _snapshot?) do
+  defp validate_download_fields(_fields), do: {:error, :invalid_download_fields}
+
+  defp acquire_download(bridge, config, params, context, []) do
     bridge.download_document(config, params, context)
     |> seal_response(config)
   end
 
-  defp load_download_permissions(
-         %Record{permissions: permissions} = source,
-         _bridge,
-         _config,
-         _params,
-         _context
-       )
-       when is_list(permissions),
-       do: source
+  defp acquire_download(bridge, config, params, context, fields) do
+    params = Map.put(params, "required_record_fields", fields)
+
+    case bridge.download_document(config, params, context) do
+      {:ok, %{record: %Record{kind: :file} = downloaded} = result} ->
+        complete_download(result, downloaded, fields, bridge, config, params, context)
+
+      response ->
+        seal_response(response, config)
+    end
+  end
+
+  defp complete_download(result, downloaded, fields, bridge, config, params, context) do
+    with true <- downloaded.id == params["file_id"] || {:error, :invalid_source_snapshot},
+         {:ok, source, acquired} <- download_fields(result, downloaded) do
+      {source, acquired} =
+        fill_download_metadata(source, acquired, fields, bridge, config, context)
+
+      source =
+        fill_download_permissions(source, acquired, fields, bridge, config, params, context)
+
+      case seal_download(source, downloaded, config, acquired, fields) do
+        {:ok, record} -> {:ok, put_download_record(result, record)}
+        error -> error
+      end
+    end
+  end
+
+  defp put_download_record(result, record) do
+    result
+    |> Map.drop([:source_record, :acquired_record_fields])
+    |> Map.put(:record, record)
+  end
+
+  defp download_fields(
+         %{source_record: %Record{kind: :file, id: id} = source} = result,
+         %{id: id} = downloaded
+       ) do
+    acquired = Enum.uniq(Map.get(result, :acquired_record_fields, []) ++ present_fields(source))
+    record = merge_download_fields(%{downloaded | mime_type: nil}, source, acquired)
+    {:ok, record, Enum.uniq(acquired ++ present_fields(record))}
+  end
+
+  defp download_fields(%{source_record: _}, _downloaded), do: {:error, :invalid_source_snapshot}
+
+  defp download_fields(result, downloaded) do
+    source = %{downloaded | mime_type: nil}
+
+    {:ok, source,
+     Enum.uniq(Map.get(result, :acquired_record_fields, []) ++ present_fields(source))}
+  end
+
+  defp present_fields(record) do
+    Enum.filter(@canonical_download_fields, fn
+      "parents" -> not is_nil(record.parent_id) or record.parent_ids not in [nil, []]
+      "permissions" -> is_list(record.permissions)
+      "source_mime_type" -> is_binary(record.mime_type) and record.mime_type != ""
+      "name" -> is_binary(record.name) and record.name != ""
+      "url" -> is_binary(record.url) and record.url != ""
+    end)
+  end
+
+  defp fill_download_metadata(source, acquired, fields, bridge, config, context) do
+    missing = fields -- acquired
+
+    if Enum.any?(missing, &(&1 in @source_metadata_fields)) and
+         supports_callback?(bridge, :get_file, 3) do
+      metadata_params = %{
+        "file_id" => source.id,
+        "include_permissions" => "permissions" in missing,
+        "required_record_fields" => missing
+      }
+
+      case bridge.get_file(config, metadata_params, context) do
+        {:ok, %{record: %Record{kind: :file, id: id} = metadata}} when id == source.id ->
+          source = merge_download_fields(source, metadata, missing)
+          acquired = Enum.uniq(acquired ++ ~w(url parents) ++ present_fields(source))
+          {source, acquired}
+
+        _other ->
+          {source, acquired}
+      end
+    else
+      {source, acquired}
+    end
+  end
+
+  defp fill_download_permissions(source, acquired, fields, bridge, config, params, context) do
+    if "permissions" in (fields -- acquired) and is_nil(source.permissions) do
+      load_download_permissions(source, bridge, config, params, context)
+    else
+      source
+    end
+  end
 
   defp load_download_permissions(source, bridge, config, params, context) do
     with true <- supports_callback?(bridge, :list_permissions, 3),
@@ -596,58 +686,35 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  defp download_source(
-         _bridge,
-         _config,
-         _params,
-         _context,
-         %Record{name: name} = record
-       )
-       when is_binary(name) and name != "",
-       do: {:ok, record}
+  defp merge_download_fields(record, other, fields) do
+    Enum.reduce(fields, record, fn
+      "parents", record ->
+        %{record | parent_id: other.parent_id, parent_ids: other.parent_ids}
 
-  defp download_source(bridge, config, params, context, %Record{} = downloaded) do
-    if supports_callback?(bridge, :get_file, 3) do
-      case bridge.get_file(config, Map.take(params, ~w(file_id include_permissions)), context) do
-        {:ok, %{record: %Record{} = source}} ->
-          # Some providers include permissions in the download but omit them in metadata.
-          {:ok, %{source | permissions: source.permissions || downloaded.permissions}}
+      "source_mime_type", record ->
+        %{record | mime_type: other.mime_type}
 
-        {:error, _reason} = error ->
-          error
-
-        _other ->
-          {:error, :invalid_source_snapshot}
-      end
-    else
-      {:ok, downloaded}
-    end
+      field, record ->
+        key = String.to_existing_atom(field)
+        Map.put(record, key, Map.fetch!(other, key))
+    end)
   end
 
-  defp seal_download(%Record{kind: :file} = source, downloaded, config, %{"file_id" => id})
-       when source.id == id and downloaded.id == id do
+  defp seal_download(source, downloaded, config, acquired, fields) do
     attrs =
       (source.attributes || %{})
       |> Map.merge(Map.take(downloaded.attributes || %{}, ["encoding", :encoding]))
       |> Map.put("provider", config.provider)
       |> Map.put("config_id", to_string(config.id))
-      |> Map.put("provider_record_id", id)
+      |> Map.put("provider_record_id", source.id)
 
     source = %{source | attributes: attrs}
 
-    metadata = %{
-      "name" => source.name,
-      "url" => source.url,
-      "mime_type" => source.mime_type,
-      "parent_ids" => source.parent_ids || []
-    }
+    claims = download_claims(source, config, acquired, fields)
 
     with {:ok, permissions} <- seal_permissions(source.permissions, config),
          {:ok, sealed} <-
-           Provenance.seal(
-             %{source | permissions: permissions},
-             Map.put(provenance_claims(config), "source_metadata", metadata)
-           ) do
+           Provenance.seal(%{source | permissions: permissions}, claims) do
       {:ok,
        %{
          sealed
@@ -659,8 +726,29 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  defp seal_download(_source, _downloaded, _config, _params),
-    do: {:error, :invalid_source_snapshot}
+  defp download_claims(source, config, acquired, fields) do
+    claims = provenance_claims(config)
+
+    with [] <- @canonical_download_fields -- fields,
+         [] <- @source_metadata_fields -- acquired,
+         name when is_binary(name) and name != "" <- source.name,
+         mime_type when is_binary(mime_type) and mime_type != "" <- source.mime_type do
+      metadata = %{
+        "name" => name,
+        "url" => source.url,
+        "mime_type" => mime_type,
+        "parent_ids" => source.parent_ids || []
+      }
+
+      Map.put(
+        claims,
+        "source_metadata",
+        Map.reject(metadata, fn {_key, value} -> is_nil(value) end)
+      )
+    else
+      _ -> claims
+    end
+  end
 
   @doc "Lists provider file permissions through the configured DataSource bridge."
   @spec list_permissions(atom() | String.t(), map(), map() | TrustedContext.t()) ::

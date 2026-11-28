@@ -229,8 +229,35 @@ defmodule Zaq.Channels.DiskBridge do
   """
   @impl true
   def download_document(config, params, context \\ %{})
+
+  def download_document(config, %{"required_record_fields" => fields} = params, context) do
+    metadata_params = Map.drop(params, ["include_permissions", :include_permissions])
+
+    with {:ok, %{record: record}} <- get_file(config, metadata_params, context) do
+      {record, acquired} = download_permissions(record, fields, config, context)
+      {:ok, %{record: record, source_record: record, acquired_record_fields: acquired}}
+    end
+  end
+
+  def download_document(config, params, context)
       when is_map(config) and is_map(params) and is_map(context) do
     get_file(config, params, context)
+  end
+
+  defp download_permissions(record, fields, config, context) do
+    acquired = ~w(name url source_mime_type parents)
+
+    if "permissions" in fields do
+      permissions =
+        case list_permissions(config, %{"file_id" => record.id}, context) do
+          {:ok, %RecordPage{records: records}} -> records
+          {:error, _reason} -> nil
+        end
+
+      {%{record | permissions: permissions}, ["permissions" | acquired]}
+    else
+      {record, acquired}
+    end
   end
 
   @doc "Lists who can read the given document — one record per person or team grant."

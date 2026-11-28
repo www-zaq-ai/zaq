@@ -220,6 +220,10 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
        }}
     end
 
+    def invoke(_integration, "stub.permissions.list", %{file_id: "missing-permission-id"}, _opts) do
+      {:ok, %{permissions: [%{"role" => "writer"}, %{"id" => "valid-id", "role" => "reader"}]}}
+    end
+
     def invoke(_integration, "stub.permissions.list", %{file_id: _file_id}, _opts) do
       {:ok,
        %{
@@ -696,6 +700,10 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
     assert {:ok, %{records: [%{id: "p1"}], metadata: %{incomplete_permission_projection?: true}}} =
              JidoConnectBridge.list_permissions(config, %{file_id: "mixed-principals"})
+
+    assert {:ok,
+            %{records: [%{id: "valid-id"}], metadata: %{incomplete_permission_projection?: true}}} =
+             JidoConnectBridge.list_permissions(config, %{file_id: "missing-permission-id"})
   end
 
   test "list_files sanitizes atom and tuple provider errors" do

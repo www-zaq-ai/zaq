@@ -9,9 +9,14 @@ defmodule Zaq.Repo.Migrations.CreateChunkRefreshes do
       add :source, :text, null: false
       add :embedding_model, :text, null: false
       add :embedding_dimension, :integer, null: false
+      add :generation, :bigserial, null: false
+      add :reserved_at, :utc_datetime_usec
+      add :reserved_document_id, :bigint
+      add :initialized, :boolean, null: false
     end
 
     create index(:chunk_refreshes, [:document_id])
+    create index(:chunk_refreshes, [:source, :generation])
 
     alter table(:documents) do
       add :chunk_refresh_id, :uuid

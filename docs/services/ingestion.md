@@ -112,8 +112,9 @@ trusted actor for a current Back Office super admin. A signed source Record
 identifies the document; a read handle or an actorless workflow does not grant
 indexing access.
 
-Use the Record returned by `DownloadDocument` for conversion and storage.
-For a source-backed download it carries content and a signed source snapshot.
+For indexing, set `include_source_snapshot: true` in the trusted
+`DownloadDocument` Action context and pass its Record to conversion and storage.
+The requested source fields travel with the downloaded content when available.
 Start storage with a new UUID as `attempt_id`, that `record`, converted
 `markdown`, and up to 16 `items`. Each item pairs a `chunk` from `ChunkContent`
 with its successful `embedding` result. Set `embedding.chunk_index` to the
@@ -135,6 +136,25 @@ one item do not undo other writes, and a newer refresh fences the previous
 attempt. The configured model and dimension must still match the attempt;
 start a new refresh after changing either. The Action does not call the
 embedding provider.
+
+#### When to reserve a refresh
+
+Reserve early when a chain is known to end in an index write. Call
+`ChunkRefresh.reserve/3` on the Ingestion role as soon as you have the signed
+source identity, before downloading, converting, or embedding. A slower chain
+then cannot replace the index after a newer chain for the same source has
+reserved its place. Pass the returned `reservation_id` and the same `attempt_id`
+to storage. A stale, unknown, or mismatched reservation fails; storage never
+substitutes a fresh attempt. Retry remaining items with the same attempt ID.
+
+Reservation leaves existing content, chunks, and grants readable. They are
+replaced only when the accepted refresh first starts storing. If the newer
+chain stops before storage, the existing index remains readable and the older
+attempt stays superseded.
+
+For independent downloads, conversions, or embeddings whose results might
+never be indexed, skip reservation. Storage then orders refreshes when they
+first store, even if their source snapshots were downloaded in another order.
 
 ## Modules
 

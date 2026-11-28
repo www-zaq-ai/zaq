@@ -6,7 +6,7 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunksTest do
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Event
-  alias Zaq.Ingestion.{Api, Chunk}
+  alias Zaq.Ingestion.{Api, Chunk, ChunkRefresh, EmbeddedChunkStorage}
   alias Zaq.NodeRouterMock
   alias Zaq.SystemConfigFixtures
 
@@ -36,6 +36,38 @@ defmodule Zaq.Agent.Tools.Ingestion.StoreEmbeddedChunksTest do
       })
 
     %{context: %{actor: %{user_id: user.id}, node_router: NodeRouterMock}, record: record}
+  end
+
+  test "lets the maximum database index through and rejects oversized indices before setup", %{
+    context: context,
+    record: record
+  } do
+    :ok = Chunk.create_table(@dimension)
+    {:ok, %{chunks: [chunk]}} = Jido.Exec.run(ChunkContent, %{content: "Indexed content"}, %{})
+    max_index = 2_147_483_647
+    item = item(%{chunk | chunk_index: max_index}, List.duplicate(0.1, @dimension))
+    id = Ecto.UUID.generate()
+    input = %{attempt_id: id, record: record, markdown: "Original", items: [item]}
+    assert {:ok, ^id} = ChunkRefresh.reserve(id, record, context)
+    expect_role()
+
+    assert {:ok, %{document_id: doc_id, results: [%{status: "stored", chunk_index: ^max_index}]}} =
+             execute(Map.put(input, :reservation_id, id), context)
+
+    for key <- [:chunk, :embedding], bad_index <- [0, max_index + 1] do
+      invalid_item = put_in(item, [key, :chunk_index], bad_index)
+
+      invalid = %{
+        input
+        | attempt_id: Ecto.UUID.generate(),
+          markdown: "Invalid",
+          items: [invalid_item]
+      }
+
+      assert {:error, :invalid_chunk_storage_input} = EmbeddedChunkStorage.store(invalid, context)
+    end
+
+    assert %{content: "Indexed content"} = Chunk.get_by_index(doc_id, max_index)
   end
 
   test "stores verbatim chunks, rejects individual invalid vectors, and retries only failures", %{

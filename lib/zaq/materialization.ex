@@ -36,7 +36,7 @@ defmodule Zaq.Materialization do
     handle_opts = Map.get(context, :materialization_handle_opts, [])
 
     with {:ok, %{type: type, locator: locator}} <- Handle.verify(handle, handle_opts),
-         {:ok, handler} <- Registry.lookup(type) do
+         {:ok, handler, locator, options} <- Registry.resolve(type, locator, options) do
       case materialize_with_handler(handler, locator, context, options) do
         {:ok, payload} -> normalize_payload(payload, context, error_prefix, depth)
         {:error, reason} -> {:error, "#{error_prefix}: #{format_reason(reason)}"}
@@ -113,10 +113,8 @@ defmodule Zaq.Materialization do
          depth
        )
        when is_binary(handle) do
-    nested_context = Map.delete(context, :include_source_snapshot)
-
     with {:ok, %{record: nested}} <-
-           materialize_handle(handle, nested_context, prefix, depth + 1, %{}) do
+           materialize_handle(handle, context, prefix, depth + 1, %{}) do
       {:ok, %{record: merge_record(record, nested)}}
     end
   end

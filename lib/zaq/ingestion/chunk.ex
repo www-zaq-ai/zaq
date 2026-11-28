@@ -174,12 +174,14 @@ defmodule Zaq.Ingestion.Chunk do
 
   @doc """
   Deletes all chunks for a given document.
-  Used before re-ingesting a document.
+  Pass `invalidate?: false` when the caller invalidates after its transaction commits.
   """
-  def delete_by_document(document_id) do
+  def delete_by_document(document_id, opts \\ []) do
     from(c in __MODULE__, where: c.document_id == ^document_id)
     |> Repo.delete_all()
-    |> tap(fn _ -> ChunkLanguages.invalidate() end)
+    |> tap(fn {count, _} ->
+      if count > 0 and Keyword.get(opts, :invalidate?, true), do: ChunkLanguages.invalidate()
+    end)
   end
 
   @doc "Deletes a single chunk by document and chunk index."
