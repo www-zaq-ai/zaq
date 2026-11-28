@@ -48,16 +48,16 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   Returns `{:error, {:map_body_required, name}}` (or a body-node resolution error)
   when the inline `body` pipeline is empty/unresolvable.
   """
-  @spec build_spec(String.t(), map(), non_neg_integer(), String.t() | nil) ::
+  @spec build_spec(String.t(), map(), non_neg_integer(), String.t() | nil, map()) ::
           {:ok, map()} | {:error, term()}
-  def build_spec(name, params, index, run_id) do
+  def build_spec(name, params, index, run_id, context \\ %{}) do
     body = Map.get(params, "body") || []
     post = Map.get(params, "post_process") || []
     strategy = Map.get(params, "strategy", "skip_and_continue")
 
     with :ok <- DagBuilder.require_non_empty(body, {:map_body_required, name}),
-         {:ok, body_specs} <- build_fork_specs(body, name, strategy, run_id),
-         {:ok, post_specs} <- build_fork_specs(post, name, strategy, run_id) do
+         {:ok, body_specs} <- build_fork_specs(body, name, strategy, run_id, context),
+         {:ok, post_specs} <- build_fork_specs(post, name, strategy, run_id, context) do
       spec = build_execution_spec(name, params, index, run_id, body_specs ++ post_specs)
 
       collect =
@@ -66,7 +66,8 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
           %{__map_prefix__: "#{name}/"},
           name,
           index,
-          run_id
+          run_id,
+          context
         )
 
       {:ok, Map.put(spec, :collect, collect)}
@@ -132,10 +133,10 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
     }
   end
 
-  defp build_fork_specs(nodes, map_name, strategy, run_id) do
+  defp build_fork_specs(nodes, map_name, strategy, run_id, context) do
     result =
       Enum.reduce_while(nodes, {:ok, []}, fn bnode, {:ok, acc} ->
-        case build_fork_spec(bnode, map_name, strategy, run_id) do
+        case build_fork_spec(bnode, map_name, strategy, run_id, context) do
           {:ok, spec} -> {:cont, {:ok, [spec | acc]}}
           {:error, _} = err -> {:halt, err}
         end
@@ -149,7 +150,7 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
 
   # Keep incoming mappings outside Action params. StepRunner still owns execution,
   # persistence, retries and isolation for each mapped fork step.
-  defp build_fork_spec(bnode, map_name, strategy, run_id) do
+  defp build_fork_spec(bnode, map_name, strategy, run_id, context) do
     type = Map.get(bnode, "type")
     bname = Map.get(bnode, "name")
     bparams = Map.get(bnode, "params") || %{}
@@ -169,7 +170,7 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
             step_index: 0
           })
 
-        {:ok, %{params: params, name: bname, mapping: mapping}}
+        {:ok, %{params: params, name: bname, mapping: mapping, context: context}}
       end
     else
       {:error, {:unsupported_map_body_node_type, type}}
@@ -232,7 +233,7 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
     |> Enum.reduce_while({:ok, fact}, fn spec, {:ok, prev} ->
       params = prev |> Steps.EdgeStep.apply_mapping(spec.mapping) |> Map.merge(spec.params)
 
-      case StepRunner.run(params, %{}) do
+      case StepRunner.run(params, spec.context) do
         {:ok, result} ->
           {:cont, {:ok, put_local_result(result, spec.name, mapped?)}}
 

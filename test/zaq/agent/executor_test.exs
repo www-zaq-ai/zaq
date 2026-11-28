@@ -1334,6 +1334,23 @@ defmodule Zaq.Agent.ExecutorTest do
       assert tool_context.incoming == incoming
     end
 
+    test "tool_context carries the scoped config to nested agent tools" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 21}}
+      config = Zaq.TestSupport.AgentConfig
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        config: config
+      )
+
+      assert_received {:coverage_ask, _, _, %{config: ^config}}
+    end
+
     test "tool_context carries the event actor when an :event opt is given" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 21}}
       actor = %{id: "u1", name: "alice", provider: :web, person: %{id: 21}}

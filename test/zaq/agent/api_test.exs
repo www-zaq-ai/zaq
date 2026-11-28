@@ -469,6 +469,23 @@ defmodule Zaq.Agent.ApiTest do
     }
   end
 
+  test "run_pipeline passes the event's scoped config to the executor" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+    config = Zaq.TestSupport.AgentConfig
+
+    event =
+      pipeline_event(incoming,
+        opts: [executor_module: StubExecutor, node_router: SpyNodeRouter, config: config]
+      )
+
+    assert %Event{response: %Outgoing{body: "selected"}} =
+             Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:executor_called, _, opts}
+    assert opts[:config] == config
+    refute opts[:skip_permissions]
+  end
+
   test "missing or malformed configured selection finalizes a refusal without execution" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 

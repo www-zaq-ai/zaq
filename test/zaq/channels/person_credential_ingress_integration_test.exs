@@ -21,7 +21,6 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   @expired_personal_message "Your personal AI credentials expired. Update or reconnect them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
 
   @environment_keys [
-    :agent_server_drain_timeout_ms,
     :channels,
     :chat_bridge_node_router_module,
     :chat_bridge_accounts_module,
@@ -49,9 +48,6 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
     })
 
     Enum.each(@environment_keys -- [:channels], &Application.delete_env(:zaq, &1))
-
-    # These cases assert which completed runtimes are fenced, not the grace duration.
-    Application.put_env(:zaq, :agent_server_drain_timeout_ms, 20)
 
     on_exit(fn ->
       Enum.each(previous_environment, fn

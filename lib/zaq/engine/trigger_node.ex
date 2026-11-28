@@ -60,7 +60,9 @@ defmodule Zaq.Engine.TriggerNode do
   defp run_workflow(workflow, incoming_event) do
     source_event = build_source_event(workflow, incoming_event)
 
-    case Workflows.create_and_start_run(workflow, source_event) do
+    opts = workflow_opts(incoming_event)
+
+    case Workflows.create_and_start_run(workflow, source_event, %{}, opts) do
       {:ok, _completed_run} ->
         :ok
 
@@ -69,6 +71,9 @@ defmodule Zaq.Engine.TriggerNode do
         {:error, reason}
     end
   end
+
+  defp workflow_opts(%Event{opts: opts}), do: Keyword.take(opts, [:config])
+  defp workflow_opts(_event), do: []
 
   defp build_source_event(workflow, incoming_event) do
     trace_id =

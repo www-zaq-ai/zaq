@@ -115,7 +115,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     input = resolve_input(params, context)
     eval_map = eval_map(input, context)
 
-    failed = Enum.reject(conditions, &condition_passes?(&1, eval_map))
+    failed = Enum.reject(conditions, &condition_passes?(&1, eval_map, context[:config]))
 
     Logger.debug("[condition] evaluated",
       run_id: Map.get(context, :run_id),
@@ -254,11 +254,11 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp normalize_on_fail(value) when value in [:continue, "continue"], do: :continue
   defp normalize_on_fail(_value), do: :halt
 
-  defp condition_passes?(condition, eval_map) do
+  defp condition_passes?(condition, eval_map, config) do
     key = get_field(condition, "key")
     value = get_field(condition, "value")
     op = (get_field(condition, "op") || "eq") |> to_op()
-    opts = [type: get_field(condition, "type")]
+    opts = [type: get_field(condition, "type"), config: config]
 
     case FactLookup.fetch(eval_map, key) do
       {:ok, actual} ->

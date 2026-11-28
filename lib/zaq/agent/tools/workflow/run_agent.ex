@@ -34,10 +34,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   scope and contending (`:busy`). Different runs — and different run_agent steps
   within a run — are isolated.
 
-  - **Workflow node** (context has `:run_id`) → incoming carries `metadata.run_id`.
-  - **Agent tool call** (context has the parent `:incoming`, e.g. Agent A's LLM
-    calls `run_agent` to run Agent B) → no run marker; the standard person/identity
-    scope applies. B is a different agent name, so it cannot collide with A.
+  - A workflow step carries its run ID and step index in the incoming metadata.
+  - An agent tool call inherits the parent incoming request's run ID when present.
+    Other tool calls use the standard identity scope.
+
+  The execution context's `:config` provider travels in the event options.
 
   Identity and permissions also flow from the context as data: the triggering
   `:actor` is forwarded onto the event, and `skip_permissions` is taken from the
@@ -234,6 +235,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     |> Event.new(:agent,
       opts: [
         action: :run_pipeline,
+        config: Map.get(context, :config),
         pipeline_opts: pipeline_opts(context, ai_context)
       ]
     )
@@ -262,7 +264,16 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     end
   end
 
-  defp run_id(context), do: Map.get(context, :run_id) || Map.get(context, "run_id")
+  defp run_id(context) do
+    Map.get(context, :run_id) || Map.get(context, "run_id") || parent_run_id(context)
+  end
+
+  defp parent_run_id(context) do
+    case parent_incoming(context) do
+      %Incoming{metadata: %{run_id: run_id}} when is_binary(run_id) -> run_id
+      _ -> nil
+    end
+  end
 
   defp parent_incoming(context) do
     case Map.get(context, :incoming) || Map.get(context, "incoming") do
