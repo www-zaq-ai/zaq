@@ -1,7 +1,15 @@
 defmodule Zaq.Ingestion.IngestChunkWorkerTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.{Document, IngestChunkJob, IngestChunkWorker, IngestJob}
+  alias Zaq.Ingestion.{
+    Chunk,
+    ChunkRefresh,
+    Document,
+    IngestChunkJob,
+    IngestChunkWorker,
+    IngestJob
+  }
+
   alias Zaq.Repo
 
   defmodule RateLimitProcessor do
@@ -46,7 +54,23 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     end
   end
 
+  defmodule SupersedingProcessor do
+    def store_chunk_with_metadata(_chunk, document_id, _index, requested_at) do
+      send(self(), :embedding_started)
+      document = Zaq.Repo.get!(Document, document_id)
+      newer = DateTime.add(requested_at, 1, :second)
+      {:ok, _} = Document.upsert(%{source: document.source, content: "Replacement"}, newer)
+
+      ChunkRefresh.pipeline_write(
+        document_id,
+        fn -> send(self(), :stale_insert) end,
+        requested_at
+      )
+    end
+  end
+
   setup do
+    :ok = Chunk.create_table(1536)
     original_processor = Application.get_env(:zaq, :document_processor)
 
     on_exit(fn ->
@@ -69,12 +93,17 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
   end
 
   defp create_chunk_job(job, attrs) do
+    document_id = Map.fetch!(attrs, :document_id)
+
+    if is_nil(job.document_id) do
+      job |> IngestJob.changeset(%{document_id: document_id}) |> Repo.update!()
+    end
+
     %IngestChunkJob{}
     |> IngestChunkJob.changeset(
       Map.merge(
         %{
           ingest_job_id: job.id,
-          document_id: 123,
           chunk_index: 1,
           chunk_payload: %{"content" => "chunk content", "metadata" => %{}},
           status: "pending"
@@ -94,6 +123,74 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     %Document{}
     |> Document.changeset(Map.merge(default, attrs))
     |> Repo.insert!()
+  end
+
+  test "cancels a superseded chunk without entering the processor" do
+    Application.put_env(:zaq, :document_processor, SupersedingProcessor)
+    doc = create_document()
+    job = create_job(%{document_id: doc.id})
+    chunk_job = create_chunk_job(job, %{document_id: doc.id})
+    newer = DateTime.add(job.inserted_at, 1, :second)
+    assert {:ok, _} = Document.upsert(%{source: doc.source, content: "Replacement"}, newer)
+
+    assert {:cancel, :stale_refresh} = perform_once(job, chunk_job)
+    refute_received :embedding_started
+    assert Repo.get!(IngestJob, job.id).status == "failed"
+  end
+
+  test "a refresh that wins during embedding still fences the write" do
+    Application.put_env(:zaq, :document_processor, SupersedingProcessor)
+    doc = create_document()
+    job = create_job(%{document_id: doc.id})
+    chunk_job = create_chunk_job(job, %{document_id: doc.id})
+
+    assert {:cancel, :stale_refresh} = perform_once(job, chunk_job)
+    assert_received :embedding_started
+    refute_received :stale_insert
+  end
+
+  @tag :tmp_dir
+  test "loads a cold processor before choosing its generation-aware arity", %{tmp_dir: dir} do
+    [{module, binary}] =
+      Code.compile_string("""
+      defmodule Zaq.Ingestion.ColdChunkProcessorFixture do
+        def store_chunk_with_metadata(_, _, _), do: {:error, :missing_generation}
+
+        def store_chunk_with_metadata(_, _, _, requested_at) do
+          send(self(), {:generation, requested_at})
+          {:ok, %{}}
+        end
+      end
+      """)
+
+    :code.delete(module)
+    :code.purge(module)
+    File.write!(Path.join(dir, "#{module}.beam"), binary)
+    true = Code.prepend_path(dir)
+
+    on_exit(fn ->
+      Code.delete_path(dir)
+      :code.delete(module)
+      :code.purge(module)
+    end)
+
+    refute :code.is_loaded(module)
+    Application.put_env(:zaq, :document_processor, module)
+    doc = create_document()
+    job = create_job(%{document_id: doc.id})
+    chunk_job = create_chunk_job(job, %{document_id: doc.id})
+
+    assert :ok = perform_once(job, chunk_job)
+    assert_received {:generation, requested_at}
+    assert requested_at == job.inserted_at
+  end
+
+  defp perform_once(job, chunk_job) do
+    IngestChunkWorker.perform(%Oban.Job{
+      args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+      attempt: 1,
+      max_attempts: 5
+    })
   end
 
   test "snoozes using rate_limited delay and keeps chunk pending" do

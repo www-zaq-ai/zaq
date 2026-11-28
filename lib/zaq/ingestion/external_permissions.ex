@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
   alias Zaq.Permissions
+  alias Zaq.Permissions.ResourcePermission
 
   require Logger
 
@@ -27,9 +28,59 @@ defmodule Zaq.Ingestion.ExternalPermissions do
     :ok
   end
 
-  defp desired_permissions(%Record{} = record) do
-    record
-    |> principals()
+  @doc """
+  Replaces indexed grants using only entries from verified Record provenance.
+  Disk entries name ZAQ people and teams; external entries identify principals
+  from the provider. Unsigned owners and raw provider fields are not grants.
+  """
+  @spec replace_projection(struct(), Zaq.Ingestion.ChunkRefreshSource.identity()) ::
+          {:ok, list()} | {:error, term()}
+  def replace_projection(document, %{
+        record: record,
+        permission_projection: %{"entries" => entries}
+      }) do
+    principals = Enum.map(entries, &signed_principal(&1, provider(record)))
+
+    grants =
+      Enum.map(desired_permissions(record, principals), fn
+        {:person, id, rights} -> %{person_id: id, access_rights: rights}
+        {:team, id, rights} -> %{team_id: id, access_rights: rights}
+      end)
+
+    Permissions.replace(document, grants)
+  end
+
+  defp signed_principal(entry, "disk") do
+    principal = entry["principal"] || %{}
+
+    %{
+      "type" => principal["type"],
+      "target_id" => principal["key"],
+      "access_rights" => signed_rights(entry)
+    }
+  end
+
+  defp signed_principal(entry, _provider) do
+    principal = entry["principal"] || %{}
+
+    %{
+      "type" => principal["type"],
+      "id" => entry["permission_id"],
+      "email" => principal["key"],
+      "access_rights" => signed_rights(entry)
+    }
+  end
+
+  defp signed_rights(entry) do
+    supported = ResourcePermission.valid_rights()
+    Enum.filter(entry["rights"] || [], &(&1 in supported))
+  end
+
+  defp desired_permissions(%Record{} = record),
+    do: desired_permissions(record, principals(record))
+
+  defp desired_permissions(record, principals) do
+    principals
     |> Enum.flat_map(fn principal ->
       with {:ok, target_type, target_id} <- ensure_target(record, principal),
            rights when rights != [] <- rights_for(principal) do
@@ -44,7 +95,13 @@ defmodule Zaq.Ingestion.ExternalPermissions do
           []
       end
     end)
-    |> Enum.uniq_by(fn {target_type, target_id, _rights} -> {target_type, target_id} end)
+    |> Enum.group_by(
+      fn {target_type, target_id, _rights} -> {target_type, target_id} end,
+      fn {_target_type, _target_id, rights} -> rights end
+    )
+    |> Enum.map(fn {{target_type, target_id}, rights} ->
+      {target_type, target_id, rights |> Enum.concat() |> Enum.uniq() |> Enum.sort()}
+    end)
   end
 
   defp complete_snapshot?(%Record{permissions: permissions}) when is_list(permissions), do: true

@@ -613,6 +613,14 @@ defmodule Zaq.Channels.Api do
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
 
+    params = Map.drop(params, ["required_record_fields", :required_record_fields])
+
+    params =
+      case event.opts[:required_record_fields] do
+        [_ | _] = fields -> Map.put(params, "required_record_fields", fields)
+        _ -> params
+      end
+
     %{
       event
       | response:

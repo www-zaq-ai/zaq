@@ -363,6 +363,28 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   describe "get_file/2" do
+    test "loads effective Disk grants on request, preserving an empty projection" do
+      inherited = grant(3, %{inherited?: true, origin_resource_id: "folder"})
+
+      for grants <- [[inherited], []] do
+        Process.put(:stub_responses, [{:ok, entry("42")}, {:ok, %{effective_permissions: grants}}])
+
+        assert {:ok, %{record: %Record{permissions: permissions, content: nil}}} =
+                 DiskBridge.get_file(config(), %{"file_id" => "42", "include_permissions" => true})
+
+        assert_received {:dispatch, :storage, :describe_document, %{file_id: "42"}}
+        assert_received {:dispatch, :storage, :list_document_grants, %{file_id: "42"}}
+
+        case grants do
+          [] ->
+            assert permissions == []
+
+          [_grant] ->
+            assert [%Record{attributes: %{"inherited" => true, "target_id" => "7"}}] = permissions
+        end
+      end
+    end
+
     test "dispatches :describe_document with the single id" do
       stub_response({:ok, entry("42")})
 

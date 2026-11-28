@@ -15,6 +15,7 @@ defmodule Zaq.Ingestion.Api do
     Document,
     DocumentConversion,
     DocumentProcessor,
+    EmbeddedChunkStorage,
     KnowledgeChunks
   }
 
@@ -33,6 +34,10 @@ defmodule Zaq.Ingestion.Api do
 
   def handle_event(%Event{request: input} = event, :convert_document_to_markdown, _context) do
     %{event | response: DocumentConversion.convert_prepared(input)}
+  end
+
+  def handle_event(%Event{request: input} = event, :store_embedded_chunks, _context) do
+    %{event | response: EmbeddedChunkStorage.store(input, %{actor: event.actor})}
   end
 
   def handle_event(%Event{request: request} = event, :process_data_source_changes, _context)

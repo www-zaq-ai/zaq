@@ -24,6 +24,7 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
   alias Zaq.Ingestion
 
   alias Zaq.Ingestion.{
+    ChunkRefresh,
     DocumentChunker,
     DocumentIngestionSummary,
     IngestChunkJob,
@@ -61,6 +62,10 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
       case result do
         :ok ->
           finalize_chunk_success(ingest_job, chunk_job)
+
+        {:error, :stale_refresh} ->
+          Ingestion.abort_job(ingest_job, "Superseded by a newer document refresh.")
+          {:cancel, :stale_refresh}
 
         {:error, {:rate_limited, delay_seconds, _details}} ->
           transition_chunk!(chunk_job, %{status: "pending", error: "Rate limited (429), retrying"})
@@ -127,13 +132,20 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         end_line: Map.get(payload, "end_line")
       })
 
-    case processor.store_chunk_with_metadata(
-           chunk,
-           ingest_job.document_id,
-           chunk_job.chunk_index
-         ) do
+    case store_chunk(processor, chunk, ingest_job, chunk_job.chunk_index) do
       {:ok, _chunk} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp store_chunk(processor, chunk, job, index) do
+    with :ok <- ChunkRefresh.check_pipeline_write(job.document_id, job.inserted_at) do
+      if Code.ensure_loaded?(processor) and
+           function_exported?(processor, :store_chunk_with_metadata, 4) do
+        processor.store_chunk_with_metadata(chunk, job.document_id, index, job.inserted_at)
+      else
+        processor.store_chunk_with_metadata(chunk, job.document_id, index)
+      end
     end
   end
 

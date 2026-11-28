@@ -23,6 +23,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   alias Zaq.Ingestion.{
     Chunk,
     ChunkLanguages,
+    ChunkRefresh,
     Document,
     DocumentAccess,
     DocumentChunker,
@@ -64,7 +65,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     not Enum.any?(for(<<value::float-16 <- values>>, do: value), &(&1 != 0.0))
   end
 
-  defp validate_query_embedding(embedding) do
+  defp validate_nonzero_embedding(embedding) do
     if zero_halfvec?(embedding), do: {:error, :zero_norm_embedding}, else: :ok
   end
 
@@ -161,6 +162,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   """
   def prepare_file_chunks(file_path, opts \\ []) do
     Logger.info("Preparing file chunks: #{file_path}")
+    requested_at = Keyword.get_lazy(opts, :refresh_requested_at, &DateTime.utc_now/0)
 
     with {:ok, content} <- DocumentConversion.read_file(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
@@ -169,7 +171,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
              content,
              source,
              source_metadata(opts),
-             document_title(opts)
+             document_title(opts),
+             requested_at
            ) do
       sections = DocumentChunker.parse_layout(content, format: :markdown)
       chunks = DocumentChunker.chunk_sections(sections)
@@ -194,6 +197,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   """
   def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")
+    requested_at = Keyword.get_lazy(opts, :refresh_requested_at, &DateTime.utc_now/0)
 
     with {:ok, content} <- DocumentConversion.read_file(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
@@ -202,9 +206,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
              content,
              source,
              source_metadata(opts),
-             document_title(opts)
+             document_title(opts),
+             requested_at
            ),
-         {:ok, report} <- process_and_store_chunks_report(content, document.id, opts) do
+         {:ok, report} <-
+           process_and_store_chunks_report(
+             content,
+             document.id,
+             Keyword.put(opts, :refresh_requested_at, requested_at)
+           ) do
       Logger.info("Successfully processed: #{source}")
       {:ok, document, report}
     else
@@ -246,11 +256,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Upserts a `Zaq.Ingestion.Document` record.
   """
   def store_document(content, source, metadata \\ %{}, title \\ nil) do
+    store_document(content, source, metadata, title, DateTime.utc_now())
+  end
+
+  defp store_document(content, source, metadata, title, requested_at) do
     attrs =
       %{content: content, source: source, metadata: metadata}
       |> maybe_put_title(title)
 
-    case Document.upsert(attrs) do
+    case Document.upsert(attrs, requested_at) do
       {:ok, document} ->
         Logger.info("Document stored with ID: #{document.id}, source: #{source}")
         {:ok, document}
@@ -301,9 +315,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def process_and_store_chunks_report(content, document_id, opts \\ []) do
     reset_chunks = Keyword.get(opts, :reset_chunks, true)
     retry_chunk_indices = Keyword.get(opts, :retry_chunk_indices)
+    requested_at = Keyword.get(opts, :refresh_requested_at)
 
     if reset_chunks do
-      Chunk.delete_by_document(document_id)
+      delete_pipeline_chunks(document_id, requested_at, fn ->
+        Chunk.delete_by_document(document_id, invalidate?: false)
+      end)
     end
 
     sections = DocumentChunker.parse_layout(content, format: :markdown)
@@ -317,8 +334,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       selected_chunks
       |> Task.async_stream(
         fn {chunk, index} ->
-          maybe_delete_chunk_before_store(reset_chunks, document_id, index)
-          {index, store_chunk_with_metadata(chunk, document_id, index)}
+          maybe_delete_chunk_before_store(reset_chunks, document_id, index, requested_at)
+          {index, store_chunk_with_metadata(chunk, document_id, index, requested_at)}
         end,
         timeout: chunk_processing_timeout(),
         max_concurrency: chunk_processing_concurrency(),
@@ -373,10 +390,20 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp select_chunks(chunks, _retry_chunk_indices), do: Enum.with_index(chunks, 1)
 
-  defp maybe_delete_chunk_before_store(true, _document_id, _index), do: :ok
+  defp maybe_delete_chunk_before_store(true, _document_id, _index, _requested_at), do: :ok
 
-  defp maybe_delete_chunk_before_store(false, document_id, index) do
-    Chunk.delete_by_document_and_index(document_id, index)
+  defp maybe_delete_chunk_before_store(false, document_id, index, requested_at) do
+    delete_pipeline_chunks(document_id, requested_at, fn ->
+      Chunk.delete_by_document_and_index(document_id, index)
+    end)
+  end
+
+  defp delete_pipeline_chunks(document_id, requested_at, delete) do
+    case ChunkRefresh.pipeline_write(document_id, delete, requested_at) do
+      {:ok, {count, _}} when count > 0 -> ChunkLanguages.invalidate()
+      _ -> :ok
+    end
+
     :ok
   end
 
@@ -396,6 +423,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp structural_error?({:error, :dimension_mismatch}), do: true
+  defp structural_error?({:error, :stale_refresh}), do: true
   defp structural_error?({:error, %DBConnection.ConnectionError{}}), do: true
   defp structural_error?({:error, %Postgrex.Error{}}), do: true
   defp structural_error?(_), do: false
@@ -404,7 +432,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Stores a single chunk: embeds the content, validates dimension, and inserts
   via Ecto.
   """
-  def store_chunk_with_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
+  def store_chunk_with_metadata(
+        %DocumentChunker.Chunk{} = chunk,
+        document_id,
+        index,
+        requested_at \\ nil
+      ) do
     # Embed the enriched input; persist only the verbatim content. The
     # fallback stays at this call site — Zaq.Embedding.Client also serves
     # query-time callers that must receive plain text.
@@ -419,7 +452,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
           {:error, :dimension_mismatch}
         else
-          insert_nonzero_chunk(chunk, document_id, index, embedding)
+          insert_pipeline_chunk(chunk, document_id, index, embedding, requested_at)
         end
 
       {:error, reason} ->
@@ -428,18 +461,55 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp insert_nonzero_chunk(chunk, document_id, index, embedding) do
-    if zero_halfvec?(embedding),
-      do: {:error, :zero_norm_embedding},
-      else: insert_chunk(chunk, document_id, index, embedding)
+  defp insert_pipeline_chunk(chunk, document_id, index, embedding, requested_at) do
+    ChunkRefresh.pipeline_write(
+      document_id,
+      fn ->
+        insert_precomputed_chunk(
+          document_id,
+          index,
+          chunk.content,
+          chunk.section_path,
+          build_metadata(chunk),
+          embedding
+        )
+      end,
+      requested_at
+    )
+    |> case do
+      {:ok, {:ok, _chunk} = result} ->
+        ChunkLanguages.invalidate()
+        result
+
+      {:ok, result} ->
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Inserts a chunk with a dimension-checked vector. The caller owns refresh
+  authorization, fencing, and post-commit cache invalidation. The vector must
+  remain nonzero at half precision.
+  """
+  @spec insert_precomputed_chunk(pos_integer(), pos_integer(), String.t(), [String.t()], map(), [
+          number()
+        ]) ::
+          {:ok, Chunk.t()} | {:error, term()}
+  def insert_precomputed_chunk(document_id, index, content, section_path, metadata, embedding) do
+    with :ok <- validate_nonzero_embedding(embedding) do
+      insert_chunk(document_id, index, content, section_path, metadata, embedding)
+    end
   end
 
   # ---------------------------------------------------------------------------
   # Chunk insertion (Ecto)
   # ---------------------------------------------------------------------------
 
-  defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
-    language = LanguageDetector.detect(chunk.content)
+  defp insert_chunk(document_id, index, content, section_path, metadata, embedding) do
+    language = LanguageDetector.detect(content)
 
     search_configuration =
       case FTSBackend.impl() do
@@ -454,26 +524,20 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
     attrs = %{
       document_id: document_id,
-      content: chunk.content,
+      content: content,
       chunk_index: index,
-      section_path: chunk.section_path,
-      metadata: Map.put(build_metadata(chunk), "search_configuration", search_configuration),
+      section_path: section_path,
+      metadata:
+        metadata
+        |> Map.delete(:search_configuration)
+        |> Map.put("search_configuration", search_configuration),
       embedding: Pgvector.HalfVector.new(embedding),
       language: language
     }
 
     %Chunk{}
     |> Chunk.changeset(attrs)
-    |> Repo.insert()
-    |> case do
-      {:ok, record} ->
-        ChunkLanguages.invalidate()
-        {:ok, record}
-
-      {:error, changeset} ->
-        Logger.error("Failed to insert chunk #{index}: #{inspect(changeset)}")
-        {:error, changeset}
-    end
+    |> Repo.insert(mode: :savepoint)
   end
 
   @doc """
@@ -659,7 +723,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp similarity_search_group_by(query_text, source_filter, language) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text),
-         :ok <- validate_query_embedding(embedding) do
+         :ok <- validate_nonzero_embedding(embedding) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = max_cosine_distance()
 
@@ -941,7 +1005,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   """
   def similarity_search(query_text, limit \\ 5) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text),
-         :ok <- validate_query_embedding(embedding) do
+         :ok <- validate_nonzero_embedding(embedding) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = max_cosine_distance()
 
@@ -974,7 +1038,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   """
   def similarity_search_count(query_text) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text),
-         :ok <- validate_query_embedding(embedding) do
+         :ok <- validate_nonzero_embedding(embedding) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       limit = hybrid_search_limit()
 

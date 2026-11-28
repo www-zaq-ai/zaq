@@ -5,6 +5,10 @@ defmodule Zaq.Contracts.Record.Provenance do
   Provenance proves that a Record and its permission projection were issued by
   ZAQ. It is not an authorization grant; callers must still use their trusted
   actor context for permission decisions.
+
+  A materialized Record can carry a signed `source_metadata` claim. Its display
+  metadata may describe an exported representation; use the claim for source
+  metadata rather than reading display fields.
   """
 
   alias Plug.Crypto.{KeyGenerator, MessageVerifier}
@@ -49,9 +53,7 @@ defmodule Zaq.Contracts.Record.Provenance do
   def verify(record, opts \\ [])
 
   def verify(%Record{provenance_ref: ref} = record, opts) when is_binary(ref) do
-    with {:ok, encoded} <- verify_signature(ref, opts),
-         {:ok, payload} <- Jason.decode(encoded),
-         {:ok, claims} <- validate_payload(payload),
+    with {:ok, claims} <- verify_ref(ref, opts),
          :ok <- verify_claims(record, claims) do
       {:ok, claims}
     end
@@ -59,6 +61,19 @@ defmodule Zaq.Contracts.Record.Provenance do
 
   def verify(%Record{}, _opts), do: {:error, :missing_record_provenance}
   def verify(_record, _opts), do: {:error, :invalid_record_provenance}
+
+  @doc "Verifies a reference and returns its signed claims without consulting the display Record."
+  @spec verify_ref(String.t(), keyword()) :: {:ok, claims()} | {:error, term()}
+  def verify_ref(ref, opts \\ [])
+
+  def verify_ref(ref, opts) when is_binary(ref) do
+    with {:ok, encoded} <- verify_signature(ref, opts),
+         {:ok, payload} <- Jason.decode(encoded) do
+      validate_payload(payload)
+    end
+  end
+
+  def verify_ref(_ref, _opts), do: {:error, :invalid_record_provenance}
 
   @spec canonical_claims(Record.t(), map()) :: map()
   def canonical_claims(%Record{} = record, claims \\ %{}) when is_map(claims) do
